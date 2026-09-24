@@ -1,0 +1,53 @@
+# ---- Build outputs ----
+build/
+build-*/
+cmake-build-*/
+out/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.elf
+*.bin
+*.map
+*.hex
+
+# ---- ESP-IDF ----
+firmware/**/build/
+firmware/**/sdkconfig
+firmware/**/sdkconfig.old
+firmware/**/managed_components/
+firmware/**/sdkconfig.ci
+
+# ---- Qt / Creator ----
+*.pro.user
+*.qbs.user
+*.creator.user
+.cache/
+.CMakeLists.txt.user
+.qtcreator/
+compile_commands.json
+
+# ---- Secrets / local config (never commit) ----
+**/config_secrets.h
+**/config_secrets.local.h
+**/kconfig_local.mk
+.env
+*.pem
+*.key
+
+# ---- Runtime data ----
+logs/
+*.log
+recordings/
+snapshots/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
