@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-25T16:41:43",
+  "fps_frames_in_15s_or_13s": {
+    "http": {
+      "A": 144,
+      "B": 5
+    },
+    "tcp": {
+      "A": 164,
+      "B": 5
+    },
+    "udp": {
+      "A": 100,
+      "B": 77
+    }
+  },
+  "status_post": {
+    "fw_version": "6444e6d-dirty",
+    "device_name": "sorting-cam-01",
+    "proto_version": 1,
+    "uptime_s": 1519,
+    "free_heap": 3725068,
+    "free_spiram": 3637364,
+    "rssi": -37,
+    "frames_captured": 16753,
+    "frames_delivered": 16695,
+    "capture_failures": 0,
+    "avg_capture_ms": 12.724,
+    "last_frame_bytes": 44915,
+    "stream_clients": 0,
+    "resolution": "1280x720",
+    "quality": 12,
+    "fb_count": 3,
+    "xclk_mhz": 18,
+    "tcp_clients": 0,
+    "udp_peer": 1,
+    "udp_tx_dgrams": 130404,
+    "udp_tx_drops": 47
+  }
+}

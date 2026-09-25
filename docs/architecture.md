@@ -21,7 +21,7 @@ Modules (each a small cohesive unit under `firmware/esp32_cam_stream/main/`):
 |---|---|
 | `camera` | esp32-camera init, JPEG-only pipeline, PSRAM framebuffers, `CAMERA_GRAB_LATEST`, runtime reconfig (resolution/quality/sensor controls) |
 | `wifi` | softAP start (WPA2, fixed IP, channel/max-clients policy), connected-station RSSI, power-save policy |
-| `transport` | pluggable frame sender: HTTP MJPEG / TCP framed / UDP packetized behind one `transport_send_frame()` (Phase 3 compares in isolation) |
+| `transport` | frame delivery. Three server-pull senders, each a task/handler that fetches frames from the camera driver and reports to `metrics`: HTTP MJPEG (stream handler), TCP framed + UDP packetized (`frame_transport.c`, selected/primary per ADR-0007) |
 | `control_api` | authenticated JSON control/status endpoints (HTTP) |
 | `discovery` | mDNS + UDP broadcast announce |
 | `metrics` | capture/tx FPS, bytes, heap/PSRAM, RSSI counters, reported via status API + serial log (rate-limited) |

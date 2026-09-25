@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "date": "2026-09-25T16:20:00",
+    "transport": "tcp",
+    "duration_s": 120,
+    "warmup_s": 10,
+    "host": "192.168.4.1",
+    "fw_version": "6444e6d-dirty",
+    "proto_version": 1,
+    "config": {
+      "resolution": "640x480",
+      "quality": 12,
+      "xclk_mhz": 18,
+      "fb_count": 3
+    },
+    "rssi_dbm": -34,
+    "pc": {
+      "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+      "os": "Windows-11-10.0.26200-SP0",
+      "python": "3.13.15"
+    }
+  },
+  "device_status_pre": {
+    "fw_version": "6444e6d-dirty",
+    "device_name": "sorting-cam-01",
+    "proto_version": 1,
+    "uptime_s": 216,
+    "free_heap": 3732836,
+    "free_spiram": 3637220,
+    "rssi": -34,
+    "frames_captured": 3010,
+    "frames_delivered": 2998,
+    "capture_failures": 0,
+    "avg_capture_ms": 18.508,
+    "last_frame_bytes": 14849,
+    "stream_clients": 0,
+    "resolution": "640x480",
+    "quality": 12,
+    "fb_count": 3,
+    "xclk_mhz": 18,
+    "tcp_clients": 0,
+    "udp_peer": 0,
+    "udp_tx_dgrams": 6870,
+    "udp_tx_drops": 10
+  },
+  "device_status_post": {
+    "fw_version": "6444e6d-dirty",
+    "device_name": "sorting-cam-01",
+    "proto_version": 1,
+    "uptime_s": 337,
+    "free_heap": 3732780,
+    "free_spiram": 3637220,
+    "rssi": -31,
+    "frames_captured": 5713,
+    "frames_delivered": 5700,
+    "capture_failures": 0,
+    "avg_capture_ms": 25.788,
+    "last_frame_bytes": 13588,
+    "stream_clients": 0,
+    "resolution": "640x480",
+    "quality": 12,
+    "fb_count": 3,
+    "xclk_mhz": 18,
+    "tcp_clients": 0,
+    "udp_peer": 0,
+    "udp_tx_dgrams": 6870,
+    "udp_tx_drops": 10
+  },
+  "cpu": {
+    "system_cpu_pct": 10.05,
+    "process_cpu_pct_onecore": 1.59
+  },
+  "sync": {
+    "offset_us": 1790340383968360,
+    "rtt_ms": [
+      14.57,
+      14.21,
+      7.08,
+      6.72,
+      4.63
+    ]
+  },
+  "results": {
+    "frames_ok": 2476,
+    "fps": {
+      "mean": 22.5,
+      "per_second_median": 23,
+      "per_second_p95": 23
+    },
+    "interval_ms": {
+      "min": 11.5,
+      "p50": 43.86,
+      "p95": 70.73,
+      "max": 96.96,
+      "mean": 44.44
+    },
+    "frame_bytes": {
+      "min": 10933,
+      "p50": 12903,
+      "p95": 15542,
+      "max": 16843,
+      "mean": 13382.4
+    },
+    "throughput_mbps": 2.66,
+    "drops": {
+      "seq_gap": 0,
+      "incomplete": 0,
+      "crc_fail": 0,
+      "bad": 0
+    },
+    "latency_ms": {
+      "min": 10.06,
+      "p50": 31.1,
+      "p95": 53.2,
+      "max": 80.03,
+      "mean": 33.19
+    },
+    "process_note": ""
+  }
+}

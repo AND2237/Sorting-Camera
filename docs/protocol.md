@@ -1,6 +1,6 @@
 # Protocol
 
-_Status: candidates under benchmark (Phase 3). Custom framing spec below is **draft** until transport is selected._
+_Status: selected 2026-09-25 — TCP framed is the primary transport (ADR-0007); HTTP MJPEG retained as compatibility path; UDP packetized implemented but secondary. Framing below is normative for TCP/UDP._
 
 ## Control plane (decided)
 

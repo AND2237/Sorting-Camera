@@ -1,0 +1,364 @@
+{
+  "meta": {
+    "date": "20260925-161752",
+    "duration_s": 120,
+    "warmup_s": 10,
+    "host": "192.168.4.1"
+  },
+  "runs": [
+    {
+      "meta": {
+        "date": "2026-09-25T16:17:56",
+        "transport": "http",
+        "duration_s": 120,
+        "warmup_s": 10,
+        "host": "192.168.4.1",
+        "fw_version": "6444e6d-dirty",
+        "proto_version": 1,
+        "config": {
+          "resolution": "640x480",
+          "quality": 12,
+          "xclk_mhz": 18,
+          "fb_count": 3
+        },
+        "rssi_dbm": -33,
+        "pc": {
+          "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+          "os": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.15"
+        }
+      },
+      "device_status_pre": {
+        "fw_version": "6444e6d-dirty",
+        "device_name": "sorting-cam-01",
+        "proto_version": 1,
+        "uptime_s": 91,
+        "free_heap": 3732844,
+        "free_spiram": 3637220,
+        "rssi": -33,
+        "frames_captured": 323,
+        "frames_delivered": 312,
+        "capture_failures": 0,
+        "avg_capture_ms": 8.842,
+        "last_frame_bytes": 49313,
+        "stream_clients": 0,
+        "resolution": "640x480",
+        "quality": 12,
+        "fb_count": 3,
+        "xclk_mhz": 18,
+        "tcp_clients": 0,
+        "udp_peer": 0,
+        "udp_tx_dgrams": 6870,
+        "udp_tx_drops": 10
+      },
+      "device_status_post": {
+        "fw_version": "6444e6d-dirty",
+        "device_name": "sorting-cam-01",
+        "proto_version": 1,
+        "uptime_s": 213,
+        "free_heap": 3732844,
+        "free_spiram": 3637220,
+        "rssi": -34,
+        "frames_captured": 3010,
+        "frames_delivered": 2998,
+        "capture_failures": 0,
+        "avg_capture_ms": 18.508,
+        "last_frame_bytes": 14849,
+        "stream_clients": 0,
+        "resolution": "640x480",
+        "quality": 12,
+        "fb_count": 3,
+        "xclk_mhz": 18,
+        "tcp_clients": 0,
+        "udp_peer": 0,
+        "udp_tx_dgrams": 6870,
+        "udp_tx_drops": 10
+      },
+      "cpu": {
+        "system_cpu_pct": 10.67,
+        "process_cpu_pct_onecore": 2.04
+      },
+      "sync": {
+        "offset_us": 1790340383969823,
+        "rtt_ms": [
+          18.63,
+          8.01,
+          4.4,
+          4.75,
+          4.92
+        ]
+      },
+      "results": {
+        "frames_ok": 2462,
+        "fps": {
+          "mean": 22.38,
+          "per_second_median": 23,
+          "per_second_p95": 23
+        },
+        "interval_ms": {
+          "min": 11.57,
+          "p50": 44.05,
+          "p95": 67.74,
+          "max": 170.4,
+          "mean": 44.69
+        },
+        "frame_bytes": {
+          "min": 11894,
+          "p50": 15313,
+          "p95": 16830,
+          "max": 18115,
+          "mean": 15046.3
+        },
+        "throughput_mbps": 2.96,
+        "drops": {
+          "seq_gap": 0,
+          "incomplete": 0,
+          "crc_fail": 0,
+          "bad": 0
+        },
+        "latency_ms": {
+          "min": 11.84,
+          "p50": 36.47,
+          "p95": 56.2,
+          "max": 174.21,
+          "mean": 38.47
+        },
+        "process_note": ""
+      }
+    },
+    {
+      "meta": {
+        "date": "2026-09-25T16:20:00",
+        "transport": "tcp",
+        "duration_s": 120,
+        "warmup_s": 10,
+        "host": "192.168.4.1",
+        "fw_version": "6444e6d-dirty",
+        "proto_version": 1,
+        "config": {
+          "resolution": "640x480",
+          "quality": 12,
+          "xclk_mhz": 18,
+          "fb_count": 3
+        },
+        "rssi_dbm": -34,
+        "pc": {
+          "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+          "os": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.15"
+        }
+      },
+      "device_status_pre": {
+        "fw_version": "6444e6d-dirty",
+        "device_name": "sorting-cam-01",
+        "proto_version": 1,
+        "uptime_s": 216,
+        "free_heap": 3732836,
+        "free_spiram": 3637220,
+        "rssi": -34,
+        "frames_captured": 3010,
+        "frames_delivered": 2998,
+        "capture_failures": 0,
+        "avg_capture_ms": 18.508,
+        "last_frame_bytes": 14849,
+        "stream_clients": 0,
+        "resolution": "640x480",
+        "quality": 12,
+        "fb_count": 3,
+        "xclk_mhz": 18,
+        "tcp_clients": 0,
+        "udp_peer": 0,
+        "udp_tx_dgrams": 6870,
+        "udp_tx_drops": 10
+      },
+      "device_status_post": {
+        "fw_version": "6444e6d-dirty",
+        "device_name": "sorting-cam-01",
+        "proto_version": 1,
+        "uptime_s": 337,
+        "free_heap": 3732780,
+        "free_spiram": 3637220,
+        "rssi": -31,
+        "frames_captured": 5713,
+        "frames_delivered": 5700,
+        "capture_failures": 0,
+        "avg_capture_ms": 25.788,
+        "last_frame_bytes": 13588,
+        "stream_clients": 0,
+        "resolution": "640x480",
+        "quality": 12,
+        "fb_count": 3,
+        "xclk_mhz": 18,
+        "tcp_clients": 0,
+        "udp_peer": 0,
+        "udp_tx_dgrams": 6870,
+        "udp_tx_drops": 10
+      },
+      "cpu": {
+        "system_cpu_pct": 10.05,
+        "process_cpu_pct_onecore": 1.59
+      },
+      "sync": {
+        "offset_us": 1790340383968360,
+        "rtt_ms": [
+          14.57,
+          14.21,
+          7.08,
+          6.72,
+          4.63
+        ]
+      },
+      "results": {
+        "frames_ok": 2476,
+        "fps": {
+          "mean": 22.5,
+          "per_second_median": 23,
+          "per_second_p95": 23
+        },
+        "interval_ms": {
+          "min": 11.5,
+          "p50": 43.86,
+          "p95": 70.73,
+          "max": 96.96,
+          "mean": 44.44
+        },
+        "frame_bytes": {
+          "min": 10933,
+          "p50": 12903,
+          "p95": 15542,
+          "max": 16843,
+          "mean": 13382.4
+        },
+        "throughput_mbps": 2.66,
+        "drops": {
+          "seq_gap": 0,
+          "incomplete": 0,
+          "crc_fail": 0,
+          "bad": 0
+        },
+        "latency_ms": {
+          "min": 10.06,
+          "p50": 31.1,
+          "p95": 53.2,
+          "max": 80.03,
+          "mean": 33.19
+        },
+        "process_note": ""
+      }
+    },
+    {
+      "meta": {
+        "date": "2026-09-25T16:22:05",
+        "transport": "udp",
+        "duration_s": 120,
+        "warmup_s": 10,
+        "host": "192.168.4.1",
+        "fw_version": "6444e6d-dirty",
+        "proto_version": 1,
+        "config": {
+          "resolution": "640x480",
+          "quality": 12,
+          "xclk_mhz": 18,
+          "fb_count": 3
+        },
+        "rssi_dbm": -31,
+        "pc": {
+          "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+          "os": "Windows-11-10.0.26200-SP0",
+          "python": "3.13.15"
+        }
+      },
+      "device_status_pre": {
+        "fw_version": "6444e6d-dirty",
+        "device_name": "sorting-cam-01",
+        "proto_version": 1,
+        "uptime_s": 341,
+        "free_heap": 3732788,
+        "free_spiram": 3637220,
+        "rssi": -31,
+        "frames_captured": 5713,
+        "frames_delivered": 5700,
+        "capture_failures": 0,
+        "avg_capture_ms": 25.788,
+        "last_frame_bytes": 13588,
+        "stream_clients": 0,
+        "resolution": "640x480",
+        "quality": 12,
+        "fb_count": 3,
+        "xclk_mhz": 18,
+        "tcp_clients": 0,
+        "udp_peer": 0,
+        "udp_tx_dgrams": 6870,
+        "udp_tx_drops": 10
+      },
+      "device_status_post": {
+        "fw_version": "6444e6d-dirty",
+        "device_name": "sorting-cam-01",
+        "proto_version": 1,
+        "uptime_s": 462,
+        "free_heap": 3716232,
+        "free_spiram": 3637220,
+        "rssi": -32,
+        "frames_captured": 7806,
+        "frames_delivered": 7793,
+        "capture_failures": 0,
+        "avg_capture_ms": 0.307,
+        "last_frame_bytes": 14149,
+        "stream_clients": 0,
+        "resolution": "640x480",
+        "quality": 12,
+        "fb_count": 3,
+        "xclk_mhz": 18,
+        "tcp_clients": 0,
+        "udp_peer": 1,
+        "udp_tx_dgrams": 27340,
+        "udp_tx_drops": 10
+      },
+      "cpu": {
+        "system_cpu_pct": 10.26,
+        "process_cpu_pct_onecore": 0.92
+      },
+      "sync": {
+        "offset_us": 1790340383966133,
+        "rtt_ms": [
+          5.18,
+          11.9,
+          5.26,
+          8.13,
+          7.75
+        ]
+      },
+      "results": {
+        "frames_ok": 1901,
+        "fps": {
+          "mean": 17.29,
+          "per_second_median": 17,
+          "per_second_p95": 18
+        },
+        "interval_ms": {
+          "min": 0.06,
+          "p50": 59.93,
+          "p95": 74.11,
+          "max": 110.11,
+          "mean": 57.85
+        },
+        "frame_bytes": {
+          "min": 10533,
+          "p50": 12989,
+          "p95": 14569,
+          "max": 15602,
+          "mean": 12849.8
+        },
+        "throughput_mbps": 1.93,
+        "drops": {
+          "seq_gap": 24948135,
+          "incomplete": 0,
+          "crc_fail": 0,
+          "bad": 0
+        },
+        "latency_ms": null,
+        "process_note": ""
+      }
+    }
+  ]
+}
