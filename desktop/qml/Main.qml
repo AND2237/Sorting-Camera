@@ -13,8 +13,10 @@ ApplicationWindow {
 
     function toggleConnection() {
         if (stream.active) {
+            console.log("[qml] disconnect")
             stream.stop()
         } else {
+            console.log("[qml] connect", hostField.text)
             stream.start(hostField.text, 81)
             deviceStatus.startPolling(hostField.text, 80)
         }
@@ -288,9 +290,22 @@ ApplicationWindow {
         Label {
             anchors.centerIn: parent
             visible: frameImage.status !== Image.Ready || frameBus.version === 0
-            text: stream.active ? "Waiting for frames…" : "Enter camera IP and press Connect"
+            text: stream.reconnecting ? "Reconnecting…"
+                : stream.active ? "Waiting for frames…"
+                : "Enter camera IP and press Connect"
             color: "#6b7684"
             font.pixelSize: 18
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.margins: 14
+            visible: stream.reconnecting
+            text: "reconnecting… (" + stream.retryAttempt + "/5)"
+            color: "#d29922"
+            font.pixelSize: 12
+            font.family: "Consolas"
         }
 
         Label {

@@ -1,5 +1,6 @@
 #include "DeviceStatus.h"
 
+#include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -57,6 +58,22 @@ public slots:
 
     void setConfig(const QString &host, quint16 port, const QString &query)
     {
+        m_cfgHost = host;
+        m_cfgPort = port;
+        m_cfgQuery = query;
+        m_cfgRetries = 0;
+        doConfig(host, port, query);
+    }
+
+signals:
+    void statusUpdated(const QJsonObject &status);
+    void onlineUpdated(bool online);
+    void errorUpdated(const QString &errorString);
+    void configFinished(bool ok, const QString &message);
+
+private:
+    void doConfig(const QString &host, quint16 port, const QString &query)
+    {
         if (!m_nam) {
             m_nam = new QNetworkAccessManager(this);
         }
@@ -81,6 +98,16 @@ public slots:
             if (reply->error() != QNetworkReply::NoError) {
                 QString message;
                 if (status == 409) {
+                    if (m_cfgRetries < 1) {
+                        ++m_cfgRetries;
+                        qDebug() << "[config] 409 stale client, retrying in 1000 ms";
+                        QTimer::singleShot(1000, this, [this]() {
+                            if (!m_configReply) {
+                                doConfig(m_cfgHost, m_cfgPort, m_cfgQuery);
+                            }
+                        });
+                        return;
+                    }
                     message = QStringLiteral("stream active: disconnect before config change");
                 } else {
                     const QByteArray body = reply->readAll();
@@ -102,12 +129,6 @@ public slots:
         });
     }
 
-signals:
-    void statusUpdated(const QJsonObject &status);
-    void onlineUpdated(bool online);
-    void errorUpdated(const QString &errorString);
-    void configFinished(bool ok, const QString &message);
-
 private slots:
     void pollOnce()
     {
@@ -127,6 +148,7 @@ private slots:
 
             if (reply->error() != QNetworkReply::NoError) {
                 if (m_online) {
+                    qDebug() << "[status] offline:" << reply->errorString();
                     m_online = false;
                     emit onlineUpdated(false);
                 }
@@ -149,6 +171,7 @@ private slots:
             m_status = doc.object();
             emit statusUpdated(m_status);
             if (!m_online) {
+                qDebug() << "[status] online";
                 m_online = true;
                 emit onlineUpdated(true);
             }
@@ -186,6 +209,10 @@ private:
     QUrl m_url;
     QJsonObject m_status;
     bool m_online = false;
+    QString m_cfgHost;
+    quint16 m_cfgPort = 0;
+    QString m_cfgQuery;
+    int m_cfgRetries = 0;
 };
 
 DeviceStatus::DeviceStatus(QObject *parent)
@@ -214,6 +241,7 @@ DeviceStatus::DeviceStatus(QObject *parent)
     });
     connect(m_worker, &DeviceStatusWorker::configFinished, this,
             [this](bool ok, const QString &message) {
+                qDebug() << "[config] finished ok=" << ok << message;
                 m_configBusy = false;
                 emit configBusyChanged();
                 const QString err = ok ? QString() : message;

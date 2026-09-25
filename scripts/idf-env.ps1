@@ -9,7 +9,7 @@ if (-not (Test-Path -LiteralPath $IdfRoot)) {
 }
 
 $export = Join-Path $IdfRoot 'export.ps1'
-if (-not (Test-Path -LiteralPath $export)) { throw "Missing $export — incomplete IDF checkout." }
+if (-not (Test-Path -LiteralPath $export)) { throw "Missing $export - incomplete IDF checkout." }
 . $export
 
 Write-Host "ESP-IDF environment ready:" -ForegroundColor Green

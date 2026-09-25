@@ -71,9 +71,7 @@ void metrics_mark_stream_active(void)
         return;
     }
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    if (s_last_delivery_us == 0) {
-        s_last_delivery_us = esp_timer_get_time();
-    }
+    s_last_delivery_us = esp_timer_get_time();
     xSemaphoreGive(s_mutex);
 }
 

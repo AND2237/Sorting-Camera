@@ -1,9 +1,11 @@
 #include "app.h"
 
+#include <errno.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 
 #include "cJSON.h"
 #include "esp_app_desc.h"
@@ -60,6 +62,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "avg_capture_ms", metrics_avg_capture_us() / 1000.0);
     cJSON_AddNumberToObject(root, "last_frame_bytes", metrics_last_frame_bytes());
     cJSON_AddNumberToObject(root, "stream_clients", stream_client_count());
+    cJSON_AddNumberToObject(root, "reset_reason", (int)esp_reset_reason());
     cJSON_AddStringToObject(root, "resolution", framesize_name(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "quality", camera_current_quality());
     cJSON_AddNumberToObject(root, "fb_count", camera_current_fb_count());
@@ -98,6 +101,7 @@ static bool parse_framesize(const char *name, framesize_t *out)
 
 static esp_err_t config_handler(httpd_req_t *req)
 {
+    int64_t t_config = esp_timer_get_time();
     sensor_t *sensor = esp_camera_sensor_get();
     if (!sensor) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no sensor");
@@ -156,6 +160,9 @@ static esp_err_t config_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    ESP_LOGI(TAG, "config applied in %lld ms",
+             (long long)((esp_timer_get_time() - t_config) / 1000));
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     esp_err_t err = httpd_resp_send(req, payload, HTTPD_RESP_USE_STRLEN);
@@ -186,6 +193,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
     char part_hdr[128];
     bool first = true;
     int consecutive_fails = 0;
+    const int sockfd = httpd_req_to_sockfd(req);
 
     httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=FRAME");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -194,6 +202,14 @@ static esp_err_t stream_handler(httpd_req_t *req)
     metrics_mark_stream_active();
 
     while (true) {
+        if (sockfd >= 0) {
+            char probe;
+            int r = recv(sockfd, &probe, 1, MSG_DONTWAIT);
+            if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+                ESP_LOGI(TAG, "stream client gone (recv=%d errno=%d)", r, errno);
+                break;
+            }
+        }
         int64_t t0 = esp_timer_get_time();
         camera_fb_t *fb = camera_fb_get();
         if (!fb) {

@@ -1,12 +1,16 @@
 #include "MjpegClient.h"
 
+#include <QDebug>
 #include <QObject>
 #include <QTcpSocket>
 #include <QThread>
+#include <QTimer>
 
 namespace {
 constexpr qint64 kMaxBufferBytes = 8 * 1024 * 1024;
 const QByteArray kBoundary = "--FRAME";
+constexpr int kMaxRetries = 5;
+constexpr int kRetryDelayMs[kMaxRetries] = {500, 1000, 2000, 3000, 5000};
 } // namespace
 
 class MjpegWorker : public QObject
@@ -33,10 +37,12 @@ public slots:
         resetParser();
         m_error.clear();
         emit errorUpdated(QString());
+        qDebug() << "[stream] start" << host << port;
 
         m_socket = new QTcpSocket(this);
         const QString hostName = host;
         connect(m_socket, &QTcpSocket::connected, this, [this, hostName]() {
+            qDebug() << "[stream] tcp connected";
             m_active = true;
             emit activeUpdated(true);
             const QByteArray req = "GET /stream HTTP/1.1\r\nHost: " + hostName.toUtf8()
@@ -45,10 +51,13 @@ public slots:
         });
         connect(m_socket, &QTcpSocket::readyRead, this, &MjpegWorker::onReadyRead);
         connect(m_socket, &QTcpSocket::errorOccurred, this,
-                [this](QAbstractSocket::SocketError) {
+                [this](QAbstractSocket::SocketError e) {
+                    qDebug() << "[stream] socket error" << e
+                             << (m_socket ? m_socket->errorString() : QStringLiteral("no socket"));
                     fail(m_socket ? m_socket->errorString() : QStringLiteral("socket error"));
                 });
         connect(m_socket, &QTcpSocket::disconnected, this, [this]() {
+            qDebug() << "[stream] disconnected active=" << m_active;
             if (m_active) {
                 m_active = false;
                 emit activeUpdated(false);
@@ -62,6 +71,7 @@ public slots:
     void stop()
     {
         if (m_socket) {
+            qDebug() << "[stream] stop (local abort)";
             QTcpSocket *sock = m_socket;
             m_socket = nullptr;
             sock->disconnect(this);
@@ -108,6 +118,7 @@ private:
 
     void fail(const QString &reason)
     {
+        qDebug() << "[stream] fail:" << reason;
         m_error = reason;
         emit errorUpdated(reason);
         if (m_socket) {
@@ -334,10 +345,22 @@ MjpegClient::MjpegClient(QObject *parent)
     m_thread->setObjectName(QStringLiteral("mjpeg-net"));
     m_worker->moveToThread(m_thread);
 
+    m_retryTimer = new QTimer(this);
+    m_retryTimer->setSingleShot(true);
+    connect(m_retryTimer, &QTimer::timeout, this, [this]() {
+        if (m_userConnected) {
+            invokeStart();
+        }
+    });
+
     connect(m_worker, &MjpegWorker::activeUpdated, this, [this](bool active) {
         if (m_active != active) {
             m_active = active;
             emit activeChanged();
+        }
+        if (active) {
+            setRetryAttempt(0);
+            setReconnecting(false);
         }
     });
     connect(m_worker, &MjpegWorker::statsUpdated, this,
@@ -351,10 +374,22 @@ MjpegClient::MjpegClient(QObject *parent)
                 }
             });
     connect(m_worker, &MjpegWorker::errorUpdated, this, [this](const QString &err) {
-        if (m_errorString != err) {
-            m_errorString = err;
-            emit errorStringChanged();
+        if (err.isEmpty()) {
+            setError(QString());
+            return;
         }
+        if (m_userConnected && m_retryAttempt < kMaxRetries) {
+            const int attempt = m_retryAttempt + 1;
+            setRetryAttempt(attempt);
+            setReconnecting(true);
+            setError(QString());
+            qDebug() << "[stream] retry" << attempt << "/" << kMaxRetries << "in"
+                     << kRetryDelayMs[attempt - 1] << "ms after:" << err;
+            m_retryTimer->start(kRetryDelayMs[attempt - 1]);
+            return;
+        }
+        setReconnecting(false);
+        setError(err);
     });
     connect(m_worker, &MjpegWorker::frameReady, this, &MjpegClient::frameReady);
 
@@ -397,21 +432,75 @@ QString MjpegClient::errorString() const
     return m_errorString;
 }
 
+bool MjpegClient::isReconnecting() const
+{
+    return m_reconnecting;
+}
+
+int MjpegClient::retryAttempt() const
+{
+    return m_retryAttempt;
+}
+
+void MjpegClient::setError(const QString &err)
+{
+    if (m_errorString != err) {
+        m_errorString = err;
+        emit errorStringChanged();
+    }
+}
+
+void MjpegClient::setReconnecting(bool reconnecting)
+{
+    if (m_reconnecting != reconnecting) {
+        m_reconnecting = reconnecting;
+        emit reconnectingChanged();
+    }
+}
+
+void MjpegClient::setRetryAttempt(int attempt)
+{
+    if (m_retryAttempt != attempt) {
+        m_retryAttempt = attempt;
+        emit retryAttemptChanged();
+    }
+}
+
+void MjpegClient::cancelRetry()
+{
+    if (m_retryTimer && m_retryTimer->isActive()) {
+        m_retryTimer->stop();
+    }
+}
+
+void MjpegClient::invokeStart()
+{
+    QMetaObject::invokeMethod(m_worker, "start", Qt::QueuedConnection,
+                              Q_ARG(QString, m_host), Q_ARG(quint16, m_port));
+}
+
 void MjpegClient::start(const QString &host, quint16 port)
 {
     if (host.trimmed().isEmpty()) {
-        m_errorString = QStringLiteral("host is empty");
-        emit errorStringChanged();
+        setError(QStringLiteral("host is empty"));
         return;
     }
-    m_errorString.clear();
-    emit errorStringChanged();
-    QMetaObject::invokeMethod(m_worker, "start", Qt::QueuedConnection,
-                              Q_ARG(QString, host.trimmed()), Q_ARG(quint16, port));
+    m_host = host.trimmed();
+    m_port = port;
+    m_userConnected = true;
+    cancelRetry();
+    setRetryAttempt(0);
+    setReconnecting(false);
+    setError(QString());
+    invokeStart();
 }
 
 void MjpegClient::stop()
 {
+    m_userConnected = false;
+    cancelRetry();
+    setReconnecting(false);
+    setRetryAttempt(0);
     QMetaObject::invokeMethod(m_worker, "stop", Qt::QueuedConnection);
 }
 
