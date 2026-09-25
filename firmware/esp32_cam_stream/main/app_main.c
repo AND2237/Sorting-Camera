@@ -18,7 +18,7 @@ static void stall_watchdog_task(void *arg)
     (void)arg;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        if (stream_client_count() > 0) {
+        if (stream_client_count() + frame_transport_client_count() > 0) {
             int64_t since = metrics_us_since_last_delivery();
             if (since > STREAM_STALL_TIMEOUT_US) {
                 ESP_LOGE(TAG, "stream stalled for %lld ms with active client, restarting",
@@ -61,6 +61,9 @@ void app_main(void)
 
     ESP_ERROR_CHECK(start_control_server());
     ESP_ERROR_CHECK(start_stream_server());
+    if (!frame_transport_start()) {
+        ESP_LOGE(TAG, "tcp/udp frame transport failed to start (http baseline still available)");
+    }
 
     xTaskCreate(stall_watchdog_task, "stall_wd", 4096, NULL, 5, NULL);
 

@@ -19,6 +19,9 @@
 
 #define STREAM_STALL_TIMEOUT_US   (15LL * 1000 * 1000)
 
+#define FRAME_TCP_PORT   82
+#define FRAME_UDP_PORT   8500
+
 #define CAM_DEFAULT_FRAMESIZE     FRAMESIZE_HD
 #define CAM_DEFAULT_JPEG_QUALITY  12
 #define CAM_DEFAULT_XCLK_HZ       18000000
@@ -41,6 +44,13 @@ int wifi_get_rssi(void);
 esp_err_t start_control_server(void);
 esp_err_t start_stream_server(void);
 int stream_client_count(void);
+
+bool frame_transport_start(void);
+int frame_transport_client_count(void);
+int frame_transport_tcp_clients(void);
+int frame_transport_udp_peer(void);
+uint32_t frame_transport_udp_tx_dgrams(void);
+uint32_t frame_transport_udp_tx_drops(void);
 
 void metrics_mark_stream_active(void);
 int64_t metrics_us_since_last_delivery(void);

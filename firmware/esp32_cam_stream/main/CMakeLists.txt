@@ -4,6 +4,7 @@ idf_component_register(
         "camera.c"
         "wifi.c"
         "http_servers.c"
+        "frame_transport.c"
         "metrics.c"
     INCLUDE_DIRS
         "."

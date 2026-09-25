@@ -64,6 +64,10 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "quality", camera_current_quality());
     cJSON_AddNumberToObject(root, "fb_count", camera_current_fb_count());
     cJSON_AddNumberToObject(root, "xclk_mhz", camera_current_xclk_mhz());
+    cJSON_AddNumberToObject(root, "tcp_clients", frame_transport_tcp_clients());
+    cJSON_AddNumberToObject(root, "udp_peer", frame_transport_udp_peer());
+    cJSON_AddNumberToObject(root, "udp_tx_dgrams", frame_transport_udp_tx_dgrams());
+    cJSON_AddNumberToObject(root, "udp_tx_drops", frame_transport_udp_tx_drops());
 
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -107,7 +111,7 @@ static esp_err_t config_handler(httpd_req_t *req)
             httpd_query_key_value(query, "xclk", val, sizeof(val)) == ESP_OK ||
             httpd_query_key_value(query, "framesize", val, sizeof(val)) == ESP_OK ||
             httpd_query_key_value(query, "quality", val, sizeof(val)) == ESP_OK;
-        if (has_param && stream_client_count() > 0) {
+        if (has_param && (stream_client_count() + frame_transport_client_count()) > 0) {
             httpd_resp_set_status(req, "409 Conflict");
             httpd_resp_set_type(req, "text/plain");
             httpd_resp_send(req, "stream active: disconnect before config change",
@@ -179,7 +183,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
 {
     static const char boundary[] = "--FRAME\r\n";
     static const char boundary_cont[] = "\r\n--FRAME\r\n";
-    char part_hdr[80];
+    char part_hdr[128];
     bool first = true;
     int consecutive_fails = 0;
 
@@ -203,11 +207,14 @@ static esp_err_t stream_handler(httpd_req_t *req)
             continue;
         }
         consecutive_fails = 0;
-        metrics_record_capture(esp_timer_get_time() - t0, fb->len);
+        int64_t t_capture = esp_timer_get_time();
+        metrics_record_capture(t_capture - t0, fb->len);
 
         int hdr_len = snprintf(part_hdr, sizeof(part_hdr),
-                               "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
-                               (unsigned)fb->len);
+                               "Content-Type: image/jpeg\r\n"
+                               "Content-Length: %u\r\n"
+                               "X-Capture-Us: %lld\r\n\r\n",
+                               (unsigned)fb->len, (long long)t_capture);
         const char *bnd = first ? boundary : boundary_cont;
         first = false;
 
