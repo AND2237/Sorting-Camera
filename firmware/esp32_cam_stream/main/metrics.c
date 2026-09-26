@@ -15,6 +15,7 @@ static uint32_t s_capture_failures;
 static int64_t s_avg_capture_us;
 static size_t s_last_bytes;
 static int64_t s_last_delivery_us;
+static int64_t s_last_capture_us;
 static SemaphoreHandle_t s_mutex;
 
 static void ensure_mutex(void)
@@ -33,6 +34,7 @@ void metrics_record_capture(int64_t duration_us, size_t bytes)
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_captured++;
     s_last_bytes = bytes;
+    s_last_capture_us = esp_timer_get_time();
     if (s_avg_capture_us == 0) {
         s_avg_capture_us = duration_us;
     } else {
@@ -83,6 +85,21 @@ int64_t metrics_us_since_last_delivery(void)
     }
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     int64_t last = s_last_delivery_us;
+    xSemaphoreGive(s_mutex);
+    if (last == 0) {
+        return 0;
+    }
+    return esp_timer_get_time() - last;
+}
+
+int64_t metrics_us_since_last_capture(void)
+{
+    ensure_mutex();
+    if (!s_mutex) {
+        return 0;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    int64_t last = s_last_capture_us;
     xSemaphoreGive(s_mutex);
     if (last == 0) {
         return 0;

@@ -62,6 +62,10 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "avg_capture_ms", metrics_avg_capture_us() / 1000.0);
     cJSON_AddNumberToObject(root, "last_frame_bytes", metrics_last_frame_bytes());
     cJSON_AddNumberToObject(root, "stream_clients", stream_client_count());
+    cJSON_AddNumberToObject(root, "camera_recoveries", camera_recovery_count());
+    cJSON_AddNumberToObject(root, "camera_up", camera_is_up() ? 1 : 0);
+    cJSON_AddNumberToObject(root, "frame_budget_bytes", (int)camera_frame_budget());
+    cJSON_AddNumberToObject(root, "quality_floor", camera_quality_floor(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "reset_reason", (int)esp_reset_reason());
     cJSON_AddStringToObject(root, "resolution", framesize_name(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "quality", camera_current_quality());
@@ -120,10 +124,13 @@ static esp_err_t config_handler(httpd_req_t *req)
             httpd_query_key_value(query, "grab", val, sizeof(val)) == ESP_OK ||
             httpd_query_key_value(query, "fbloc", val, sizeof(val)) == ESP_OK;
         if (has_param && (stream_client_count() + frame_transport_client_count()) > 0) {
+            char msg[80];
+            snprintf(msg, sizeof(msg),
+                     "stream active (%d client(s)): disconnect before config change",
+                     stream_client_count() + frame_transport_client_count());
             httpd_resp_set_status(req, "409 Conflict");
             httpd_resp_set_type(req, "text/plain");
-            httpd_resp_send(req, "stream active: disconnect before config change",
-                            HTTPD_RESP_USE_STRLEN);
+            httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
             return ESP_FAIL;
         }
         framesize_t fs = camera_current_framesize();
@@ -191,9 +198,18 @@ static esp_err_t config_handler(httpd_req_t *req)
         if (any) {
             esp_err_t aerr = camera_apply_config(fs, quality, xclk, fb, grab, loc);
             if (aerr != ESP_OK) {
-                char msg[96];
-                snprintf(msg, sizeof(msg), "camera apply failed: %s",
-                         esp_err_to_name(aerr));
+                char msg[128];
+                if (aerr == ESP_ERR_INVALID_SIZE) {
+                    snprintf(msg, sizeof(msg),
+                             "quality %d is below the measured safe floor %d for %s "
+                             "(max frame %u B, budget %u B)",
+                             quality, camera_quality_floor(fs), framesize_name(fs),
+                             (unsigned)camera_estimate_frame_bytes(fs, quality),
+                             (unsigned)camera_frame_budget());
+                } else {
+                    snprintf(msg, sizeof(msg), "camera apply failed: %s",
+                             esp_err_to_name(aerr));
+                }
                 httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, msg);
                 return ESP_FAIL;
             }
@@ -215,6 +231,12 @@ static esp_err_t config_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "fb_location",
                             camera_current_fb_location() == CAMERA_FB_IN_DRAM
                                 ? "dram" : "psram");
+    cJSON_AddNumberToObject(root, "frame_budget_bytes", (int)camera_frame_budget());
+    cJSON_AddNumberToObject(root, "quality_floor", camera_quality_floor(camera_current_framesize()));
+    cJSON_AddNumberToObject(root, "est_frame_bytes",
+                            (int)camera_estimate_frame_bytes(camera_current_framesize(),
+                                                             camera_current_quality()));
+    cJSON_AddNumberToObject(root, "camera_recoveries", camera_recovery_count());
 
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -238,8 +260,12 @@ static esp_err_t snapshot_handler(httpd_req_t *req)
     camera_fb_t *fb = camera_fb_get();
     if (!fb) {
         metrics_capture_failure();
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "capture failed");
-        return ESP_FAIL;
+        camera_recover();
+        fb = camera_fb_get();
+        if (!fb) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "capture failed");
+            return ESP_FAIL;
+        }
     }
 
     httpd_resp_set_type(req, "image/jpeg");
@@ -264,6 +290,8 @@ static esp_err_t stream_handler(httpd_req_t *req)
     atomic_fetch_add(&s_stream_clients, 1);
     metrics_mark_stream_active();
 
+    int recovery_attempts = 0;
+    int near_budget_frames = 0;
     while (true) {
         if (sockfd >= 0) {
             char probe;
@@ -278,16 +306,34 @@ static esp_err_t stream_handler(httpd_req_t *req)
         if (!fb) {
             metrics_capture_failure();
             consecutive_fails++;
-            if (consecutive_fails > 50) {
-                ESP_LOGE(TAG, "stream: too many capture failures, closing client");
+            if (consecutive_fails >= STREAM_CAPTURE_FAIL_LIMIT) {
+                consecutive_fails = 0;
+                if (recovery_attempts < 2) {
+                    recovery_attempts++;
+                    ESP_LOGE(TAG, "capture failing, recovering camera (attempt %d)",
+                             recovery_attempts);
+                    camera_recover();
+                    continue;
+                }
+                ESP_LOGE(TAG, "stream: capture unrecoverable, closing client");
                 break;
             }
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
         consecutive_fails = 0;
+        recovery_attempts = 0;
         int64_t t_capture = esp_timer_get_time();
         metrics_record_capture(t_capture - t0, fb->len);
+
+        const size_t budget = camera_frame_budget();
+        if (budget && fb->len * 10 >= budget * 9) {
+            near_budget_frames++;
+            if (near_budget_frames == 1 || near_budget_frames % 100 == 0) {
+                ESP_LOGW(TAG, "frame %u B is >=90%% of the %u B budget - lower the quality",
+                         (unsigned)fb->len, (unsigned)budget);
+            }
+        }
 
         int hdr_len = snprintf(part_hdr, sizeof(part_hdr),
                                "Content-Type: image/jpeg\r\n"
@@ -331,6 +377,7 @@ esp_err_t start_control_server(void)
     cfg.ctrl_port = 32768;
     cfg.max_open_sockets = 4;
     cfg.lru_purge_enable = true;
+    cfg.recv_wait_timeout = 2;
 
     esp_err_t err = httpd_start(&s_control_server, &cfg);
     if (err != ESP_OK) {

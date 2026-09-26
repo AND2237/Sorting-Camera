@@ -8,10 +8,33 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_rom_crc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "camera";
+
+static const char *NVS_NS = "camcfg";
+static const char *NVS_KEY = "v1";
+
+typedef struct {
+    uint32_t magic;
+    uint16_t framesize;
+    uint16_t quality;
+    uint16_t fb_count;
+    uint16_t xclk_mhz;
+    uint8_t grab_mode;
+    uint8_t fb_location;
+    uint8_t version;
+    uint8_t reserved;
+    uint32_t crc;
+} cam_cfg_nvs_t;
+
+#define CAM_CFG_NVS_MAGIC 0x43414D31u
+#define CAM_CFG_NVS_VERSION 1
 
 static void camera_sensor_power_cycle(void)
 {
@@ -60,6 +83,8 @@ static void camera_i2c_bus_recovery(void)
 
 static SemaphoreHandle_t s_cam_mutex;
 static bool s_driver_up;
+static bool s_recovering;
+static uint32_t s_recovery_count;
 static camera_fb_t *s_last_fb;
 static int s_fb_count = CAM_DEFAULT_FB_COUNT;
 static int s_quality = CAM_DEFAULT_JPEG_QUALITY;
@@ -67,6 +92,78 @@ static int s_xclk_mhz = CAM_DEFAULT_XCLK_HZ / 1000000;
 static framesize_t s_framesize = CAM_DEFAULT_FRAMESIZE;
 static camera_grab_mode_t s_grab_mode = CAM_DEFAULT_GRAB_MODE;
 static camera_fb_location_t s_fb_location = CAM_DEFAULT_FB_LOCATION;
+
+/*
+ * Frame budget. The esp32-camera JPEG path ignores camera_config_t.fb_size and
+ * sizes every buffer from CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE (AUTO builds use
+ * width*height/5, which measured 71-99% full at quality 4 and overflowed below
+ * that, wedging the OV2640 in a permanent cam_hal FB-OVF state). We therefore
+ * build with an explicit budget and refuse any framesize/quality combination
+ * whose estimated worst-case frame cannot fit.
+ */
+#define CAM_FRAME_BUDGET_BYTES ((size_t)CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE)
+#define CAM_FRAME_SAFETY_NUM 5u
+#define CAM_FRAME_SAFETY_DEN 4u
+
+typedef struct {
+    framesize_t fs;
+    uint16_t width;
+    uint16_t height;
+    int safe_quality;
+    uint32_t measured_max_bytes;
+} cam_size_model_t;
+
+/*
+ * safe_quality is the lowest JPEG quality measured to fit the frame budget with
+ * 25% margin on this hardware; measured_max_bytes is the largest frame observed
+ * at that quality over a 10 s stream (benchmarks/results/qfloor-20260926.json,
+ * 44-144 frames per cell). Frames grow steeply below these points and the
+ * maximum is scene-dependent - repeated verification runs saw up to ~2x the
+ * 10 s maximum for the same cell (uxga/q12: 128,659 B measured, 259,471 B
+ * later) - so a linear extrapolation is unsafe and is not used, and floors that
+ * showed <2x margin in verification are raised accordingly.
+ */
+static const cam_size_model_t s_size_models[] = {
+    {FRAMESIZE_QQVGA, 160, 120, 0, 20000},
+    {FRAMESIZE_QVGA, 320, 240, 0, 65544},
+    {FRAMESIZE_VGA, 640, 480, 2, 113239},
+    {FRAMESIZE_SVGA, 800, 600, 2, 163923},
+    {FRAMESIZE_XGA, 1024, 768, 6, 152548},
+    {FRAMESIZE_HD, 1280, 720, 6, 165163},
+    {FRAMESIZE_SXGA, 1280, 1024, 8, 201317},
+    {FRAMESIZE_UXGA, 1600, 1200, 16, 98587},
+};
+
+static const cam_size_model_t *camera_size_model(framesize_t fs)
+{
+    for (size_t i = 0; i < sizeof(s_size_models) / sizeof(s_size_models[0]); i++) {
+        if (s_size_models[i].fs == fs) {
+            return &s_size_models[i];
+        }
+    }
+    return NULL;
+}
+
+size_t camera_frame_budget(void)
+{
+    return CAM_FRAME_BUDGET_BYTES;
+}
+
+uint32_t camera_estimate_frame_bytes(framesize_t fs, int quality)
+{
+    const cam_size_model_t *m = camera_size_model(fs);
+    if (!m) {
+        return 0;
+    }
+    (void)quality;
+    return m->measured_max_bytes;
+}
+
+int camera_quality_floor(framesize_t fs)
+{
+    const cam_size_model_t *m = camera_size_model(fs);
+    return m ? m->safe_quality : 0;
+}
 
 static esp_err_t camera_driver_init(void)
 {
@@ -163,6 +260,73 @@ static esp_err_t camera_try_init(void)
     return err;
 }
 
+static void camera_cfg_save(void)
+{
+    cam_cfg_nvs_t rec = {
+        .magic = CAM_CFG_NVS_MAGIC,
+        .framesize = (uint16_t)s_framesize,
+        .quality = (uint16_t)s_quality,
+        .fb_count = (uint16_t)s_fb_count,
+        .xclk_mhz = (uint16_t)s_xclk_mhz,
+        .grab_mode = (uint8_t)s_grab_mode,
+        .fb_location = (uint8_t)s_fb_location,
+        .version = CAM_CFG_NVS_VERSION,
+        .reserved = 0,
+        .crc = 0,
+    };
+    rec.crc = esp_rom_crc32_le(0, (const uint8_t *)&rec, sizeof(rec) - sizeof(rec.crc));
+
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return;
+    }
+    esp_err_t err = nvs_set_blob(h, NVS_KEY, &rec, sizeof(rec));
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "config save failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void camera_cfg_restore(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+        return;
+    }
+    cam_cfg_nvs_t rec;
+    size_t len = sizeof(rec);
+    esp_err_t err = nvs_get_blob(h, NVS_KEY, &rec, &len);
+    nvs_close(h);
+    if (err != ESP_OK || len != sizeof(rec)) {
+        return;
+    }
+    if (rec.magic != CAM_CFG_NVS_MAGIC || rec.version != CAM_CFG_NVS_VERSION) {
+        return;
+    }
+    if (rec.crc != esp_rom_crc32_le(0, (const uint8_t *)&rec, sizeof(rec) - sizeof(rec.crc))) {
+        ESP_LOGW(TAG, "stored config failed CRC, using defaults");
+        return;
+    }
+    if (rec.framesize < FRAMESIZE_QQVGA || rec.framesize > FRAMESIZE_UXGA ||
+        rec.quality > 63 || rec.fb_count < 1 || rec.fb_count > 3 ||
+        rec.xclk_mhz < 6 || rec.xclk_mhz > 27) {
+        ESP_LOGW(TAG, "stored config out of range, using defaults");
+        return;
+    }
+    s_framesize = (framesize_t)rec.framesize;
+    s_quality = rec.quality;
+    s_fb_count = rec.fb_count;
+    s_xclk_mhz = rec.xclk_mhz;
+    s_grab_mode = (camera_grab_mode_t)rec.grab_mode;
+    s_fb_location = (camera_fb_location_t)rec.fb_location;
+    ESP_LOGI(TAG, "restored config fs=%d q=%d xclk=%d fb=%d grab=%d loc=%d",
+             (int)s_framesize, s_quality, s_xclk_mhz, s_fb_count,
+             (int)s_grab_mode, (int)s_fb_location);
+}
+
 bool camera_init(void)
 {
     if (!s_cam_mutex) {
@@ -171,7 +335,46 @@ bool camera_init(void)
             return false;
         }
     }
+    camera_cfg_restore();
     return camera_try_init() == ESP_OK;
+}
+
+esp_err_t camera_recover(void)
+{
+    if (!s_cam_mutex) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+    if (s_recovering) {
+        xSemaphoreGive(s_cam_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_recovering = true;
+    if (s_driver_up) {
+        esp_camera_deinit();
+        s_last_fb = NULL;
+        s_driver_up = false;
+    }
+    esp_err_t err = camera_try_init();
+    if (err == ESP_OK) {
+        s_recovery_count++;
+        ESP_LOGW(TAG, "camera recovered (attempt %u)", (unsigned)s_recovery_count);
+    } else {
+        ESP_LOGE(TAG, "camera recovery failed: %s", esp_err_to_name(err));
+    }
+    s_recovering = false;
+    xSemaphoreGive(s_cam_mutex);
+    return err;
+}
+
+bool camera_is_up(void)
+{
+    return s_driver_up;
+}
+
+uint32_t camera_recovery_count(void)
+{
+    return s_recovery_count;
 }
 
 camera_fb_t *camera_fb_get(void)
@@ -236,12 +439,34 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
         }
     }
 
+    const int floor = camera_quality_floor(fs);
+    if (quality < floor) {
+        ESP_LOGW(TAG, "quality %d below measured safe floor %d for fs=%d (max frame %u, budget %u)",
+                 quality, floor, (int)fs, (unsigned)camera_estimate_frame_bytes(fs, floor),
+                 (unsigned)CAM_FRAME_BUDGET_BYTES);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     const framesize_t prev_fs = s_framesize;
     const int prev_quality = s_quality;
     const int prev_xclk = s_xclk_mhz;
     const int prev_fb = s_fb_count;
     const camera_grab_mode_t prev_grab = s_grab_mode;
     const camera_fb_location_t prev_loc = s_fb_location;
+
+    const bool only_quality = s_driver_up && fs == prev_fs && xclk_mhz == prev_xclk &&
+                              fb_count == prev_fb && grab == prev_grab &&
+                              fb_location == prev_loc && quality != prev_quality;
+    if (only_quality) {
+        sensor_t *sensor = esp_camera_sensor_get();
+        if (sensor && sensor->set_quality) {
+            sensor->set_quality(sensor, quality);
+            s_quality = quality;
+            ESP_LOGI(TAG, "camera quality set to %d (no reinit)", quality);
+            camera_cfg_save();
+            return ESP_OK;
+        }
+    }
 
     xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
 
@@ -260,8 +485,12 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
     }
     err = camera_try_init();
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "camera applied fs=%d q=%d xclk=%d fb=%d grab=%d loc=%d",
-                 (int)fs, quality, xclk_mhz, fb_count, (int)grab, (int)fb_location);
+        ESP_LOGI(TAG, "camera applied fs=%d q=%d xclk=%d fb=%d grab=%d loc=%d "
+                      "max_frame_measured=%u budget=%u",
+                 (int)fs, quality, xclk_mhz, fb_count, (int)grab, (int)fb_location,
+                 (unsigned)camera_estimate_frame_bytes(fs, quality),
+                 (unsigned)CAM_FRAME_BUDGET_BYTES);
+        camera_cfg_save();
         xSemaphoreGive(s_cam_mutex);
         return ESP_OK;
     }

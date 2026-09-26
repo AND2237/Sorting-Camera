@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 
 #include "config_secrets.h"
 
@@ -21,10 +22,26 @@ static void stall_watchdog_task(void *arg)
         if (stream_client_count() + frame_transport_client_count() > 0) {
             int64_t since = metrics_us_since_last_delivery();
             if (since > STREAM_STALL_TIMEOUT_US) {
-                ESP_LOGE(TAG, "stream stalled for %lld ms with active client, restarting",
+                ESP_LOGE(TAG, "stream stalled for %lld ms with active client, recovering camera",
                          (long long)(since / 1000));
+                if (camera_recover() == ESP_OK) {
+                    metrics_mark_stream_active();
+                    continue;
+                }
+                ESP_LOGE(TAG, "camera recovery failed, restarting");
                 esp_restart();
             }
+        }
+        const int clients = stream_client_count() + frame_transport_client_count();
+        const int64_t since_capture = metrics_us_since_last_capture();
+        if (clients > 0 && since_capture > CAMERA_DEAD_TIMEOUT_US) {
+            ESP_LOGE(TAG, "no frame captured for %lld ms with active client, recovering camera",
+                     (long long)(since_capture / 1000));
+            if (camera_recover() == ESP_OK) {
+                continue;
+            }
+            ESP_LOGE(TAG, "camera recovery failed, restarting");
+            esp_restart();
         }
     }
 }
@@ -61,9 +78,13 @@ void app_main(void)
 
     ESP_ERROR_CHECK(start_control_server());
     ESP_ERROR_CHECK(start_stream_server());
+#if CONFIG_SORTING_CAM_FRAME_TRANSPORT
     if (!frame_transport_start()) {
         ESP_LOGE(TAG, "tcp/udp frame transport failed to start (http baseline still available)");
     }
+#else
+    ESP_LOGI(TAG, "raw tcp/udp frame transport disabled (http baseline only)");
+#endif
 
     xTaskCreate(stall_watchdog_task, "stall_wd", 4096, NULL, 5, NULL);
 

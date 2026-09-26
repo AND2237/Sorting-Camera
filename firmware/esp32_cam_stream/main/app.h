@@ -18,6 +18,8 @@
 #define AP_IP               "192.168.4.1"
 
 #define STREAM_STALL_TIMEOUT_US   (15LL * 1000 * 1000)
+#define CAMERA_DEAD_TIMEOUT_US    (30LL * 1000 * 1000)
+#define STREAM_CAPTURE_FAIL_LIMIT 1
 
 #define FRAME_TCP_PORT   82
 #define FRAME_UDP_PORT   8500
@@ -41,6 +43,12 @@ camera_fb_location_t camera_current_fb_location(void);
 esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
                               int fb_count, camera_grab_mode_t grab,
                               camera_fb_location_t fb_location);
+esp_err_t camera_recover(void);
+bool camera_is_up(void);
+uint32_t camera_recovery_count(void);
+size_t camera_frame_budget(void);
+uint32_t camera_estimate_frame_bytes(framesize_t fs, int quality);
+int camera_quality_floor(framesize_t fs);
 
 bool wifi_start(const char *ssid, const char *password);
 int wifi_get_rssi(void);
@@ -58,6 +66,7 @@ uint32_t frame_transport_udp_tx_drops(void);
 
 void metrics_mark_stream_active(void);
 int64_t metrics_us_since_last_delivery(void);
+int64_t metrics_us_since_last_capture(void);
 void metrics_record_capture(int64_t duration_us, size_t bytes);
 void metrics_record_delivery(void);
 void metrics_capture_failure(void);
