@@ -3,7 +3,9 @@
 #include <string.h>
 
 #include "camera_pins.h"
+#include "driver/gpio.h"
 #include "esp_check.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -11,20 +13,63 @@
 
 static const char *TAG = "camera";
 
+static void camera_sensor_power_cycle(void)
+{
+    if (CAM_PIN_PWDN < 0) {
+        return;
+    }
+    gpio_config_t conf = {
+        .pin_bit_mask = 1ULL << CAM_PIN_PWDN,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&conf);
+    gpio_set_level(CAM_PIN_PWDN, 1);
+    vTaskDelay(pdMS_TO_TICKS(250));
+    gpio_set_level(CAM_PIN_PWDN, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+}
+
+static void camera_i2c_bus_recovery(void)
+{
+    gpio_config_t conf = {
+        .pin_bit_mask = (1ULL << CAM_PIN_SIOC) | (1ULL << CAM_PIN_SIOD),
+        .mode = GPIO_MODE_OUTPUT_OD,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&conf);
+    gpio_set_level(CAM_PIN_SIOD, 1);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    for (int i = 0; i < 9 && gpio_get_level(CAM_PIN_SIOD) == 0; i++) {
+        gpio_set_level(CAM_PIN_SIOC, 0);
+        vTaskDelay(pdMS_TO_TICKS(1));
+        gpio_set_level(CAM_PIN_SIOC, 1);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    gpio_set_level(CAM_PIN_SIOD, 0);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    gpio_set_level(CAM_PIN_SIOC, 1);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    gpio_set_level(CAM_PIN_SIOD, 1);
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
 static SemaphoreHandle_t s_cam_mutex;
+static bool s_driver_up;
 static camera_fb_t *s_last_fb;
 static int s_fb_count = CAM_DEFAULT_FB_COUNT;
 static int s_quality = CAM_DEFAULT_JPEG_QUALITY;
 static int s_xclk_mhz = CAM_DEFAULT_XCLK_HZ / 1000000;
 static framesize_t s_framesize = CAM_DEFAULT_FRAMESIZE;
+static camera_grab_mode_t s_grab_mode = CAM_DEFAULT_GRAB_MODE;
+static camera_fb_location_t s_fb_location = CAM_DEFAULT_FB_LOCATION;
 
-bool camera_init(void)
+static esp_err_t camera_driver_init(void)
 {
-    s_cam_mutex = xSemaphoreCreateMutex();
-    if (!s_cam_mutex) {
-        return false;
-    }
-
     camera_config_t config = {
         .pin_pwdn = CAM_PIN_PWDN,
         .pin_reset = CAM_PIN_RESET,
@@ -49,15 +94,15 @@ bool camera_init(void)
         .frame_size = s_framesize,
         .jpeg_quality = s_quality,
         .fb_count = s_fb_count,
-        .fb_location = CAMERA_FB_IN_PSRAM,
-        .grab_mode = CAMERA_GRAB_LATEST,
+        .fb_location = s_fb_location,
+        .grab_mode = s_grab_mode,
     };
 
     int64_t t0 = esp_timer_get_time();
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_camera_init failed: %s", esp_err_to_name(err));
-        return false;
+        return err;
     }
     ESP_LOGI(TAG, "camera init in %lld ms", (long long)((esp_timer_get_time() - t0) / 1000));
 
@@ -73,7 +118,60 @@ bool camera_init(void)
         sensor->set_hmirror(sensor, 0);
         sensor->set_vflip(sensor, 0);
     }
-    return true;
+    return ESP_OK;
+}
+
+static size_t camera_dram_fb_bytes(framesize_t fs)
+{
+    static const struct {
+        framesize_t fs;
+        uint16_t w;
+        uint16_t h;
+    } tbl[] = {
+        {FRAMESIZE_QQVGA, 160, 120},   {FRAMESIZE_QVGA, 320, 240},
+        {FRAMESIZE_VGA, 640, 480},     {FRAMESIZE_SVGA, 800, 600},
+        {FRAMESIZE_XGA, 1024, 768},    {FRAMESIZE_HD, 1280, 720},
+        {FRAMESIZE_SXGA, 1280, 1024},  {FRAMESIZE_UXGA, 1600, 1200},
+    };
+    for (size_t i = 0; i < sizeof(tbl) / sizeof(tbl[0]); i++) {
+        if (tbl[i].fs == fs) {
+            return (size_t)tbl[i].w * tbl[i].h / 5;
+        }
+    }
+    return 0;
+}
+
+static esp_err_t camera_try_init(void)
+{
+    esp_err_t err = ESP_FAIL;
+    for (int round = 0; round < 3; round++) {
+        if (round) {
+            vTaskDelay(pdMS_TO_TICKS(250 + 250 * round));
+        }
+        camera_sensor_power_cycle();
+        camera_i2c_bus_recovery();
+        err = camera_driver_init();
+        if (err == ESP_OK) {
+            s_driver_up = true;
+            return ESP_OK;
+        }
+        if (err != ESP_ERR_NOT_SUPPORTED && err != ESP_ERR_CAMERA_NOT_DETECTED) {
+            break;
+        }
+    }
+    s_driver_up = false;
+    return err;
+}
+
+bool camera_init(void)
+{
+    if (!s_cam_mutex) {
+        s_cam_mutex = xSemaphoreCreateMutex();
+        if (!s_cam_mutex) {
+            return false;
+        }
+    }
+    return camera_try_init() == ESP_OK;
 }
 
 camera_fb_t *camera_fb_get(void)
@@ -109,48 +207,75 @@ framesize_t camera_current_framesize(void) { return s_framesize; }
 int camera_current_quality(void) { return s_quality; }
 int camera_current_fb_count(void) { return s_fb_count; }
 int camera_current_xclk_mhz(void) { return s_xclk_mhz; }
+camera_grab_mode_t camera_current_grab_mode(void) { return s_grab_mode; }
+camera_fb_location_t camera_current_fb_location(void) { return s_fb_location; }
 
-bool camera_set_xclk(int mhz)
+esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
+                              int fb_count, camera_grab_mode_t grab,
+                              camera_fb_location_t fb_location)
 {
-    if (mhz < 6 || mhz > 27) {
-        return false;
+    if (!s_cam_mutex) {
+        return ESP_ERR_INVALID_STATE;
     }
-    sensor_t *sensor = esp_camera_sensor_get();
-    if (!sensor || !sensor->set_xclk) {
-        return false;
+    if (fb_count < 1 || fb_count > 3 ||
+        quality < 0 || quality > 63 ||
+        xclk_mhz < 6 || xclk_mhz > 27 ||
+        (grab != CAMERA_GRAB_LATEST && grab != CAMERA_GRAB_WHEN_EMPTY) ||
+        (fb_location != CAMERA_FB_IN_PSRAM && fb_location != CAMERA_FB_IN_DRAM)) {
+        return ESP_ERR_INVALID_ARG;
     }
-    if (sensor->set_xclk(sensor, LEDC_TIMER_0, mhz) != 0) {
-        return false;
+    if (fb_location == CAMERA_FB_IN_DRAM) {
+        const size_t per = camera_dram_fb_bytes(fs);
+        const uint32_t caps = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
+        if (per &&
+            (heap_caps_get_largest_free_block(caps) < per ||
+             heap_caps_get_free_size(caps) < per * (size_t)fb_count)) {
+            ESP_LOGW(TAG, "dram fb infeasible: need %u x %u bytes internal",
+                     (unsigned)per, (unsigned)fb_count);
+            return ESP_ERR_NO_MEM;
+        }
     }
-    s_xclk_mhz = mhz;
-    return true;
-}
 
-bool camera_set_framesize(framesize_t fs)
-{
-    sensor_t *sensor = esp_camera_sensor_get();
-    if (!sensor || !sensor->set_framesize) {
-        return false;
-    }
-    if (sensor->set_framesize(sensor, fs) != 0) {
-        return false;
-    }
+    const framesize_t prev_fs = s_framesize;
+    const int prev_quality = s_quality;
+    const int prev_xclk = s_xclk_mhz;
+    const int prev_fb = s_fb_count;
+    const camera_grab_mode_t prev_grab = s_grab_mode;
+    const camera_fb_location_t prev_loc = s_fb_location;
+
+    xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+
     s_framesize = fs;
-    return true;
-}
-
-bool camera_set_quality(int quality)
-{
-    if (quality < 0 || quality > 63) {
-        return false;
-    }
-    sensor_t *sensor = esp_camera_sensor_get();
-    if (!sensor || !sensor->set_quality) {
-        return false;
-    }
-    if (sensor->set_quality(sensor, quality) != 0) {
-        return false;
-    }
     s_quality = quality;
-    return true;
+    s_xclk_mhz = xclk_mhz;
+    s_fb_count = fb_count;
+    s_grab_mode = grab;
+    s_fb_location = fb_location;
+
+    esp_err_t err;
+    if (s_driver_up) {
+        esp_camera_deinit();
+        s_last_fb = NULL;
+        s_driver_up = false;
+    }
+    err = camera_try_init();
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "camera applied fs=%d q=%d xclk=%d fb=%d grab=%d loc=%d",
+                 (int)fs, quality, xclk_mhz, fb_count, (int)grab, (int)fb_location);
+        xSemaphoreGive(s_cam_mutex);
+        return ESP_OK;
+    }
+
+    s_framesize = prev_fs;
+    s_quality = prev_quality;
+    s_xclk_mhz = prev_xclk;
+    s_fb_count = prev_fb;
+    s_grab_mode = prev_grab;
+    s_fb_location = prev_loc;
+    esp_err_t rerr = camera_try_init();
+    ESP_LOGE(TAG, "camera apply failed (%s), rollback %s",
+             esp_err_to_name(err),
+             rerr == ESP_OK ? "ok" : esp_err_to_name(rerr));
+    xSemaphoreGive(s_cam_mutex);
+    return err;
 }

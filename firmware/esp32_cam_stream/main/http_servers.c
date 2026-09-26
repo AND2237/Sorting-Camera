@@ -67,6 +67,12 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "quality", camera_current_quality());
     cJSON_AddNumberToObject(root, "fb_count", camera_current_fb_count());
     cJSON_AddNumberToObject(root, "xclk_mhz", camera_current_xclk_mhz());
+    cJSON_AddStringToObject(root, "grab_mode",
+                            camera_current_grab_mode() == CAMERA_GRAB_LATEST
+                                ? "latest" : "when_empty");
+    cJSON_AddStringToObject(root, "fb_location",
+                            camera_current_fb_location() == CAMERA_FB_IN_DRAM
+                                ? "dram" : "psram");
     cJSON_AddNumberToObject(root, "tcp_clients", frame_transport_tcp_clients());
     cJSON_AddNumberToObject(root, "udp_peer", frame_transport_udp_peer());
     cJSON_AddNumberToObject(root, "udp_tx_dgrams", frame_transport_udp_tx_dgrams());
@@ -102,19 +108,17 @@ static bool parse_framesize(const char *name, framesize_t *out)
 static esp_err_t config_handler(httpd_req_t *req)
 {
     int64_t t_config = esp_timer_get_time();
-    sensor_t *sensor = esp_camera_sensor_get();
-    if (!sensor) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no sensor");
-        return ESP_FAIL;
-    }
 
-    char query[96];
+    char query[192];
     char val[16];
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
         const bool has_param =
             httpd_query_key_value(query, "xclk", val, sizeof(val)) == ESP_OK ||
             httpd_query_key_value(query, "framesize", val, sizeof(val)) == ESP_OK ||
-            httpd_query_key_value(query, "quality", val, sizeof(val)) == ESP_OK;
+            httpd_query_key_value(query, "quality", val, sizeof(val)) == ESP_OK ||
+            httpd_query_key_value(query, "fb_count", val, sizeof(val)) == ESP_OK ||
+            httpd_query_key_value(query, "grab", val, sizeof(val)) == ESP_OK ||
+            httpd_query_key_value(query, "fbloc", val, sizeof(val)) == ESP_OK;
         if (has_param && (stream_client_count() + frame_transport_client_count()) > 0) {
             httpd_resp_set_status(req, "409 Conflict");
             httpd_resp_set_type(req, "text/plain");
@@ -122,23 +126,75 @@ static esp_err_t config_handler(httpd_req_t *req)
                             HTTPD_RESP_USE_STRLEN);
             return ESP_FAIL;
         }
+        framesize_t fs = camera_current_framesize();
+        int quality = camera_current_quality();
+        int xclk = camera_current_xclk_mhz();
+        int fb = camera_current_fb_count();
+        camera_grab_mode_t grab = camera_current_grab_mode();
+        camera_fb_location_t loc = camera_current_fb_location();
+        bool any = false;
+
         if (httpd_query_key_value(query, "xclk", val, sizeof(val)) == ESP_OK) {
-            if (!camera_set_xclk(atoi(val))) {
+            xclk = atoi(val);
+            if (xclk < 6 || xclk > 27) {
                 httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad xclk (6-27 MHz)");
                 return ESP_FAIL;
             }
+            any = true;
         }
         if (httpd_query_key_value(query, "framesize", val, sizeof(val)) == ESP_OK) {
-            framesize_t fs;
-            if (!parse_framesize(val, &fs) || !camera_set_framesize(fs)) {
+            if (!parse_framesize(val, &fs)) {
                 httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
                                     "bad framesize (qqvga|qvga|vga|svga|xga|hd|sxga|uxga)");
                 return ESP_FAIL;
             }
+            any = true;
         }
         if (httpd_query_key_value(query, "quality", val, sizeof(val)) == ESP_OK) {
-            if (!camera_set_quality(atoi(val))) {
+            quality = atoi(val);
+            if (quality < 0 || quality > 63) {
                 httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad quality (0-63)");
+                return ESP_FAIL;
+            }
+            any = true;
+        }
+        if (httpd_query_key_value(query, "fb_count", val, sizeof(val)) == ESP_OK) {
+            fb = atoi(val);
+            if (fb < 1 || fb > 3) {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad fb_count (1-3)");
+                return ESP_FAIL;
+            }
+            any = true;
+        }
+        if (httpd_query_key_value(query, "grab", val, sizeof(val)) == ESP_OK) {
+            if (strcmp(val, "latest") == 0) {
+                grab = CAMERA_GRAB_LATEST;
+            } else if (strcmp(val, "cont") == 0) {
+                grab = CAMERA_GRAB_WHEN_EMPTY;
+            } else {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad grab (latest|cont)");
+                return ESP_FAIL;
+            }
+            any = true;
+        }
+        if (httpd_query_key_value(query, "fbloc", val, sizeof(val)) == ESP_OK) {
+            if (strcmp(val, "psram") == 0) {
+                loc = CAMERA_FB_IN_PSRAM;
+            } else if (strcmp(val, "dram") == 0) {
+                loc = CAMERA_FB_IN_DRAM;
+            } else {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad fbloc (psram|dram)");
+                return ESP_FAIL;
+            }
+            any = true;
+        }
+        if (any) {
+            esp_err_t aerr = camera_apply_config(fs, quality, xclk, fb, grab, loc);
+            if (aerr != ESP_OK) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "camera apply failed: %s",
+                         esp_err_to_name(aerr));
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, msg);
                 return ESP_FAIL;
             }
         }
@@ -152,6 +208,13 @@ static esp_err_t config_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "resolution", framesize_name(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "quality", camera_current_quality());
     cJSON_AddNumberToObject(root, "xclk_mhz", camera_current_xclk_mhz());
+    cJSON_AddNumberToObject(root, "fb_count", camera_current_fb_count());
+    cJSON_AddStringToObject(root, "grab_mode",
+                            camera_current_grab_mode() == CAMERA_GRAB_LATEST
+                                ? "latest" : "when_empty");
+    cJSON_AddStringToObject(root, "fb_location",
+                            camera_current_fb_location() == CAMERA_FB_IN_DRAM
+                                ? "dram" : "psram");
 
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

@@ -26,6 +26,8 @@
 #define CAM_DEFAULT_JPEG_QUALITY  12
 #define CAM_DEFAULT_XCLK_HZ       18000000
 #define CAM_DEFAULT_FB_COUNT      3
+#define CAM_DEFAULT_GRAB_MODE     CAMERA_GRAB_LATEST
+#define CAM_DEFAULT_FB_LOCATION   CAMERA_FB_IN_PSRAM
 
 bool camera_init(void);
 camera_fb_t *camera_fb_get(void);
@@ -34,9 +36,11 @@ framesize_t camera_current_framesize(void);
 int camera_current_quality(void);
 int camera_current_fb_count(void);
 int camera_current_xclk_mhz(void);
-bool camera_set_xclk(int mhz);
-bool camera_set_framesize(framesize_t fs);
-bool camera_set_quality(int quality);
+camera_grab_mode_t camera_current_grab_mode(void);
+camera_fb_location_t camera_current_fb_location(void);
+esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
+                              int fb_count, camera_grab_mode_t grab,
+                              camera_fb_location_t fb_location);
 
 bool wifi_start(const char *ssid, const char *password);
 int wifi_get_rssi(void);
