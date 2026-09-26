@@ -18,7 +18,10 @@ class MjpegClient : public QObject
     Q_PROPERTY(qint64 bytesReceived READ bytesReceived NOTIFY statsChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
     Q_PROPERTY(bool reconnecting READ isReconnecting NOTIFY reconnectingChanged)
+    Q_PROPERTY(bool connecting READ isConnecting NOTIFY connectingChanged)
     Q_PROPERTY(int retryAttempt READ retryAttempt NOTIFY retryAttemptChanged)
+    Q_PROPERTY(int noResponseStreak READ noResponseStreak NOTIFY noResponseStreakChanged)
+    Q_PROPERTY(QString recoveryHint READ recoveryHint NOTIFY recoveryHintChanged)
 
 public:
     explicit MjpegClient(QObject *parent = nullptr);
@@ -30,7 +33,10 @@ public:
     qint64 bytesReceived() const;
     QString errorString() const;
     bool isReconnecting() const;
+    bool isConnecting() const;
     int retryAttempt() const;
+    int noResponseStreak() const;
+    QString recoveryHint() const;
 
     Q_INVOKABLE void start(const QString &host, quint16 port);
     Q_INVOKABLE void stop();
@@ -40,13 +46,20 @@ signals:
     void statsChanged();
     void errorStringChanged();
     void reconnectingChanged();
+    void connectingChanged();
     void retryAttemptChanged();
+    void noResponseStreakChanged();
+    void recoveryHintChanged();
     void frameReady(const QImage &image);
+    void deviceRecoveryRequested(const QString &host, quint16 port);
 
 private:
     void setError(const QString &err);
     void setReconnecting(bool reconnecting);
+    void setConnecting(bool connecting);
     void setRetryAttempt(int attempt);
+    void setNoResponseStreak(int streak);
+    void setRecoveryHint(const QString &hint);
     void cancelRetry();
     void invokeStart();
 
@@ -62,5 +75,9 @@ private:
     quint16 m_port = 0;
     bool m_userConnected = false;
     bool m_reconnecting = false;
+    bool m_connecting = false;
     int m_retryAttempt = 0;
+    int m_noResponseStreak = 0;
+    int m_recoveriesTriggered = 0;
+    QString m_recoveryHint;
 };

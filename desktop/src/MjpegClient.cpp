@@ -1,5 +1,6 @@
 #include "MjpegClient.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QObject>
 #include <QTcpSocket>
@@ -11,6 +12,9 @@ constexpr qint64 kMaxBufferBytes = 8 * 1024 * 1024;
 const QByteArray kBoundary = "--FRAME";
 constexpr int kMaxRetries = 5;
 constexpr int kRetryDelayMs[kMaxRetries] = {500, 1000, 2000, 3000, 5000};
+constexpr int kFirstByteTimeoutMs = 6000;
+constexpr int kStallTimeoutMs = 8000;
+constexpr int kWatchdogIntervalMs = 500;
 } // namespace
 
 class MjpegWorker : public QObject
@@ -32,7 +36,12 @@ public slots:
     void start(const QString &host, quint16 port)
     {
         if (m_socket) {
-            return;
+            qDebug() << "[stream] replacing stale socket";
+            QTcpSocket *stale = m_socket;
+            m_socket = nullptr;
+            stale->disconnect(this);
+            stale->abort();
+            stale->deleteLater();
         }
         resetParser();
         m_error.clear();
@@ -43,8 +52,6 @@ public slots:
         const QString hostName = host;
         connect(m_socket, &QTcpSocket::connected, this, [this, hostName]() {
             qDebug() << "[stream] tcp connected";
-            m_active = true;
-            emit activeUpdated(true);
             const QByteArray req = "GET /stream HTTP/1.1\r\nHost: " + hostName.toUtf8()
                                    + "\r\nConnection: close\r\n\r\n";
             m_socket->write(req);
@@ -66,10 +73,12 @@ public slots:
         });
 
         m_socket->connectToHost(host, port);
+        armWatchdog();
     }
 
     void stop()
     {
+        stopWatchdog();
         if (m_socket) {
             qDebug() << "[stream] stop (local abort)";
             QTcpSocket *sock = m_socket;
@@ -106,8 +115,44 @@ private:
         m_raw.clear();
     }
 
+    void armWatchdog()
+    {
+        if (!m_watchdog) {
+            m_watchdog = new QTimer(this);
+            m_watchdog->setInterval(kWatchdogIntervalMs);
+            connect(m_watchdog, &QTimer::timeout, this, &MjpegWorker::checkLiveness);
+        }
+        m_hadData = false;
+        m_lastDataMs = QDateTime::currentMSecsSinceEpoch();
+        m_watchdog->start();
+    }
+
+    void stopWatchdog()
+    {
+        if (m_watchdog) {
+            m_watchdog->stop();
+        }
+    }
+
+    void checkLiveness()
+    {
+        if (!m_socket) {
+            return;
+        }
+        const qint64 idleMs = QDateTime::currentMSecsSinceEpoch() - m_lastDataMs;
+        if (!m_hadData) {
+            if (idleMs > kFirstByteTimeoutMs) {
+                fail(QStringLiteral("no response from camera %1 ms after connect")
+                         .arg(kFirstByteTimeoutMs));
+            }
+        } else if (idleMs > kStallTimeoutMs) {
+            fail(QStringLiteral("stream stalled: no data for %1 ms").arg(kStallTimeoutMs));
+        }
+    }
+
     void closeSocket()
     {
+        stopWatchdog();
         if (!m_socket) {
             return;
         }
@@ -119,6 +164,7 @@ private:
     void fail(const QString &reason)
     {
         qDebug() << "[stream] fail:" << reason;
+        stopWatchdog();
         m_error = reason;
         emit errorUpdated(reason);
         if (m_socket) {
@@ -141,6 +187,10 @@ private:
             return;
         }
         const QByteArray chunk = m_socket->readAll();
+        if (!chunk.isEmpty()) {
+            m_hadData = true;
+            m_lastDataMs = QDateTime::currentMSecsSinceEpoch();
+        }
         m_bytes += chunk.size();
         m_raw.append(chunk);
 
@@ -312,6 +362,10 @@ private:
             QImage image;
             if (image.loadFromData(payload, "JPG") && !image.isNull()) {
                 ++m_received;
+                if (!m_active) {
+                    m_active = true;
+                    emit activeUpdated(true);
+                }
                 emit frameReady(image);
             } else {
                 ++m_dropped;
@@ -323,6 +377,9 @@ private:
     }
 
     QTcpSocket *m_socket = nullptr;
+    QTimer *m_watchdog = nullptr;
+    qint64 m_lastDataMs = 0;
+    bool m_hadData = false;
     HttpState m_httpState = HttpState::RespHeaders;
     ParseState m_parseState = ParseState::Boundary;
     QByteArray m_raw;
@@ -359,8 +416,7 @@ MjpegClient::MjpegClient(QObject *parent)
             emit activeChanged();
         }
         if (active) {
-            setRetryAttempt(0);
-            setReconnecting(false);
+            setConnecting(false);
         }
     });
     connect(m_worker, &MjpegWorker::statsUpdated, this,
@@ -378,9 +434,19 @@ MjpegClient::MjpegClient(QObject *parent)
             setError(QString());
             return;
         }
+        const bool noResponse = err.startsWith(QStringLiteral("no response from camera"));
+        if (noResponse) {
+            setNoResponseStreak(m_noResponseStreak + 1);
+            if (m_noResponseStreak == 2 && m_recoveriesTriggered < 2) {
+                m_recoveriesTriggered++;
+                setRecoveryHint(QStringLiteral("camera not responding, asking device to re-init…"));
+                emit deviceRecoveryRequested(m_host, m_port);
+            }
+        }
         if (m_userConnected && m_retryAttempt < kMaxRetries) {
             const int attempt = m_retryAttempt + 1;
             setRetryAttempt(attempt);
+            setConnecting(true);
             setReconnecting(true);
             setError(QString());
             qDebug() << "[stream] retry" << attempt << "/" << kMaxRetries << "in"
@@ -388,10 +454,23 @@ MjpegClient::MjpegClient(QObject *parent)
             m_retryTimer->start(kRetryDelayMs[attempt - 1]);
             return;
         }
+        setConnecting(false);
         setReconnecting(false);
+        if (noResponse && m_recoveryHint.isEmpty()) {
+            setError(QStringLiteral("%1. The camera may be wedged - use Recover camera.")
+                         .arg(err));
+            return;
+        }
         setError(err);
     });
-    connect(m_worker, &MjpegWorker::frameReady, this, &MjpegClient::frameReady);
+    connect(m_worker, &MjpegWorker::frameReady, this, [this](const QImage &image) {
+        setRetryAttempt(0);
+        setConnecting(false);
+        setNoResponseStreak(0);
+        setReconnecting(false);
+        setRecoveryHint(QString());
+        emit frameReady(image);
+    });
 
     m_thread->start();
 }
@@ -437,9 +516,24 @@ bool MjpegClient::isReconnecting() const
     return m_reconnecting;
 }
 
+bool MjpegClient::isConnecting() const
+{
+    return m_connecting;
+}
+
 int MjpegClient::retryAttempt() const
 {
     return m_retryAttempt;
+}
+
+int MjpegClient::noResponseStreak() const
+{
+    return m_noResponseStreak;
+}
+
+QString MjpegClient::recoveryHint() const
+{
+    return m_recoveryHint;
 }
 
 void MjpegClient::setError(const QString &err)
@@ -455,6 +549,30 @@ void MjpegClient::setReconnecting(bool reconnecting)
     if (m_reconnecting != reconnecting) {
         m_reconnecting = reconnecting;
         emit reconnectingChanged();
+    }
+}
+
+void MjpegClient::setConnecting(bool connecting)
+{
+    if (m_connecting != connecting) {
+        m_connecting = connecting;
+        emit connectingChanged();
+    }
+}
+
+void MjpegClient::setNoResponseStreak(int streak)
+{
+    if (m_noResponseStreak != streak) {
+        m_noResponseStreak = streak;
+        emit noResponseStreakChanged();
+    }
+}
+
+void MjpegClient::setRecoveryHint(const QString &hint)
+{
+    if (m_recoveryHint != hint) {
+        m_recoveryHint = hint;
+        emit recoveryHintChanged();
     }
 }
 
@@ -491,6 +609,9 @@ void MjpegClient::start(const QString &host, quint16 port)
     cancelRetry();
     setRetryAttempt(0);
     setReconnecting(false);
+    setConnecting(true);
+    setNoResponseStreak(0);
+    setRecoveryHint(QString());
     setError(QString());
     invokeStart();
 }
@@ -500,7 +621,10 @@ void MjpegClient::stop()
     m_userConnected = false;
     cancelRetry();
     setReconnecting(false);
+    setConnecting(false);
     setRetryAttempt(0);
+    setNoResponseStreak(0);
+    setRecoveryHint(QString());
     QMetaObject::invokeMethod(m_worker, "stop", Qt::QueuedConnection);
 }
 

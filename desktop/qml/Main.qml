@@ -12,9 +12,10 @@ ApplicationWindow {
     title: "Sorting Camera"
 
     function toggleConnection() {
-        if (stream.active) {
+        if (stream.active || stream.connecting || stream.reconnecting) {
             console.log("[qml] disconnect")
             stream.stop()
+            deviceStatus.stopPolling()
         } else {
             console.log("[qml] connect", hostField.text)
             stream.start(hostField.text, 81)
@@ -61,8 +62,18 @@ ApplicationWindow {
             }
 
             Button {
-                text: stream.active ? "Disconnect" : "Connect"
+                text: stream.active ? "Disconnect"
+                     : stream.reconnecting ? "Cancel (" + stream.retryAttempt + "/5)"
+                     : stream.connecting ? "Connecting…" : "Connect"
                 onClicked: root.toggleConnection()
+            }
+
+            Button {
+                text: "Recover camera"
+                visible: deviceStatus.online && !stream.active
+                onClicked: deviceStatus.requestCameraRecovery()
+                ToolTip.visible: hovered
+                ToolTip.text: "Re-initialise the camera (fixes a wedged sensor)"
             }
         }
     }
@@ -199,7 +210,8 @@ ApplicationWindow {
                         Layout.preferredHeight: 40
                         model: resModel
                         textRole: "label"
-                        enabled: deviceStatus.online && !stream.active && !deviceStatus.configBusy
+                        enabled: deviceStatus.online && !stream.active && !stream.connecting
+                                 && !stream.reconnecting && !deviceStatus.configBusy
 
                         function syncFromStatus() {
                             const r = deviceStatus.status["resolution"]
@@ -230,6 +242,8 @@ ApplicationWindow {
                     Label {
                         Layout.fillWidth: true
                         text: "JPEG quality: " + Math.round(qualitySlider.value)
+                              + (deviceStatus.status["quality_floor"] !== undefined
+                                 ? "  (device floor " + deviceStatus.status["quality_floor"] + ")" : "")
                         color: "#8b949e"
                         font.pixelSize: 12
                     }
@@ -238,10 +252,12 @@ ApplicationWindow {
                         id: qualitySlider
                         Layout.fillWidth: true
                         Layout.preferredHeight: 36
-                        from: 0
+                        from: deviceStatus.status["quality_floor"] !== undefined
+                              ? deviceStatus.status["quality_floor"] : 0
                         to: 63
                         stepSize: 1
-                        enabled: deviceStatus.online && !stream.active && !deviceStatus.configBusy
+                        enabled: deviceStatus.online && !stream.active && !stream.connecting
+                                 && !stream.reconnecting && !deviceStatus.configBusy
 
                         function syncFromStatus() {
                             const q = deviceStatus.status["quality"]
@@ -249,7 +265,20 @@ ApplicationWindow {
                                 value = q
                         }
 
-                        onMoved: deviceStatus.setQuality(Math.round(value))
+                        onMoved: qualityDebounce.restart()
+                        onPressedChanged: {
+                            if (!pressed)
+                                qualityDebounce.restart()
+                        }
+
+                        Timer {
+                            id: qualityDebounce
+                            interval: 400
+                            onTriggered: {
+                                if (!qualitySlider.pressed)
+                                    deviceStatus.setQuality(Math.round(qualitySlider.value))
+                            }
+                        }
                     }
 
                     Label {
@@ -290,7 +319,9 @@ ApplicationWindow {
         Label {
             anchors.centerIn: parent
             visible: frameImage.status !== Image.Ready || frameBus.version === 0
-            text: stream.reconnecting ? "Reconnecting…"
+            text: stream.recoveryHint.length > 0 ? stream.recoveryHint
+                : stream.reconnecting ? "Reconnecting…"
+                : stream.connecting ? "Connecting…"
                 : stream.active ? "Waiting for frames…"
                 : "Enter camera IP and press Connect"
             color: "#6b7684"
@@ -303,6 +334,19 @@ ApplicationWindow {
             anchors.margins: 14
             visible: stream.reconnecting
             text: "reconnecting… (" + stream.retryAttempt + "/5)"
+            color: "#d29922"
+            font.pixelSize: 12
+            font.family: "Consolas"
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.margins: 14
+            visible: deviceStatus.online
+                 && deviceStatus.status["camera_recoveries"] !== undefined
+                 && deviceStatus.status["camera_recoveries"] > 0
+            text: "camera recoveries: " + deviceStatus.status["camera_recoveries"]
             color: "#d29922"
             font.pixelSize: 12
             font.family: "Consolas"

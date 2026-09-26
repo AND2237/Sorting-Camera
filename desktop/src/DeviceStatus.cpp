@@ -1,10 +1,13 @@
 #include "DeviceStatus.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QStringList>
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
@@ -12,6 +15,7 @@
 namespace {
 constexpr int kPollIntervalMs = 1000;
 constexpr int kRequestTimeoutMs = 3000;
+constexpr int kDeviceFreeWaitMs = 8000;
 } // namespace
 
 class DeviceStatusWorker : public QObject
@@ -226,6 +230,7 @@ DeviceStatus::DeviceStatus(QObject *parent)
     connect(m_worker, &DeviceStatusWorker::statusUpdated, this, [this](const QJsonObject &status) {
         m_status = status;
         emit statusChanged();
+        trySendPendingConfig();
     });
     connect(m_worker, &DeviceStatusWorker::onlineUpdated, this, [this](bool online) {
         if (m_online != online) {
@@ -320,6 +325,26 @@ void DeviceStatus::setQuality(int quality)
     setConfigQuery(QStringLiteral("quality=%1").arg(qBound(0, quality, 63)));
 }
 
+void DeviceStatus::requestCameraRecovery()
+{
+    const QString fs = m_status.value(QStringLiteral("resolution")).toString();
+    static const QStringList keys = {
+        QStringLiteral("qqvga"), QStringLiteral("qvga"), QStringLiteral("vga"),
+        QStringLiteral("svga"), QStringLiteral("xga"), QStringLiteral("hd"),
+        QStringLiteral("sxga"), QStringLiteral("uxga")};
+    const QMap<QString, QString> bySize = {
+        {QStringLiteral("160x120"), keys.value(0)}, {QStringLiteral("320x240"), keys.value(1)},
+        {QStringLiteral("640x480"), keys.value(2)}, {QStringLiteral("800x600"), keys.value(3)},
+        {QStringLiteral("1024x768"), keys.value(4)}, {QStringLiteral("1280x720"), keys.value(5)},
+        {QStringLiteral("1280x1024"), keys.value(6)}, {QStringLiteral("1600x1200"), keys.value(7)}};
+    QString key = bySize.value(fs, QString());
+    if (key.isEmpty()) {
+        key = QStringLiteral("hd");
+    }
+    qDebug() << "[config] requesting camera re-init at" << key;
+    setConfigQuery(QStringLiteral("framesize=%1").arg(key));
+}
+
 void DeviceStatus::setConfigQuery(const QString &query)
 {
     if (m_host.isEmpty()) {
@@ -338,6 +363,32 @@ void DeviceStatus::setConfigQuery(const QString &query)
         m_configError.clear();
         emit configErrorChanged();
     }
+    m_pendingQuery = query;
+    m_waitDeadline = QDateTime::currentDateTime().addSecs(kDeviceFreeWaitMs);
+    m_waitingForDevice = true;
+    QMetaObject::invokeMethod(m_worker, "startPolling",
+                              Qt::BlockingQueuedConnection,
+                              Q_ARG(QString, m_host), Q_ARG(quint16, m_port));
+    QTimer::singleShot(0, this, [this]() { this->trySendPendingConfig(); });
+}
+
+void DeviceStatus::trySendPendingConfig()
+{
+    if (!m_waitingForDevice || m_pendingQuery.isEmpty()) {
+        return;
+    }
+    const QJsonObject st = m_status;
+    const int clients = st.value(QStringLiteral("stream_clients")).toInt(0);
+    if (clients > 0) {
+        if (QDateTime::currentDateTime() < m_waitDeadline) {
+            QTimer::singleShot(250, this, [this]() { this->trySendPendingConfig(); });
+            return;
+        }
+        qDebug("[config] device still reports %d stream client(s), sending anyway", clients);
+    }
+    const QString query = m_pendingQuery;
+    m_pendingQuery.clear();
+    m_waitingForDevice = false;
     QMetaObject::invokeMethod(m_worker, "setConfig", Qt::QueuedConnection,
                               Q_ARG(QString, m_host), Q_ARG(quint16, m_port),
                               Q_ARG(QString, query));

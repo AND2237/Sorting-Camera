@@ -17,14 +17,19 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
     FrameBus frameBus;
+    MjpegClient stream;
+    DeviceStatus deviceStatus;
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("frame"), new FrameImageProvider(&frameBus));
 
-    MjpegClient stream;
-    DeviceStatus deviceStatus;
-
     QObject::connect(&stream, &MjpegClient::frameReady, &frameBus, &FrameBus::setFrame);
+    QObject::connect(&stream, &MjpegClient::deviceRecoveryRequested, &deviceStatus,
+                     [&deviceStatus](const QString &host, quint16) {
+                         deviceStatus.startPolling(host, 80);
+                         deviceStatus.requestCameraRecovery();
+                     },
+                     Qt::QueuedConnection);
 
     engine.rootContext()->setContextProperty(QStringLiteral("frameBus"), &frameBus);
     engine.rootContext()->setContextProperty(QStringLiteral("stream"), &stream);

@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 
+class QDateTime;
 class QThread;
 
 class DeviceStatusWorker;
@@ -31,6 +32,7 @@ public:
     Q_INVOKABLE void stopPolling();
     Q_INVOKABLE void setResolution(const QString &framesizeKey);
     Q_INVOKABLE void setQuality(int quality);
+    Q_INVOKABLE void requestCameraRecovery();
 
 signals:
     void onlineChanged();
@@ -41,6 +43,7 @@ signals:
 
 private:
     void setConfigQuery(const QString &query);
+    void trySendPendingConfig();
 
     QThread *m_thread;
     DeviceStatusWorker *m_worker;
@@ -51,4 +54,7 @@ private:
     bool m_configBusy = false;
     QString m_host;
     quint16 m_port = 0;
+    QString m_pendingQuery;
+    QDateTime m_waitDeadline;
+    bool m_waitingForDevice = false;
 };
