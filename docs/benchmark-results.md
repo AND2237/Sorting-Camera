@@ -41,6 +41,7 @@ control server (no panic, no reboot) — config changes must be issued with
 | P3-B-http | 2026-09-25 | `6444e6d-dirty` | harness | HTTP MJPEG :81 | 1280×720 | 12 | 3 / latest / 18 MHz | same | 10 s + 120 s | 1217 frames, 11.1 fps, 0 drops |
 | P3-B-tcp | 2026-09-25 | `6444e6d-dirty` | harness | TCP framed :82 | 1280×720 | 12 | 3 / latest / 18 MHz | same | 10 s + 120 s | 979 frames, 8.9 fps, 0 drops |
 | P3-B-udp | 2026-09-25 | `6444e6d-dirty` | harness | UDP packetized :8500 | 1280×720 | 12 | 3 / latest / 18 MHz | same | 10 s + 120 s | 1209 frames, 11.0 fps, 34 incomplete frames |
+| P4-matrix | 2026-09-26 | `741eeb8-dirty` | harness (`phase4_matrix.py`) | HTTP MJPEG :81 | 7 res × 4 qual + fb/grab cross + 130 s confirms | 4–36 | 1–3 / latest+cont / 18 MHz | softAP ch1, RSSI −33…−36, i3-1215U/AX201 | 28 × 55 s + 12 × 55 s + 11 × 130 s | envelope+cross+confirm complete; 6-point ladder; 1 dead cell (qvga/q4 fb-overflow) |
 
 Raw JSON per run: `benchmarks/results/phase3-20260925-*.json`
 (multi-client probe: `benchmarks/results/phase3-multi-client.json`).
@@ -143,9 +144,110 @@ Raw JSON per run: `benchmarks/results/phase3-20260925-*.json`
   produced garbage "headers" — session-length stalls were client artifacts; the
   harness's persistent-buffer parser was unaffected.
 
-## Phase 4 — camera matrix
+## Phase 4 — camera matrix (2026-09-26)
 
-(Full resolution × quality × buffer grid; operating-point ladder result.)
+- **Method:** `benchmarks/phase4_matrix.py` (HTTP MJPEG receive-only + `/api/v1/status`
+  polled at 1 Hz), three stages per `benchmark-plan.md`: **envelope** (7 resolutions ×
+  4 qualities = 28 cells at baseline fb3/latest/psram/xclk 18 MHz, 55 s + 10 s warm-up),
+  **fbgrab** (fb_count 1–3 × grab latest/cont × fbloc psram/dram = 12 cells at the
+  boundary point, 55 s + 10 s), **confirm** (ladder candidates + first failing point,
+  130 s = 120 s measured + 10 s warm-up). XCLK 18 MHz throughout (Phase 2 clean clock).
+- **Environment:** same softAP/PC as Phase 3 (RSSI −33…−36 dBm); **daylight session** —
+  scene detail changes JPEG sizes at a fixed quality, see drift note below.
+- **Raw data:** `benchmarks/results/phase4-20260925-fixed.jsonl` (one removed entry
+  archived in `…fixed.removed.jsonl`, see incidents). Firmware `741eeb8-dirty`
+  (Phase 4 config API: `fb_count`/`grab`/`fbloc` params, atomic apply + rollback,
+  on-demand sensor recovery; status adds `grab_mode`, `fb_location`, `reset_reason`).
+
+### Envelope (fb3 / latest / psram / xclk 18 MHz, 55 s per cell)
+
+Mean delivered FPS; ≥15 floor (plan) marked ✓:
+
+| Resolution | q4 (highest) | q12 (high) | q24 (balanced) | q36 (performance) |
+|---|---|---|---|---|
+| UXGA 1600×1200 | 1.04 | 3.82 | 7.45 | 9.81 |
+| SXGA 1280×1024 | 2.85 | 6.39 | 11.22 | 11.26 |
+| HD 1280×720 | 4.05 | 8.96 | 11.25 | 11.18 |
+| XGA 1024×768 | 4.90 | 11.25 | 11.13 | 11.25 |
+| SVGA 800×600 | 7.71 | **19.65 ✓** | **22.50 ✓** | **22.51 ✓** |
+| VGA 640×480 | 12.92 | **22.49 ✓** | **22.50 ✓** | **22.03 ✓** |
+| QVGA 320×240 | **24.20 ✓** | **44.95 ✓** | **45.00 ✓** | **45.01 ✓** |
+
+- SXGA/HD/XGA plateau at ~11.2 fps regardless of quality — softAP/Wi-Fi byte-rate
+  cap at those sizes, not sensor or encode limits.
+- Boundary point derived by the harness: **svga/q12** (largest pixels meeting the
+  ≥15 floor at the highest quality).
+
+### fb_count × grab × fbloc cross (at svga/q12, 55 s each)
+
+| Config | FPS | p50 bytes |
+|---|---|---|
+| fb1 / latest / psram | 7.32 | 27847 |
+| fb1 / cont / psram | 7.61 | 25800 |
+| **fb2 / latest / psram** | **15.91** | 28089 |
+| fb2 / cont / psram | 14.37 | 28208 |
+| fb3 / latest / psram | 11.44 | 34619 |
+| fb3 / cont / psram | 11.37 | 35663 |
+
+- Winner: **fb2 / latest / psram** — fb1 starves the grab path (~7 fps), fb3 adds
+  transport latency/overhead (~11 fps); cont-grab is consistently slightly slower
+  than latest.
+- **DRAM fbloc is infeasible at SVGA and above** (96000 B/buffer > largest internal
+  RAM block): recorded as `ESP_ERR_NO_MEM` rejections; DRAM fbloc remains usable at
+  QVGA (320×240 → 15360 B/buffer, measured working).
+
+### Confirm ladder (fb2 / latest / psram / xclk 18 MHz, 130 s per point)
+
+Ordered best-quality-first operating points meeting the ≥15 fps floor:
+
+| # | Config | FPS mean | FPS p50/s | p50 bytes | p95 interval | ≥20 |
+|---|---|---|---|---|---|---|
+| 1 | svga/q36 | 16.34 | 16 | 18275 | 103.45 ms | no |
+| 2 | vga/q24 | 18.97 | 19 | 14680 | 94.22 ms | no |
+| 3 | vga/q36 | 19.21 | 20 | 12294 | 93.46 ms | no |
+| 4 | qvga/q12 | 42.00 | 42 | 8086 | 40.79 ms | yes |
+| 5 | qvga/q24 | 44.61 | 45 | 5095 | 36.62 ms | yes |
+| 6 | qvga/q36 | 44.93 | 45 | 4069 | 40.24 ms | yes |
+
+Below the floor (measured, excluded from ladder): svga/q12 9.95, svga/q24 14.37,
+vga/q12 14.87, uxga/q4 2.16 (fb2), qvga/q4 = dead cell (see incidents).
+
+**Same-point drift (honesty note):** svga/q12/fb2/latest measured 19.65 (envelope,
+55 s), 15.91 (fbgrab, 55 s), 9.95 (confirm, 130 s) across the session — p50 frame
+size grew 28089 → 36379 B as the daylight scene changed, i.e. absolute FPS at a
+fixed quality is scene-dependent; ladder *ordering* holds within each stage but
+per-point values carry this uncertainty.
+
+### Findings & incidents (recorded, not hidden)
+
+- **QVGA@q4 fb-overflow:** the JPEG frame buffer for QVGA is 15360 B
+  (`w*h/5`, `CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE_AUTO=y`); q4 frames on a detailed
+  daylight scene sit right at the cap → `cam_hal: FB-OVF` storm (frame drops in the
+  ISR path). In confirm it collapsed delivery to 0.51 fps (first run, full 130 s,
+  no reboot) and then stalled >15 s → **stall-watchdog reboot** (second run,
+  recorded `dead=True`, `events=['reboot','stall']`, serial:
+  `stream stalled for 15503 ms with active client, restarting`). QVGA q12–q36
+  (4–8 KB frames) are unaffected (42–45 fps). QVGA@q4 is therefore **not a
+  usable operating point on detailed scenes**.
+- **14 brownout reboots (run 4, hardware):** serial showed
+  `E BOD: Brownout detector was triggered` ×14 between confirm cells, which
+  invalidated run 4's cells 8–11 (`wait_idle` timed out against a rebooting
+  device; misreported as "stream client busy"). No firmware fault — supply-voltage
+  dips on the USB/serial path; the loop stopped by itself and all 5 cells were
+  re-run cleanly in run 5. **Action: check cable/port/power before Phase 5 soaks.**
+- **SCCB wedge → on-demand recovery (root-caused + fixed):** repeated
+  deinit/init cycles (DRAM-fail churn) locked the SCCB bus; probe returned
+  `ESP_ERR_NOT_SUPPORTED` and the camera reported `no sensor` until a power
+  cycle. Fixed in firmware: PWDN power-cycle + 9-clock bus recovery before every
+  init, 3 escalating retry rounds for probe-type errors, atomic apply with
+  rollback, and the config endpoint now self-repairs a dead camera instead of
+  returning 500. DRAM-infeasible configs are rejected **before** touching the
+  camera (`ESP_ERR_NO_MEM` pre-check) so they cannot churn the bus. Harness
+  recovery (`recover_dead_camera`) verifies health by snapshot instead of
+  assuming a reboot happened. Zero wedges in run 5.
+- **DRAM fbloc at SVGA+** fails at `frame buffer malloc failed` inside the driver
+  when no pre-check existed; now rejected cleanly with rollback proven intact
+  (`camera apply failed (ESP_FAIL), rollback ok` records kept).
 
 ## Phase 5 — optimization deltas
 

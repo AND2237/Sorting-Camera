@@ -12,7 +12,7 @@ _Status: targets defined; numbers pending Phase 3/4 measurement._
 ## Known physical constraints (external references, not our results)
 
 - OV2640 datasheet (OmniVision): max array rate **UXGA @ 15 fps**, SVGA @ 30 fps — sensor ceiling before any ESP32/Wi-Fi overhead.
-- Peer ESP32-CAM HTTP streaming study (arXiv 2505.24081, reference only): ~14 fps VGA, ~8 fps 800×600, ~3.4 fps 1024×768, ~2 fps 720p, ~1.3 fps UXGA on stock-style setup. Indicates **UXGA end-to-end ≥15 fps is unlikely on classic ESP32**; adaptive fallback to SVGA/XGA-class resolutions will probably be required. Our own Phase 4 matrix decides the real ladder — no assumptions.
+- Peer ESP32-CAM HTTP streaming study (arXiv 2505.24081, reference only): ~14 fps VGA, ~8 fps 800×600, ~3.4 fps 1024×768, ~2 fps 720p, ~1.3 fps UXGA on stock-style setup. Indicates **UXGA end-to-end ≥15 fps is unlikely on classic ESP32**; adaptive fallback to SVGA/XGA-class resolutions will probably be required. Our Phase 4 matrix confirmed this - UXGA failed the floor at every quality; the measured ladder is in docs/benchmark-results.md (Phase 4 section) and docs/decisions/0008-camera-operating-ladder.md.
 
 ## Where the bottleneck can live
 

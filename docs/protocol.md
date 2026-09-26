@@ -10,10 +10,10 @@ Endpoints (initial):
 
 | Method/path | Purpose |
 |---|---|
-| `GET /api/v1/status` | device info, camera state, metrics snapshot (rate-limited fields ok) |
+| `GET /api/v1/status` | device info, camera state, metrics snapshot (rate-limited fields ok). Camera-state fields include `resolution`, `quality`, `fb_count`, `grab_mode`, `fb_location`, `reset_reason` (`esp_reset_reason()`), stream/TCP/UDP client counters. |
 | `POST /api/v1/auth/login` | challenge/response → session token |
 | `POST /api/v1/auth/logout` | invalidate token |
-| `GET/PUT /api/v1/config` | resolution, JPEG quality, sensor controls (only controls the driver reports as supported). Implemented as `GET /api/v1/config[?framesize=&quality=&xclk=]`: bare GET returns current state; with params it applies them and returns the new state. Returns **409 Conflict** if any param is sent while a stream client is connected (config changes require stream disconnect — live change wedged the control server, see benchmark-results). |
+| `GET/PUT /api/v1/config` | resolution, JPEG quality, transport/camera tuning. Implemented as `GET /api/v1/config[?framesize=&quality=&xclk=&fb_count=&grab=&fbloc=]`: bare GET returns current state; with params it applies them and returns the new state (`fb_count` 1–3, `grab` `latest|cont`, `fbloc` `psram|dram`, `xclk` 6–27 MHz). Apply is atomic: validate all params first, then a single deinit/init with rollback to the previous config on failure. Returns **409 Conflict** if any param is sent while a stream client is connected (config changes require stream disconnect — live change wedged the control server, see benchmark-results). Returns **400** with `camera apply failed: <esp_err_name>` on driver failure — including `ESP_ERR_NO_MEM`, which is the firmware's pre-check rejecting an infeasible DRAM frame-buffer request (largest internal block < `w*h/5` per buffer) before touching the camera. **Self-repair:** applying a config re-runs sensor power-cycle + SCCB bus recovery if the camera is down (a dead sensor no longer returns 500 `no sensor`; the config endpoint is the recovery path). |
 | `GET /api/v1/capabilities` | supported resolutions, control ranges, fw/protocol versions |
 
 ## Video plane candidates
