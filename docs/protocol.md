@@ -10,7 +10,7 @@ Endpoints (initial):
 
 | Method/path | Purpose |
 |---|---|
-| `GET /api/v1/status` | device info, camera state, metrics snapshot (rate-limited fields ok). Camera-state fields include `resolution`, `quality`, `fb_count`, `grab_mode`, `fb_location`, `reset_reason` (`esp_reset_reason()`), stream/TCP/UDP client counters. |
+| `GET /api/v1/status` | device info, camera state, metrics snapshot (rate-limited fields ok). Camera-state fields include `resolution`, `quality`, `fb_count`, `grab_mode`, `fb_location`, `reset_reason` (`esp_reset_reason()`), `stream_clients`, `camera_up`, `camera_recoveries`, `frame_budget_bytes`, `quality_floor`, stream/TCP/UDP client counters. |
 | `POST /api/v1/auth/login` | challenge/response → session token |
 | `POST /api/v1/auth/logout` | invalidate token |
 | `GET/PUT /api/v1/config` | resolution, JPEG quality, transport/camera tuning. Implemented as `GET /api/v1/config[?framesize=&quality=&xclk=&fb_count=&grab=&fbloc=]`: bare GET returns current state; with params it applies them and returns the new state (`fb_count` 1–3, `grab` `latest|cont`, `fbloc` `psram|dram`, `xclk` 6–27 MHz). Apply is atomic: validate all params first, then a single deinit/init with rollback to the previous config on failure. Returns **409 Conflict** if any param is sent while a stream client is connected (config changes require stream disconnect — live change wedged the control server, see benchmark-results). Returns **400** with `camera apply failed: <esp_err_name>` on driver failure — including `ESP_ERR_NO_MEM`, which is the firmware's pre-check rejecting an infeasible DRAM frame-buffer request (largest internal block < `w*h/5` per buffer) before touching the camera. **Self-repair:** applying a config re-runs sensor power-cycle + SCCB bus recovery if the camera is down (a dead sensor no longer returns 500 `no sensor`; the config endpoint is the recovery path). |
@@ -72,3 +72,35 @@ Tradeoffs to measure: CPU on ESP32, loss behavior on the direct AP link, multi-c
 ## Freshness policy (all transports)
 
 Latest-complete-frame-wins end to end: if decode/render falls behind, older frames are dropped and counted (`frames_dropped`), never queued without bound (req. §8).
+
+## Frame budget and quality floor (normative)
+
+The OV2640's JPEG size is chosen by the sensor and depends on **scene content**, not only on the quality setting. If a frame exceeds the driver's frame buffer the camera enters `cam_hal: FB-OVF` and stops producing usable frames — a state that, before ADR-0009, could only be cleared by a power cycle. The firmware therefore treats the frame buffer as a hard budget:
+
+- `frame_budget_bytes` (262,144) comes from `CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE`. The driver's AUTO mode (`width*height/5`) is **not** used: it left only 1–29% headroom at quality 4 and overflowed below it.
+- `quality_floor` is the lowest quality measured to fit the budget with margin on this hardware. `/api/v1/config` **rejects** anything below it with **400** and an explicit message; the app clamps its slider to the same value.
+- Measured floors (10 s streams, 44–144 frames/cell, `benchmarks/results/qfloor-20260926.json`):
+
+| resolution | floor | max frame measured at floor | margin |
+|---|---|---|---|
+| QQVGA / QVGA | q0 | 59,976 B (QVGA q0) | 4.4x |
+| VGA | q2 | 105,952 B | 2.5x |
+| SVGA | q2 | 155,955 B | 1.7x |
+| XGA | q6 | 143,673 B | 1.8x |
+| HD | q6 | 167,811 B | 1.6x |
+| SXGA | q8 | 201,317 B | 1.3x |
+| UXGA | q16 | 98,587 B | 2.7x |
+
+- **The residual risk is stated, not hidden:** verification runs observed up to ~2x the 10 s maximum for the same cell (UXGA q12 measured 128,659 B, later 259,471 B = 99% of budget). Floors that showed <2x margin under that variation were raised (UXGA q12 → q16). A sufficiently complex scene can still overflow; the handler then recovers automatically and the stream resumes, and a frame at >=90% of budget is logged as a warning.
+- Quality has a large frame-rate cost (sensor-side JPEG encoding): 1.5–10 fps at the floors versus 19–45 fps at q12–q36. The throughput ladder is unchanged (ADR-0008).
+
+## HTTP transport behaviour (observed, normative for clients)
+
+Verified against firmware `0.1.0` / proto v1 on 2026-09-26.
+
+- **`Connection: close` is not honoured.** `esp_http_server` keeps the session open after a complete response and only closes it on idle timeout (control server: `recv_wait_timeout=2` s) or LRU purge. Clients **must** frame responses by `Content-Length` (all control endpoints send it) and must not wait for EOF. A client that reads until close will always see a spurious timeout even though the response arrived complete. Only the 404 path and the MJPEG stream end with a close.
+- **MJPEG framing:** `Transfer-Encoding: chunked` with `Content-Length` per part. The stream ends only when the client goes away or the camera fails the frame; there is no terminal zero-length chunk.
+- **Reconnect contract (desktop client, `MjpegClient`):** up to 5 attempts with 0.5/1/2/3/5 s backoff, then the attempt counter resets only when a **frame is actually decoded** — a TCP connect is not success. Two watchdogs bound every attempt: no bytes within 6 s of connect ⇒ `no response from camera`, and no data for 8 s while streaming ⇒ `stream stalled`. The UI's connected state follows the first decoded frame, not the TCP handshake, so a failing device can never masquerade as a live stream or hold the Connect button hostage. After two consecutive `no response` failures the client asks the device to re-initialise the camera through `/api/v1/config` (the self-repair path) before continuing the ladder.
+- The stream handler is one client per handler invocation; a second concurrent connection triggers ESP-IDF's LRU purge of the older session. One viewer per device is the supported configuration.
+- **Config while streaming is rejected with 409** (see control plane). Changing resolution or quality requires an explicit disconnect first; the app stops the stream *and* the status polling, then waits (up to 8 s) for the device to report `stream_clients == 0` before sending the config, so a dying handler no longer causes a 409 loop.
+

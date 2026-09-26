@@ -29,6 +29,41 @@ Modules (each a small cohesive unit under `firmware/esp32_cam_stream/main/`):
 
 Pipeline: OV2640 JPEG → PSRAM fb → (optional early send during DMA where measurable) → transport. No RGB/YUV conversion on device. No recording/transcoding on device.
 
+### Socket budget (hard limit)
+
+Every lwIP socket the firmware opens comes out of one pool (`CONFIG_LWIP_MAX_SOCKETS`). `esp_http_server` needs `max_open_sockets + 3` sockets **per instance** (listen + ctrl socket + 1 reserved), so the floor is structural, not empirical:
+
+| Consumer | Sockets |
+|---|---|
+| control httpd (port 80, `max_open_sockets=4`) | 7 |
+| stream httpd (port 81, `max_open_sockets=2`) | 5 |
+| raw TCP/UDP frame transport (`CONFIG_SORTING_CAM_FRAME_TRANSPORT`, default **off**) | 2 |
+| worst case with transport enabled | 14 |
+| `CONFIG_LWIP_MAX_SOCKETS` | **16** |
+
+Consequences that are now enforced by review, not luck:
+
+- The pool must exceed the worst case with headroom. Undersizing it does not degrade gracefully: `accept()` starts failing with `ENFILE` (errno 23), the listen socket stays readable, and the httpd task busy-spins at 100% CPU while new connections rot in the backlog — clients see the connection closed or stalled, and the extra CPU load shows up as brownout risk on USB power.
+- Anything that permanently holds a socket (the raw transport) must be opt-in. It is off by default because no shipped client uses it.
+- Churn matters: rapid connect/abort cycles were what pushed the pool to exhaustion. `CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT` is 5 s (default 20 s) so closed sessions release their PCB quickly, and the control server uses `recv_wait_timeout=2` so idle keep-alive sessions are dropped fast.
+- Verified 2026-09-26 after the fix: 20 rapid connect/abort cycles plus interleaved config changes and status polling produced zero `error in accept` entries, and every session streamed.
+
+## Camera failure model and recovery
+
+Three independent recovery layers, because a wedged OV2640 is otherwise a brick that only a power cycle clears:
+
+| Layer | Trigger | Action | Cost to the viewer |
+|---|---|---|---|
+| Frame-budget guard | config with quality below the measured floor | **400**, nothing is touched | none — request refused |
+| Capture recovery (stream/snapshot handler) | `camera_fb_get()` returns NULL (driver frame timeout, e.g. after an overflow) | `camera_recover()`: deinit → PWDN power-cycle → SCCB bus recovery → init; up to 2 attempts, then the client is closed | the stream pauses ~1–5 s and resumes on the same connection |
+| Watchdogs (`app_main.c`) | delivery stalled 15 s with a client attached, or no frame captured for 30 s with a client attached | `camera_recover()`; `esp_restart()` only if recovery itself fails | stream resumes, or a reboot if the sensor is unrecoverable |
+
+Design constraints this imposes:
+
+- **The stream handler must never block indefinitely.** It runs inside the single-threaded stream httpd task, so anything that waits there stops *all* new stream connections. Capture failures therefore recover immediately instead of retrying 50 times (which cost ~225 s and, in the field, looked exactly like "the camera stopped working").
+- The camera mutex is held across a frame's whole lifetime (`camera_fb_get` takes it, `camera_fb_return` releases it) so a config apply cannot `esp_camera_deinit()` underneath a frame in flight. Every caller must return every frame or the whole camera wedges.
+- The operating point (framesize, quality, fb_count, grab mode, fb location, xclk) is persisted in NVS (`camcfg`/`v1`, CRC-checked) and restored before the first driver init, so a watchdog reboot returns to the user's chosen settings instead of silently reverting to the compiled defaults.
+
 ## Desktop architecture (Qt 6.11, LGPL modules)
 
 | Layer | Types | Thread |

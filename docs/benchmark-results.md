@@ -249,6 +249,77 @@ per-point values carry this uncertainty.
   when no pre-check existed; now rejected cleanly with rollback proven intact
   (`camera apply failed (ESP_FAIL), rollback ok` records kept).
 
+## Phase 4b — viewer reconnect failure: root cause and fix (2026-09-26)
+
+Symptom: connect → disconnect → change resolution → connect would fail after 2–3
+cycles with "no response from camera" and endless `409 stream active`.
+
+### Root cause (all items measured, none inferred)
+
+1. **Frame-buffer overflow (primary).** The driver sized JPEG buffers at
+   `w*h/5` (AUTO), which the Phase-4 data already showed to be 71–99% full at
+   quality 4. At the quality the viewer was using (SVGA, **q2**) a detailed scene
+   exceeds it → `cam_hal: FB-OVF` storm, then `esp_camera_fb_get()` returns only
+   NULL after its ~4.5 s timeout, forever. Serial during the failing session:
+   hundreds of `FB-OVF` lines and `Failed to get frame: timeout` every ~4.5 s
+   with `frames_captured` frozen.
+2. **225 s handler lockup.** `consecutive_fails > 50` × 4.5 s kept the
+   single-threaded stream httpd task inside one handler, so no new connection was
+   served and `stream_clients` never returned to 0 → every config got 409.
+3. **Watchdog blind spot.** `stall_watchdog_task` only ran while a client was
+   attached; once the viewer gave up, the broken camera stayed broken and the
+   next connect could never succeed.
+4. **Reinit storm.** Every config change, including each quality-slider movement,
+   did a full deinit/init.
+5. Socket-pool exhaustion (`accept (23)` = ENFILE, 14 sockets needed vs
+   `CONFIG_LWIP_MAX_SOCKETS=10`) — fixed earlier the same day by raising the pool
+   to 16, gating the unused raw transport behind
+   `CONFIG_SORTING_CAM_FRAME_TRANSPORT` (default off) and shortening
+   `TCP_FIN_WAIT_TIMEOUT` to 5 s.
+
+### Quality-floor calibration (new measurements)
+
+10 s streams, 44–144 frames per cell, per-part `Content-Length` parsed for the
+frame maximum; data in `benchmarks/results/qlow-20260926.json` and
+`qfloor-20260926.json`.
+
+| res | floor | max frame at floor | fill of 256 KiB budget | fps at floor |
+|---|---|---|---|---|
+| QVGA | q0 | 59,976 B | 23% | 10.3 |
+| VGA | q2 | 105,952 B | 40% | 6.0 |
+| SVGA | q2 | 155,955 B | 57–60% | 1.5–5.5 |
+| XGA | q6 | 143,673 B | 55–57% | 5.0–6.2 |
+| HD | q6 | 167,811 B | 64–70% | 3.5–4.9 |
+| SXGA | q8 | 201,317 B | 77–83% | 3.0–3.9 |
+| UXGA | q12 → **q16** | 98,587 B (q16) | 38% | 5.6 |
+
+- A linear size-vs-quality model was implemented first and **discarded**: it
+  predicted 72,785 B for SVGA q0 where the real frame was ~116 KB at q2, because
+  frame size grows steeply and non-linearly below q4.
+- Frame size is **scene-dependent by up to ~2x**: UXGA q12 measured 128,659 B
+  over 10 s and 259,471 B (99% of budget) in a later run. UXGA's floor was
+  therefore raised q12 → q16, and any frame ≥90% of budget is logged.
+- Budget choice: 256 KiB, not 512 KiB. 512 KiB pushed the driver's DMA node count
+  23 → 128, cost 1.28 MB internal DRAM (free heap 4.0 → 2.7 MB) and coincided
+  with brownout resets under maximum-size frames.
+
+### Post-fix verification (firmware with measured floors, build of 2026-09-26)
+
+- Floors enforced: 8/8 negative cases rejected with 400 naming the floor; all
+  at-floor values accepted.
+- 10/10 connect → disconnect → change resolution → connect cycles streamed on
+  both sides of every change.
+- 20/20 rapid connect/abort cycles streamed; stream recovered immediately after.
+- Quality-only change applied without reinit (`camera quality set to 20 (no reinit)`).
+- End state: `camera_recoveries=0, capture_failures=0`, free heap 3.52 MB, free
+  PSRAM 3.40 MB of the 4 MB this chip maps.
+- Recovery path proven in the wild during calibration: three automatic
+  `camera recovered (attempt n)` events after real overflows, and one
+  recovery-storm-then-reboot at the (now-forbidden) UXGA q8 cell.
+- **Hardware finding:** brownout resets (`E BOD`) continue under heavy streaming
+  with maximum-size frames — the USB supply, not the firmware. Streaming large
+  frames at high duty cycle is the worst case seen so far.
+
 ## Phase 5 — optimization deltas
 
 (Baseline vs each isolated change; link ADRs in `docs/decisions/`.)
