@@ -1,0 +1,251 @@
+{
+ "meta": {
+  "purpose": "quality-floor calibration for the frame-budget guard",
+  "date": "2026-09-26",
+  "firmware": "frame budget 262144 B (CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE)",
+  "device": "ESP32-CAM OV2640, softAP 192.168.4.1, fw build of 2026-09-26",
+  "pc": "Intel i3-1215U / Windows 11",
+  "method": "per cell: GET /api/v1/config?framesize=..&quality=.. then MJPEG stream, per-part Content-Length parsed for the frame maximum; sweep until stream_clients==0",
+  "note": "max frame bytes are scene-dependent; floors use 10 s samples (44-144 frames/cell)"
+ },
+ "shipped_floors": {
+  "qqvga": 0,
+  "qvga": 0,
+  "vga": 2,
+  "svga": 2,
+  "xga": 6,
+  "hd": 6,
+  "sxga": 8,
+  "uxga": 12
+ },
+ "shipped_measured_max_bytes": {
+  "qqvga": 20000,
+  "qvga": 65544,
+  "vga": 102736,
+  "svga": 155955,
+  "xga": 143673,
+  "hd": 167811,
+  "sxga": 201317,
+  "uxga": 128659
+ },
+ "source_sweep": "qlow.json",
+ "budget_bytes": 262144,
+ "rows": [
+  {
+   "res": "vga",
+   "q": 0,
+   "max_frame": 0,
+   "frames": 0,
+   "fps": 0.0,
+   "fill_pct": 0.0,
+   "verdict": "NO-FRAMES"
+  },
+  {
+   "res": "vga",
+   "q": 2,
+   "max_frame": 113239,
+   "frames": 14,
+   "fps": 5.57,
+   "fill_pct": 43.2,
+   "verdict": "ok"
+  },
+  {
+   "res": "svga",
+   "q": 0,
+   "max_frame": 0,
+   "frames": 0,
+   "fps": 0.0,
+   "fill_pct": 0.0,
+   "verdict": "NO-FRAMES"
+  },
+  {
+   "res": "svga",
+   "q": 2,
+   "max_frame": 163923,
+   "frames": 5,
+   "fps": 2.0,
+   "fill_pct": 62.5,
+   "verdict": "ok"
+  },
+  {
+   "res": "svga",
+   "q": 4,
+   "max_frame": 92567,
+   "frames": 12,
+   "fps": 4.77,
+   "fill_pct": 35.3,
+   "verdict": "ok"
+  },
+  {
+   "res": "svga",
+   "q": 6,
+   "max_frame": 67610,
+   "frames": 15,
+   "fps": 5.95,
+   "fill_pct": 25.8,
+   "verdict": "ok"
+  },
+  {
+   "res": "svga",
+   "q": 8,
+   "max_frame": 53665,
+   "frames": 27,
+   "fps": 10.75,
+   "fill_pct": 20.5,
+   "verdict": "ok"
+  },
+  {
+   "res": "xga",
+   "q": 4,
+   "max_frame": 223713,
+   "frames": 9,
+   "fps": 3.57,
+   "fill_pct": 85.3,
+   "verdict": "OVER-BUDDEN"
+  },
+  {
+   "res": "xga",
+   "q": 6,
+   "max_frame": 152548,
+   "frames": 12,
+   "fps": 4.76,
+   "fill_pct": 58.2,
+   "verdict": "ok"
+  },
+  {
+   "res": "xga",
+   "q": 8,
+   "max_frame": 97467,
+   "frames": 18,
+   "fps": 7.15,
+   "fill_pct": 37.2,
+   "verdict": "ok"
+  },
+  {
+   "res": "xga",
+   "q": 10,
+   "max_frame": 78450,
+   "frames": 23,
+   "fps": 9.12,
+   "fill_pct": 29.9,
+   "verdict": "ok"
+  },
+  {
+   "res": "hd",
+   "q": 4,
+   "max_frame": 242218,
+   "frames": 5,
+   "fps": 1.96,
+   "fill_pct": 92.4,
+   "verdict": "OVER-BUDDEN"
+  },
+  {
+   "res": "hd",
+   "q": 6,
+   "max_frame": 165163,
+   "frames": 9,
+   "fps": 3.55,
+   "fill_pct": 63.0,
+   "verdict": "ok"
+  },
+  {
+   "res": "hd",
+   "q": 8,
+   "max_frame": 114672,
+   "frames": 12,
+   "fps": 4.78,
+   "fill_pct": 43.7,
+   "verdict": "ok"
+  },
+  {
+   "res": "hd",
+   "q": 10,
+   "max_frame": 89592,
+   "frames": 15,
+   "fps": 5.96,
+   "fill_pct": 34.2,
+   "verdict": "ok"
+  },
+  {
+   "res": "sxga",
+   "q": 6,
+   "max_frame": 261988,
+   "frames": 3,
+   "fps": 1.18,
+   "fill_pct": 99.9,
+   "verdict": "OVER-BUDDEN"
+  },
+  {
+   "res": "sxga",
+   "q": 8,
+   "max_frame": 203092,
+   "frames": 7,
+   "fps": 2.76,
+   "fill_pct": 77.5,
+   "verdict": "ok"
+  },
+  {
+   "res": "sxga",
+   "q": 10,
+   "max_frame": 137636,
+   "frames": 10,
+   "fps": 3.99,
+   "fill_pct": 52.5,
+   "verdict": "ok"
+  },
+  {
+   "res": "sxga",
+   "q": 12,
+   "max_frame": 116803,
+   "frames": 14,
+   "fps": 5.53,
+   "fill_pct": 44.6,
+   "verdict": "ok"
+  },
+  {
+   "res": "uxga",
+   "q": 8,
+   "max_frame": 111102,
+   "frames": 14,
+   "fps": 5.57,
+   "fill_pct": 42.4,
+   "verdict": "ok"
+  },
+  {
+   "res": "uxga",
+   "q": 10,
+   "max_frame": 114859,
+   "frames": 13,
+   "fps": 5.17,
+   "fill_pct": 43.8,
+   "verdict": "ok"
+  },
+  {
+   "res": "uxga",
+   "q": 12,
+   "max_frame": 116088,
+   "frames": 13,
+   "fps": 5.15,
+   "fill_pct": 44.3,
+   "verdict": "ok"
+  },
+  {
+   "res": "uxga",
+   "q": 16,
+   "max_frame": 129201,
+   "frames": 13,
+   "fps": 5.17,
+   "fill_pct": 49.3,
+   "verdict": "ok"
+  },
+  {
+   "res": "uxga",
+   "q": 20,
+   "max_frame": 177616,
+   "frames": 10,
+   "fps": 3.97,
+   "fill_pct": 67.8,
+   "verdict": "ok"
+  }
+ ]
+}
