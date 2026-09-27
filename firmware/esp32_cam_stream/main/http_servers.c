@@ -66,6 +66,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "camera_up", camera_is_up() ? 1 : 0);
     cJSON_AddNumberToObject(root, "frame_budget_bytes", (int)camera_frame_budget());
     cJSON_AddNumberToObject(root, "quality_floor", camera_quality_floor(camera_current_framesize()));
+    cJSON_AddNumberToObject(root, "xclk_max_mhz", camera_xclk_max_mhz(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "reset_reason", (int)esp_reset_reason());
     cJSON_AddStringToObject(root, "resolution", framesize_name(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "quality", camera_current_quality());
@@ -206,6 +207,11 @@ static esp_err_t config_handler(httpd_req_t *req)
                              quality, camera_quality_floor(fs), framesize_name(fs),
                              (unsigned)camera_estimate_frame_bytes(fs, quality),
                              (unsigned)camera_frame_budget());
+                } else if (aerr == ESP_ERR_INVALID_ARG && xclk > camera_xclk_max_mhz(fs)) {
+                    snprintf(msg, sizeof(msg),
+                             "xclk %d MHz is above the measured ceiling %d MHz for %s "
+                             "(higher clocks produce no frames at this resolution)",
+                             xclk, camera_xclk_max_mhz(fs), framesize_name(fs));
                 } else {
                     snprintf(msg, sizeof(msg), "camera apply failed: %s",
                              esp_err_to_name(aerr));
@@ -233,6 +239,7 @@ static esp_err_t config_handler(httpd_req_t *req)
                                 ? "dram" : "psram");
     cJSON_AddNumberToObject(root, "frame_budget_bytes", (int)camera_frame_budget());
     cJSON_AddNumberToObject(root, "quality_floor", camera_quality_floor(camera_current_framesize()));
+    cJSON_AddNumberToObject(root, "xclk_max_mhz", camera_xclk_max_mhz(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "est_frame_bytes",
                             (int)camera_estimate_frame_bytes(camera_current_framesize(),
                                                              camera_current_quality()));

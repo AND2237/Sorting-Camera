@@ -49,6 +49,7 @@ uint32_t camera_recovery_count(void);
 size_t camera_frame_budget(void);
 uint32_t camera_estimate_frame_bytes(framesize_t fs, int quality);
 int camera_quality_floor(framesize_t fs);
+int camera_xclk_max_mhz(framesize_t fs);
 
 bool wifi_start(const char *ssid, const char *password);
 int wifi_get_rssi(void);

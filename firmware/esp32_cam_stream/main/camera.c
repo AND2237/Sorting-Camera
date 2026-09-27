@@ -165,6 +165,24 @@ int camera_quality_floor(framesize_t fs)
     return m ? m->safe_quality : 0;
 }
 
+/*
+ * Measured XCLK ceiling per resolution. The OV2640 does not tolerate a clock
+ * that is too high for the mode: at 1280x720, 24 MHz and above produced no
+ * frames at all and the recovery path could not revive it, while 22 MHz inflated
+ * frames from 58 KB to 246 KB and dropped the rate to 2.2 fps. Only combinations
+ * that were actually measured are listed - everything else keeps the full
+ * accepted range rather than a guessed one (2026-09-27, 120 s runs each).
+ */
+int camera_xclk_max_mhz(framesize_t fs)
+{
+    switch (fs) {
+    case FRAMESIZE_HD:
+        return 20;
+    default:
+        return 27;
+    }
+}
+
 static esp_err_t camera_driver_init(void)
 {
     camera_config_t config = {
@@ -445,6 +463,13 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
                  quality, floor, (int)fs, (unsigned)camera_estimate_frame_bytes(fs, floor),
                  (unsigned)CAM_FRAME_BUDGET_BYTES);
         return ESP_ERR_INVALID_SIZE;
+    }
+
+    const int xclk_max = camera_xclk_max_mhz(fs);
+    if (xclk_mhz > xclk_max) {
+        ESP_LOGW(TAG, "xclk %d MHz above the measured ceiling %d MHz for fs=%d",
+                 xclk_mhz, xclk_max, (int)fs);
+        return ESP_ERR_INVALID_ARG;
     }
 
     const framesize_t prev_fs = s_framesize;
