@@ -1,6 +1,8 @@
 # Benchmark plan
 
-_Status: methodology defined; execution starts after Phase 2 baseline builds._
+_Status: Phase 5 executed 2026-09-27 (see "Phase 5 — optimization protocol"
+below and `docs/decisions/0010-operating-profiles-and-fps-floors.md`). Phases 0–4
+have published results in `benchmark-results.md`._
 
 ## Ground rules
 
@@ -47,6 +49,17 @@ Deliverable: ordered operating-point list (best quality first) that sustains ≥
 ## Phase 5 — optimization protocol
 
 One change at a time vs the frozen baseline build; every ADR carries: problem / baseline / change / measured result / tradeoffs / decision. Revert anything that does not win on a real metric or breaks stability.
+
+_Outcome 2026-09-27:_ the PC pipeline was measured first and found **not** to be
+the frame-rate constraint (app fps equals device fps within 0.3%, zero drops,
+19–36% of one core), which redirected the work to the device. Executed: fb2 vs
+fb3 at four points (fb2 loses everywhere), a twelve-point XCLK sweep at SVGA and
+HD (XCLK is non-monotonic and resolution-dependent; 27 MHz is still rising at
+SVGA while HD breaks at 24 MHz and above), a three-variant camera task affinity
+A/B (core0 kept, core1 and no-affinity reverted), and the gate arithmetic that
+established the 1280×720 ceiling near 11.2 fps. Wi-Fi/LwIP knobs were dropped
+with the reason recorded rather than measured. Remaining: the 1 h soak, blocked
+on the hardware power path.
 
 ## Acceptance (req. ≥34)
 

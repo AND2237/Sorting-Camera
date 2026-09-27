@@ -64,6 +64,41 @@ Design constraints this imposes:
 - The camera mutex is held across a frame's whole lifetime (`camera_fb_get` takes it, `camera_fb_return` releases it) so a config apply cannot `esp_camera_deinit()` underneath a frame in flight. Every caller must return every frame or the whole camera wedges.
 - The operating point (framesize, quality, fb_count, grab mode, fb location, xclk) is persisted in NVS (`camcfg`/`v1`, CRC-checked) and restored before the first driver init, so a watchdog reboot returns to the user's chosen settings instead of silently reverting to the compiled defaults.
 
+## Operating profiles and their frame-rate floors
+
+Production default: **1280×720 (HD)**, JPEG quality 12, XCLK 18 MHz, fb_count 3,
+`CAMERA_GRAB_LATEST`, PSRAM frame buffers — `CAM_DEFAULT_*` in `app.h`, restored
+from NVS after a reboot. The floors below are per profile, not one global
+number: the §34 "sustained minimum 15 FPS" target is **not reachable at 1280×720**
+on this hardware (see `docs/benchmark-results.md` "Gate arithmetic" and ADR-0010).
+
+| profile | quality | XCLK | measured fps (120 s, app path) | profile floor | vs 15 fps target |
+|---|---|---|---|---|---|
+| **HD 1280×720 (default)** | q12 | 18 MHz | 11.01 best, 7.74–11.17 band across 5 runs | **≥7**, provisional pending the 1 h soak | not met — hardware ceiling ≈11.2 |
+| HD 1280×720 | q24 | 18 MHz | 11.17 | ≥7, provisional | not met |
+| SVGA 800×600 | q36 | 18 MHz | 22.42 | **≥20** | met, +12% |
+| SVGA 800×600 | q36 | 27 MHz | 33.62 | ≥30 | met, +124% |
+| VGA 640×480 | q36 | 18 MHz | 22.51 | **≥20** | met, +13% |
+| QVGA 320×240 | q24 | 18 MHz | 44.94 | **≥40** | met, +200% |
+
+Rules that follow from the measurements, not from preference:
+
+- **fps is the camera's frame-production rate.** The link peaks at 4.36 Mbps
+  observed and the PC consumes every delivered frame with zero drops, so neither
+  is a lever for frame rate.
+- **Per-profile clock.** XCLK is not global: 27 MHz is the best measured point at
+  SVGA (+50% over 18 MHz) and produces **no frames at all** at HD. The firmware
+  enforces the measured ceiling per resolution (`camera_xclk_max_mhz`) and the app
+  must send the clock with the profile, not once for the session.
+- **HD is byte-rate limited, so its frame rate moves with scene complexity**
+  (7.7–11.2 fps tracking 58 KB → 45 KB frames). HD floors are therefore stated as
+  a band and will be tightened to the 1 h soak's sustained figure.
+- Image quality is compared per pixel, not per file: HD q24 and SVGA q36 both
+  encode 0.033 B/px, so SVGA is 3× the frame rate at equal per-pixel quality.
+
+Turning these into an adaptive profile selector (§12) is Phase 6 work — camera
+control and configuration — not part of this phase.
+
 ## Desktop architecture (Qt 6.11, LGPL modules)
 
 | Layer | Types | Thread |
