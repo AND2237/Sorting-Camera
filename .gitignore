@@ -3,6 +3,7 @@ build/
 build-*/
 cmake-build-*/
 out/
+/dist/
 *.o
 *.obj
 *.a
