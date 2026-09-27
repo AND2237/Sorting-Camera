@@ -12,6 +12,7 @@
 
 #define CONTROL_HTTP_PORT   80
 #define STREAM_HTTP_PORT    81
+#define DISCOVERY_UDP_PORT  48888
 
 #define AP_CHANNEL          1
 #define AP_MAX_CLIENTS      4
@@ -34,6 +35,8 @@
 bool camera_init(void);
 camera_fb_t *camera_fb_get(void);
 void camera_fb_return(camera_fb_t *fb);
+const char *device_id_hex(void);
+const char *device_ip(void);
 framesize_t camera_current_framesize(void);
 int camera_current_quality(void);
 int camera_current_fb_count(void);

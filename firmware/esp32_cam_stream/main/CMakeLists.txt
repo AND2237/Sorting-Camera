@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "app_main.c"
         "camera.c"
+        "camera_control.c"
         "wifi.c"
         "http_servers.c"
         "frame_transport.c"

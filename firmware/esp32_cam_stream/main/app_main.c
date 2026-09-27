@@ -1,8 +1,11 @@
 #include "app.h"
+#include "camera_control.h"
 
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -13,6 +16,35 @@
 #include "config_secrets.h"
 
 static const char *TAG = "main";
+
+static char s_device_id[16];
+static char s_device_ip[16];
+
+const char *device_id_hex(void)
+{
+    if (s_device_id[0] == '\0') {
+        uint8_t mac[6] = {0};
+        if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) {
+            esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
+        }
+        snprintf(s_device_id, sizeof(s_device_id), "%02x%02x%02x%02x%02x%02x", mac[0], mac[1],
+                 mac[2], mac[3], mac[4], mac[5]);
+    }
+    return s_device_id;
+}
+
+const char *device_ip(void)
+{
+    if (s_device_ip[0] == '\0') {
+        esp_netif_ip_info_t info;
+        if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"), &info) == ESP_OK) {
+            snprintf(s_device_ip, sizeof(s_device_ip), IPSTR, IP2STR(&info.ip));
+        } else {
+            snprintf(s_device_ip, sizeof(s_device_ip), "%s", AP_IP);
+        }
+    }
+    return s_device_ip;
+}
 
 static void stall_watchdog_task(void *arg)
 {
@@ -75,6 +107,8 @@ void app_main(void)
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+
+    camera_control_init();
 
     ESP_ERROR_CHECK(start_control_server());
     ESP_ERROR_CHECK(start_stream_server());

@@ -1,4 +1,5 @@
 #include "app.h"
+#include "camera_control.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -377,6 +378,133 @@ int stream_client_count(void)
     return atomic_load(&s_stream_clients);
 }
 
+static const struct {
+    const char *key;
+    framesize_t fs;
+    int width;
+    int height;
+} s_resolutions[] = {
+    {"qqvga", FRAMESIZE_QQVGA, 160, 120},
+    {"qvga", FRAMESIZE_QVGA, 320, 240},
+    {"vga", FRAMESIZE_VGA, 640, 480},
+    {"svga", FRAMESIZE_SVGA, 800, 600},
+    {"xga", FRAMESIZE_XGA, 1024, 768},
+    {"hd", FRAMESIZE_HD, 1280, 720},
+    {"sxga", FRAMESIZE_SXGA, 1280, 1024},
+    {"uxga", FRAMESIZE_UXGA, 1600, 1200},
+};
+
+static esp_err_t send_json(httpd_req_t *req, cJSON *root)
+{
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!payload) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    esp_err_t err = httpd_resp_send(req, payload, HTTPD_RESP_USE_STRLEN);
+    cJSON_free(payload);
+    return err;
+}
+
+static cJSON *resolutions_json(void)
+{
+    cJSON *res = cJSON_CreateArray();
+    for (size_t i = 0; i < sizeof(s_resolutions) / sizeof(s_resolutions[0]); i++) {
+        cJSON *r = cJSON_CreateObject();
+        cJSON_AddStringToObject(r, "key", s_resolutions[i].key);
+        cJSON_AddNumberToObject(r, "width", s_resolutions[i].width);
+        cJSON_AddNumberToObject(r, "height", s_resolutions[i].height);
+        cJSON_AddNumberToObject(r, "quality_floor", camera_quality_floor(s_resolutions[i].fs));
+        cJSON_AddNumberToObject(r, "xclk_max_mhz", camera_xclk_max_mhz(s_resolutions[i].fs));
+        cJSON_AddItemToArray(res, r);
+    }
+    return res;
+}
+
+static esp_err_t capabilities_handler(httpd_req_t *req)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    cJSON_AddStringToObject(root, "fw_version", app ? app->version : FW_VERSION);
+    cJSON_AddNumberToObject(root, "proto_version", PROTO_VERSION);
+    cJSON_AddStringToObject(root, "device_name", DEVICE_NAME);
+    cJSON_AddStringToObject(root, "device_id", device_id_hex());
+    cJSON_AddStringToObject(root, "ip", device_ip());
+    cJSON_AddStringToObject(root, "sensor", "ov2640");
+    cJSON_AddNumberToObject(root, "control_port", CONTROL_HTTP_PORT);
+    cJSON_AddNumberToObject(root, "stream_port", STREAM_HTTP_PORT);
+    cJSON_AddNumberToObject(root, "discovery_port", DISCOVERY_UDP_PORT);
+    cJSON_AddNumberToObject(root, "frame_budget_bytes", (int)camera_frame_budget());
+    cJSON_AddItemToObject(root, "resolutions", resolutions_json());
+    camera_control_add_capabilities(root);
+    return send_json(req, root);
+}
+
+static esp_err_t sensor_get_handler(httpd_req_t *req)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    camera_control_add_status(root);
+    return send_json(req, root);
+}
+
+static esp_err_t sensor_set_handler(httpd_req_t *req)
+{
+    const int total = req->content_len;
+    if (total <= 0 || total > 1024) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-1024 bytes of JSON");
+        return ESP_FAIL;
+    }
+
+    char body[1025];
+    int received = 0;
+    while (received < total) {
+        const int chunk = httpd_req_recv(req, body + received, total - received);
+        if (chunk <= 0) {
+            if (chunk == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "incomplete body");
+            return ESP_FAIL;
+        }
+        received += chunk;
+    }
+    body[received] = '\0';
+
+    cJSON *params = cJSON_Parse(body);
+    if (!params) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid JSON body");
+        return ESP_FAIL;
+    }
+
+    char err[160] = {0};
+    esp_err_t aerr = camera_control_apply(params, err, sizeof(err));
+    cJSON_Delete(params);
+    if (aerr != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err[0] ? err : "apply failed");
+        return ESP_FAIL;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    camera_control_add_status(root);
+    return send_json(req, root);
+}
+
 esp_err_t start_control_server(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
@@ -407,9 +535,27 @@ esp_err_t start_control_server(void)
         .method = HTTP_GET,
         .handler = config_handler,
     };
+    const httpd_uri_t capabilities = {
+        .uri = "/api/v1/capabilities",
+        .method = HTTP_GET,
+        .handler = capabilities_handler,
+    };
+    const httpd_uri_t sensor_get = {
+        .uri = "/api/v1/sensor",
+        .method = HTTP_GET,
+        .handler = sensor_get_handler,
+    };
+    const httpd_uri_t sensor_set = {
+        .uri = "/api/v1/sensor",
+        .method = HTTP_POST,
+        .handler = sensor_set_handler,
+    };
     httpd_register_uri_handler(s_control_server, &status);
     httpd_register_uri_handler(s_control_server, &snapshot);
     httpd_register_uri_handler(s_control_server, &config);
+    httpd_register_uri_handler(s_control_server, &capabilities);
+    httpd_register_uri_handler(s_control_server, &sensor_get);
+    httpd_register_uri_handler(s_control_server, &sensor_set);
     ESP_LOGI(TAG, "control server on port %d", CONTROL_HTTP_PORT);
     return ESP_OK;
 }
