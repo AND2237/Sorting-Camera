@@ -12,8 +12,12 @@ time series, so device and PC numbers can be correlated for the same window.
 """
 
 import argparse
+import base64
+import hashlib
+import hmac
 import json
 import os
+import re
 import socket
 import statistics
 import subprocess
@@ -24,13 +28,44 @@ from datetime import datetime
 HOST_DEFAULT = "192.168.4.1"
 EXE_DEFAULT = r"D:\Desktop\Sorting_Camera\desktop\build\SortingCamera.exe"
 QT_BIN_DEFAULT = r"C:\Qt\6.11.2\mingw_64\bin"
+SECRETS_DEFAULT = r"D:\Desktop\Sorting_Camera\firmware\esp32_cam_stream\main\config_secrets.h"
+
+_state = {"token": None, "host": None, "password": None, "auth_required": None,
+          "port": 80}
 
 
-def http_get_json(host, path, port=80, timeout=4.0):
+def read_password(explicit=None):
+    """Control password: --password, else SCAM_CONTROL_PASSWORD, else the
+    git-ignored firmware config_secrets.h the device was provisioned from."""
+    if explicit:
+        return explicit
+    env = os.environ.get("SCAM_CONTROL_PASSWORD")
+    if env:
+        return env
+    try:
+        with open(SECRETS_DEFAULT, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        return None
+    m = re.search(r'#define\s+CAMERA_CONTROL_PASSWORD\s+"([^"]*)"', text)
+    return m.group(1) if m else None
+
+
+def raw_request(host, path, port=80, timeout=4.0, method="GET", body=None, token=None):
+    if body is not None:
+        payload = json.dumps(body).encode()
+    else:
+        payload = b""
+    head = "%s %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n" % (method, path, host)
+    if body is not None:
+        head += "Content-Type: application/json\r\nContent-Length: %d\r\n" % len(payload)
+    if token:
+        head += "Authorization: Bearer %s\r\n" % token
+    head += "\r\n"
+
     try:
         s = socket.create_connection((host, port), timeout=timeout)
-        s.sendall(("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n"
-                   % (path, host)).encode())
+        s.sendall(head.encode() + payload)
         s.settimeout(timeout)
         buf = b""
         while b"\r\n\r\n" not in buf:
@@ -38,21 +73,80 @@ def http_get_json(host, path, port=80, timeout=4.0):
             if not chunk:
                 break
             buf += chunk
-        head, _, rest = buf.partition(b"\r\n\r\n")
+        raw_head, _, rest = buf.partition(b"\r\n\r\n")
         clen = 0
-        for line in head.decode(errors="replace").split("\r\n"):
+        status = 0
+        for line in raw_head.decode(errors="replace").split("\r\n"):
             if line.lower().startswith("content-length:"):
                 clen = int(line.split(":", 1)[1])
-        body = rest
-        while len(body) < clen:
+            elif line.startswith("HTTP/"):
+                status = int(line.split()[1])
+        while len(rest) < clen:
             chunk = s.recv(4096)
             if not chunk:
                 break
-            body += chunk
+            rest += chunk
         s.close()
-        return json.loads(body[:clen].decode(errors="replace"))
+        text = rest[:clen].decode(errors="replace")
+        parsed = None
+        if clen:
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+        return status, parsed, text
     except Exception:
+        return 0, None, ""
+
+
+def authenticate(host, password, port=80, timeout=4.0):
+    if not password:
         return None
+    status, obj, _ = raw_request(host, "/api/v1/auth/challenge", port, timeout)
+    if status != 200 or not obj:
+        return None
+    verifier = hashlib.pbkdf2_hmac("sha256", password.encode(),
+                                  bytes.fromhex(obj["salt"]), int(obj["iterations"]), 32)
+    proof = hmac.new(verifier, bytes.fromhex(obj["nonce"]), hashlib.sha256).hexdigest()
+    status, obj, _ = raw_request(host, "/api/v1/auth/login", port, timeout, "POST",
+                                 {"nonce": obj["nonce"], "proof": proof})
+    if status == 200 and obj and obj.get("token"):
+        return obj["token"]
+    return None
+
+
+def _token_for(host, port):
+    if _state["host"] != host or _state["port"] != port:
+        _state["host"] = host
+        _state["port"] = port
+        _state["token"] = None
+    if not _state["token"]:
+        _state["token"] = authenticate(host, _state["password"], port)
+    return _state["token"]
+
+
+def http_get_json(host, path, port=None, timeout=4.0):
+    port = port or _state["port"]
+    token = _token_for(host, port)
+    status, obj, _ = raw_request(host, path, port, timeout, "GET", None, token)
+    if status == 401:
+        _state["token"] = None
+        token = _token_for(host, port)
+        status, obj, _ = raw_request(host, path, port, timeout, "GET", None, token)
+        if status == 401:
+            return None
+    return obj
+
+
+def http_get_with_status(host, path, port=None, timeout=4.0):
+    port = port or _state["port"]
+    token = _token_for(host, port)
+    status, obj, _ = raw_request(host, path, port, timeout, "GET", None, token)
+    if status == 401:
+        _state["token"] = None
+        token = _token_for(host, port)
+        status, obj, _ = raw_request(host, path, port, timeout, "GET", None, token)
+    return status, obj
 
 
 def wait_for_device(host, attempts=10, delay=2.0):
@@ -179,11 +273,30 @@ def main():
     ap.add_argument("--seconds", type=int, default=120)
     ap.add_argument("--warmup", type=int, default=10)
     ap.add_argument("--host", default=HOST_DEFAULT)
+    ap.add_argument("--control-port", type=int, default=80)
+    ap.add_argument("--stream-port", type=int, default=81)
     ap.add_argument("--exe", default=EXE_DEFAULT)
     ap.add_argument("--qt-bin", default=QT_BIN_DEFAULT)
     ap.add_argument("--out", required=True)
     ap.add_argument("--poll-interval", type=float, default=2.0)
+    ap.add_argument("--password", help="control password (default: env "
+                                       "SCAM_CONTROL_PASSWORD or the firmware "
+                                       "config_secrets.h)")
+    ap.add_argument("--no-auth", action="store_true",
+                    help="skip authentication (for a device provisioned without one)")
     args = ap.parse_args()
+
+    _state["password"] = None if args.no_auth else read_password(args.password)
+    _state["port"] = args.control_port
+    caps_status, caps = http_get_with_status(args.host, "/api/v1/capabilities")
+    _state["auth_required"] = bool(caps and caps.get("auth", {}).get("required"))
+    if _state["auth_required"] and not _state["password"]:
+        print("device requires a control password; pass --password or set "
+              "SCAM_CONTROL_PASSWORD", file=sys.stderr)
+        return 2
+    print("device auth: required=%s credentials=%s"
+          % (_state["auth_required"], "supplied" if _state["password"] else "not needed"),
+          flush=True)
 
     st = wait_for_device(args.host)
     if not st:
@@ -197,7 +310,9 @@ def main():
 
     app_json = os.path.join(os.path.dirname(args.out) or ".", "_app_tmp.json")
     cmd = [args.exe, "--bench", str(args.seconds), "--warmup", str(args.warmup),
-           "--out", app_json, "--host", args.host]
+           "--out", app_json, "--host", args.host,
+           "--control-port", str(args.control_port),
+           "--stream-port", str(args.stream_port)]
     if args.framesize:
         cmd += ["--framesize", args.framesize]
     if args.quality is not None:
@@ -274,6 +389,9 @@ def main():
             "warmup_seconds": args.warmup,
             "host": args.host,
             "app_version": app.get("app_version"),
+            "control_auth_required": _state["auth_required"],
+            "control_auth_used": bool(_state["token"]),
+            "device_id": (st or {}).get("device_id"),
         },
         "validity": check,
         "device_before": st,
