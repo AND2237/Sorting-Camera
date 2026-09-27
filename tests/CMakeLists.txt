@@ -12,3 +12,4 @@ endfunction()
 
 scam_add_test(tst_authclient)
 scam_add_test(tst_credentialstore)
+scam_add_test(tst_discovery)

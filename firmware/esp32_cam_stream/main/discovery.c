@@ -74,8 +74,15 @@ static char *build_announce(void)
     cJSON *ctrl = cJSON_AddObjectToObject(root, "controls");
     for (int i = 0; i < camera_control_count(); i++) {
         const cam_ctrl_def_t *def = camera_control_def(i);
-        if (def && def->supported) {
-            cJSON_AddItemToArray(cJSON_AddArrayToObject(ctrl, def->group), cJSON_CreateString(def->name));
+        if (!def || !def->supported) {
+            continue;
+        }
+        cJSON *group = cJSON_GetObjectItemCaseSensitive(ctrl, def->group);
+        if (!group) {
+            group = cJSON_AddArrayToObject(ctrl, def->group);
+        }
+        if (group) {
+            cJSON_AddItemToArray(group, cJSON_CreateString(def->name));
         }
     }
 

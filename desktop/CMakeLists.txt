@@ -17,6 +17,8 @@ qt_add_library(scamcore STATIC
     src/AuthClient.h
     src/CredentialStore.cpp
     src/CredentialStore.h
+    src/DiscoveryService.cpp
+    src/DiscoveryService.h
     src/DeviceStatus.cpp
     src/DeviceStatus.h
     src/FrameBus.cpp

@@ -72,12 +72,19 @@ public slots:
             connect(m_timer, &QTimer::timeout, this, &DeviceStatusWorker::pollOnce);
         }
         m_timer->start();
-        if (m_auth->hasPassword()) {
-            m_auth->signIn();
-        } else {
+        if (!m_auth->hasPassword()) {
             emit authRequiredChanged(true);
             pollOnce();
+        } else if (!m_auth->isAuthenticated()) {
+            m_auth->signIn();
+        } else {
+            pollOnce();
         }
+    }
+
+    void refreshStatus()
+    {
+        pollOnce();
     }
 
     void stopPolling()
@@ -591,9 +598,7 @@ void DeviceStatus::setConfigQuery(const QString &query)
     m_pendingQuery = query;
     m_waitDeadline = QDateTime::currentDateTime().addSecs(kDeviceFreeWaitMs);
     m_waitingForDevice = true;
-    QMetaObject::invokeMethod(m_worker, "startPolling", Qt::BlockingQueuedConnection,
-                              Q_ARG(QString, m_host), Q_ARG(quint16, m_port),
-                              Q_ARG(QString, m_worker->currentPassword()));
+    QMetaObject::invokeMethod(m_worker, "refreshStatus", Qt::BlockingQueuedConnection);
     QTimer::singleShot(0, this, [this]() { this->trySendPendingConfig(); });
 }
 
