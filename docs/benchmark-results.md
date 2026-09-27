@@ -498,6 +498,71 @@ production resolution remains the project owner's decision (1280x720, set
 2026-09-27); what the measurements settle is that the >=15 fps acceptance cannot
 be met at 1280x720 on this hardware, and is met with margin from 800x600 down.
 
+### Partial soak at the production default (2026-09-27, 4.9 min — not the 1 h gate)
+
+HD/q12/x18/fb3/latest, stopped early at the project owner's request. Device-side
+record only (the app was terminated, so no PC metrics for this window):
+
+| metric | value |
+|---|---|
+| window / samples | 293 s, 140 status polls at 2 s |
+| uptime | 2325 s → 2618 s, **monotonic, no reboot** (`reset_reason` constant 1) |
+| capture / delivery fps | 8.08 / 8.08 |
+| frames | 2,368 captured, 2,367 delivered (1 in flight at cutoff) |
+| capture failures | **0** (delta and max) |
+| camera recoveries | **0** (delta and max) |
+| free heap | 3,516,724 → 3,502,896 B (**−13.8 KB**, full observed span 17 KB) |
+| free PSRAM | +144 B (flat) |
+| RSSI | −23 … −16 dB (7 dB span) |
+| brownouts | none in this window |
+
+Healthy on every stability counter, but **4.9 minutes cannot certify long-duration
+stability** and this is recorded as a partial run, not as the §34 gate. The heap
+drift is inside the observed noise band (17 KB span), so a longer run is needed to
+separate drift from noise — the ≥1 h soak remains open.
+
+### Why HD measures 11–12 fps sometimes and 7–8 fps other times
+
+Same configuration, seven runs, HD/q12/x18/fb3/latest:
+
+| run | fps | frame B | frame interval | ms per KiB of frame | avg_capture_ms |
+|---|---|---|---|---|---|
+| affinity core0 | 11.01 | 49,507 | 90.8 ms | 1,878 | 6.1 |
+| hddef q12 | 10.46 | 45,455 | 95.6 ms | 2,154 | 2.7 |
+| affinity no_affinity | 9.18 | 49,219 | 109.0 ms | 2,267 | 0.4 |
+| affinity core1 | 8.53 | 50,020 | 117.2 ms | 2,399 | 0.4 |
+| baseline | 8.41 | 56,565 | 118.9 ms | 2,152 | 0.6 |
+| xclk sweep | 7.74 | 58,321 | 129.1 ms | 2,267 | 0.4 |
+| fb2 | 7.13 | 60,943 | 140.2 ms | 2,355 | 22.4 |
+| partial soak | 8.08 | 58,512 | 123.8 ms | 2,217 | — |
+
+**Correlation between frame size and fps: −0.852**, and the frame interval is
+almost perfectly linear in the compressed frame size at **~2.2 ms per KiB**
+(spread 1,878–2,399, ±6% around the mean) with `avg_capture_ms` at 0.4–6 ms.
+
+So nothing regressed and no setting changed. The mechanism is:
+
+1. At a fixed JPEG quality the **compressed size tracks scene complexity** — more
+   detail or motion in frame means a bigger file for the same quality number.
+2. The OV2640 encodes in the sensor, and encode time scales with the data it has
+   to emit, so bigger frames take longer. The driver paces frames on the sensor's
+   end-of-frame, which is why `camera_fb_get` returns almost instantly
+   (0.4–6 ms) yet frames only arrive every 90–140 ms.
+3. The **11–12 fps observations are the ones where frames were small enough**
+   (45–50 KB) that encode time was not yet the binding constraint. Above roughly
+   55 KB the encode interval (≈130 ms) caps the rate at ~7.7 fps.
+
+There is also a hard ceiling near **11.2 fps at 1280×720**, visible as the maximum
+across unrelated configurations — HD q24 11.17, q12 11.01, and Phase 4's harness
+runs at q24 11.25 / q36 11.18. At low quality numbers (bigger frames) the encode
+time exceeds that ceiling and becomes the limit instead.
+
+Consequences, all already reflected in the documentation: the HD floor is a band
+(≥7 provisional) rather than a single number, §34's ban on quoting an
+undemonstrated fps figure applies with extra force here, and the frame rate a user
+sees depends on what the camera is pointed at. SVGA and below sit far enough below
+the encode-bound region (16 KB frames → ~35 ms) that their rates are stable.
+
 ### Device-side optimization: camera task affinity (2026-09-27)
 
 `CAMERA_TASK_PINNED_TO_CORE` was already the ESP-IDF default (`core0`), and the

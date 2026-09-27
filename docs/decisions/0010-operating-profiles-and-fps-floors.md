@@ -37,7 +37,10 @@ over.
    a floor of ≥7 fps (provisional, below the worst of five runs at 7.74–11.17),
    and the ≥15 fps target applies to the profiles that can meet it: SVGA ≥20
    (measured 22.42), VGA ≥20 (22.51), QVGA ≥40 (44.94). HD's floor will be
-   tightened to the 1 h soak's sustained figure.
+   tightened to the 1 h soak's sustained figure. A 4.9 min partial soak measured
+   8.08 fps at 58.5 KB frames with zero failures, recoveries or reboots and a
+   −13.8 KB heap drift inside a 17 KB noise band; it does not certify
+   long-duration stability, so the ≥1 h soak stays open.
 3. **The measured numbers are published as they are**, including the fact that
    the §34 acceptance target is not met at the production default and the
    hardware reason why.

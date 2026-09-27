@@ -91,8 +91,14 @@ Rules that follow from the measurements, not from preference:
   enforces the measured ceiling per resolution (`camera_xclk_max_mhz`) and the app
   must send the clock with the profile, not once for the session.
 - **HD is byte-rate limited, so its frame rate moves with scene complexity**
-  (7.7–11.2 fps tracking 58 KB → 45 KB frames). HD floors are therefore stated as
-  a band and will be tightened to the 1 h soak's sustained figure.
+  (7.7–11.2 fps tracking 58 KB → 45 KB frames). The frame interval is linear in the
+  compressed frame size at ~2.2 ms per KiB (correlation −0.85 across seven runs at
+  one fixed configuration), because the OV2640 encodes in the sensor and encode
+  time scales with the data emitted; the driver paces frames on the sensor's
+  end-of-frame, so `camera_fb_get` returns in 0.4–6 ms while frames arrive every
+  90–140 ms. A hard ceiling near 11.2 fps also exists at 1280×720 (seen as the
+  maximum across q12 and q24 and by the Phase 4 harness). HD floors are therefore
+  stated as a band and will be tightened to the 1 h soak's sustained figure.
 - Image quality is compared per pixel, not per file: HD q24 and SVGA q36 both
   encode 0.033 B/px, so SVGA is 3× the frame rate at equal per-pixel quality.
 

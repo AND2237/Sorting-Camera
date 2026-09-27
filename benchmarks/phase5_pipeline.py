@@ -134,8 +134,16 @@ def summarize_device(series):
                 return round((vals[-1] - vals[0]) / span, 3)
         return None
 
+    def nums(key):
+        return [v for v in col(key) if isinstance(v, (int, float))]
+
+    def rng(key):
+        v = nums(key)
+        return {"min": min(v), "max": max(v), "first": v[0], "last": v[-1]} if v else None
+
     recoveries = [s.get("camera_recoveries") for s in series
                   if isinstance(s, dict) and s.get("camera_recoveries") is not None]
+    ups = nums("uptime_s")
     return {
         "samples": len(series),
         "window_s": (series[-1].get("elapsed_s") - series[0].get("elapsed_s"))
@@ -144,12 +152,18 @@ def summarize_device(series):
         "delivery_fps": derived_fps("frames_delivered"),
         "avg_capture_ms_p50": median(col("avg_capture_ms")),
         "last_frame_bytes_p50": median(col("last_frame_bytes")),
-        "rssi_p50": median(col("rssi")),
-        "free_heap_min": min([v for v in col("free_heap") if isinstance(v, (int, float))],
-                             default=None),
+        "rssi": rng("rssi"),
+        "uptime_s": {"start": ups[0], "end": ups[-1]} if ups else None,
+        "uptime_monotonic": all(b >= a for a, b in zip(ups, ups[1:])) if len(ups) > 1 else None,
+        "free_heap": rng("free_heap"),
+        "free_spiram": rng("free_spiram"),
+        "frames_captured": rng("frames_captured"),
+        "frames_delivered": rng("frames_delivered"),
         "capture_failures_delta": (col("capture_failures")[-1] - col("capture_failures")[0])
         if len(col("capture_failures")) > 1 else None,
+        "capture_failures_max": max(nums("capture_failures")) if nums("capture_failures") else None,
         "camera_recoveries_delta": (max(recoveries) - min(recoveries)) if recoveries else None,
+        "camera_recoveries_max": max(recoveries) if recoveries else None,
         "reset_reasons": sorted({s.get("reset_reason") for s in series
                                  if isinstance(s, dict) and s.get("reset_reason") is not None}),
     }
@@ -217,16 +231,38 @@ def main():
     for line in out.splitlines()[-6:]:
         print("  app| %s" % line)
 
-    if not os.path.exists(app_json):
-        print("app did not write %s" % app_json)
-        return 3
-    with open(app_json, encoding="utf-8") as f:
-        app = json.load(f)
-    os.remove(app_json)
+    app = None
+    if os.path.exists(app_json):
+        with open(app_json, encoding="utf-8") as f:
+            app = json.load(f)
+        os.remove(app_json)
 
     window_series = slice_to_window(series, app.get("metrics_start_ms"),
-                                    app.get("metrics_end_ms"), launched_elapsed_s)
+                                    app.get("metrics_end_ms"), launched_elapsed_s) \
+        if app else series
     final = http_get_json(args.host, "/api/v1/status") or {}
+
+    if not app:
+        # The app died or never wrote its file: keep the device-side record so a
+        # long run still produces evidence instead of nothing.
+        record = {
+            "meta": {"stage": "phase5-soak", "date": datetime.now().isoformat(timespec="seconds"),
+                     "requested_framesize": args.framesize, "requested_quality": args.quality,
+                     "bench_seconds": args.seconds, "warmup_seconds": args.warmup,
+                     "host": args.host},
+            "validity": {"clean": False,
+                         "problems": ["app produced no metrics file (exit rc=%s)" % proc.returncode],
+                         "reboots": 0},
+            "device_before": st, "device_after": final,
+            "device_summary": summarize_device(series),
+            "device_series": series,
+            "app": None,
+        }
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=1)
+        print("app produced no metrics; wrote device-only record to %s" % args.out)
+        return 3
+
     check = validity(window_series, app)
     record = {
         "meta": {
@@ -260,7 +296,8 @@ def main():
                                 "" if check["clean"] else ""))
     print("  device : capture_fps=%s delivery_fps=%s avg_capture_ms=%s bytes=%s rssi=%s"
           % (d["capture_fps"], d["delivery_fps"], d["avg_capture_ms_p50"],
-             d["last_frame_bytes_p50"], d["rssi_p50"]))
+             d["last_frame_bytes_p50"],
+             (d.get("rssi") or {}).get("min", "?")))
     print("  app    : parts_fps=%.2f decoded_fps=%.2f presented_fps=%.2f mbps=%.2f cpu=%.1f%%"
           % (a.get("parts_fps", 0.0), a.get("decoded_fps", 0.0), a.get("presented_fps", 0.0),
              a.get("receive_mbps", 0.0), a.get("cpu_percent", 0.0)))
