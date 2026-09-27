@@ -38,6 +38,12 @@ int main(int argc, char *argv[])
     QCommandLineOption hostOpt(QStringLiteral("host"),
                                QStringLiteral("Camera IP (default 192.168.4.1)."),
                                QStringLiteral("ip"), QStringLiteral("192.168.4.1"));
+    QCommandLineOption controlPortOpt(QStringLiteral("control-port"),
+                                      QStringLiteral("Control API port (default 80)."),
+                                      QStringLiteral("port"), QStringLiteral("80"));
+    QCommandLineOption streamPortOpt(QStringLiteral("stream-port"),
+                                     QStringLiteral("MJPEG stream port (default 81)."),
+                                     QStringLiteral("port"), QStringLiteral("81"));
     QCommandLineOption fsOpt(QStringLiteral("framesize"),
                              QStringLiteral("Request this resolution before the run (qqvga|qvga|vga|svga|xga|hd|sxga|uxga)."),
                              QStringLiteral("key"));
@@ -59,6 +65,8 @@ int main(int argc, char *argv[])
     parser.addOption(benchOpt);
     parser.addOption(outOpt);
     parser.addOption(hostOpt);
+    parser.addOption(controlPortOpt);
+    parser.addOption(streamPortOpt);
     parser.addOption(fsOpt);
     parser.addOption(qOpt);
     parser.addOption(warmOpt);
@@ -71,6 +79,8 @@ int main(int argc, char *argv[])
     const int benchSeconds = parser.isSet(benchOpt) ? parser.value(benchOpt).toInt() : 0;
     const int warmupSeconds = parser.value(warmOpt).toInt();
     const QString host = parser.value(hostOpt);
+    const quint16 controlPort = (quint16)parser.value(controlPortOpt).toUShort();
+    const quint16 streamPort = (quint16)parser.value(streamPortOpt).toUShort();
     const QString outPath = parser.value(outOpt);
 
     FrameBus frameBus;
@@ -85,8 +95,8 @@ int main(int argc, char *argv[])
                          frameBus.setFrame(image, completeMs);
                      });
     QObject::connect(&stream, &MjpegClient::deviceRecoveryRequested, &deviceStatus,
-                     [&deviceStatus](const QString &h, quint16) {
-                         deviceStatus.startPolling(h, 80);
+                     [&deviceStatus, controlPort](const QString &h, quint16) {
+                         deviceStatus.startPolling(h, controlPort);
                          deviceStatus.requestCameraRecovery();
                      },
                      Qt::QueuedConnection);
@@ -109,6 +119,8 @@ int main(int argc, char *argv[])
     extra["mode"] = QStringLiteral("bench");
     extra["started"] = startedIso;
     extra["host"] = host;
+    extra["control_port"] = controlPort;
+    extra["stream_port"] = streamPort;
     extra["bench_seconds"] = benchSeconds;
     extra["warmup_seconds"] = warmupSeconds;
     extra["app_version"] = QCoreApplication::applicationVersion();
@@ -128,7 +140,7 @@ int main(int argc, char *argv[])
         extra["requested_xclk_mhz"] = parser.value(xclkOpt).toInt();
     }
 
-    deviceStatus.startPolling(host, 80);
+    deviceStatus.startPolling(host, controlPort);
 
     // Configs are applied one at a time, each only after the previous one has
     // finished (configBusy clears). Fixed spacing raced the app's own busy gate
@@ -160,7 +172,7 @@ int main(int argc, char *argv[])
             return;
         }
         streamScheduled = 1;
-        QTimer::singleShot(1500, &stream, [&stream, host]() { stream.start(host, 81); });
+        QTimer::singleShot(1500, &stream, [&stream, host, streamPort]() { stream.start(host, streamPort); });
     };
 
     QObject::connect(&deviceStatus, &DeviceStatus::configBusyChanged, &app, [&]() {
