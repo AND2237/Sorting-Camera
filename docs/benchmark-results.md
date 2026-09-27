@@ -342,7 +342,7 @@ Method: 120 s measurement after a 10 s warm-up that starts at the first decoded
 frame, softAP ch1, RSSI −17/−18, fb3/latest/psram, xclk 18 MHz, PC i3-1215U,
 Windows 11, Qt 6.11.2. Raw: `benchmarks/results/phase5-baseline-20260927-*.json`.
 
-| run | device fps | app fps | presented fps | decode p50/p95 (µs) | present age p50/p95 (ms) | render p50 (µs) | CPU | MB/s | drops | recoveries | reset |
+| run | device fps | app fps | presented fps | decode p50/p95 (µs) | present age p50/p95 (ms) | render p50 (µs) | CPU | Mbps | drops | recoveries | reset |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 1280×720 q12 | 8.413 | 8.38 | 8.38 | 9677 / 13331 | 10 / 14 | 1 | 19.3% | 3.80 | 0 | 0 | none |
 | 800×600 q36 | 22.279 | 22.28 | 22.28 | 4520 / 6691 | 5 / 7 | 1 | 25.7% | 2.96 | 0 | 0 | none |
@@ -410,7 +410,7 @@ rule; fb3/latest is the better default at every point measured today.
 
 **XCLK sweep, SVGA 800×600 q36, fb3/latest:**
 
-| XCLK (MHz) | device fps | app fps | frame B p50 | capture ms p50 | CPU | MB/s | valid |
+| XCLK (MHz) | device fps | app fps | frame B p50 | capture ms p50 | CPU | Mbps | valid |
 |---|---|---|---|---|---|---|---|
 | 18 | 22.42 | 22.43 | 17,067 | 13.6 | 34.5% | 3.08 | yes |
 | 20 | 18.61 | 18.62 | 16,770 | 0.7 | 23.4% | 2.51 | yes |
@@ -456,6 +456,48 @@ is SVGA 800×600 q36 at 27 MHz with **33.6 fps** (+50% over 18 MHz), which clear
 the floor with margin, at the cost of the XCLK policy cap and the fact that 27 MHz
 is untested above the cap. Choosing it is the next decision, not this phase.
 
+### Gate arithmetic (2026-09-27)
+
+§34 asks for "highest practical image quality / sustained minimum 15 FPS /
+preferred 20 FPS+", with the exact combination established empirically. Best
+**valid** measurement per point, 120 s app-path runs:
+
+| resolution | quality | fps | frame B | B/pixel | KB/s (Mbps) | clears 15 | clears 20 |
+|---|---|---|---|---|---|---|---|
+| 320×240 | q24 | **44.94** | 5,084 | 0.066 | 229 (1.87) | yes | yes |
+| **800×600** | q36 | **33.62** (x27) / 22.42 (x18) | 15,749 | 0.033 | 530 (4.27) | yes | yes |
+| 640×480 | q36 | **22.51** | 11,195 | 0.036 | 252 (2.03) | yes | yes |
+| 1280×720 | q24 | 11.17 | 30,775 | 0.033 | 344 (2.79) | **no** | no |
+| 1280×720 | q12 | 11.01 | 49,507 | 0.054 | 545 (4.36) | **no** | no |
+
+**Correction:** the throughput columns in the earlier tables were labelled MB/s;
+they are Mbps. Peak observed throughput is 545 KB/s (4.36 Mbps), not 4.36 MB/s.
+
+**What is actually binding.** Not the link: 4.36 Mbps is a fraction of what a
+802.11n 40 MHz softAP link carries with one station, and the device is nowhere
+near saturating it. Not the PC: it consumed 100% of delivered frames in every
+run with zero drops at 19-36% of one core and 2-23 ms p95 age. **fps is the
+camera's frame-production rate** at each (resolution, quality, clock).
+
+**The 1280x720 arithmetic.** Reaching 15 fps at HD needs +34% frame production
+over the 11.17 fps best case. The only measured lever is XCLK, and it is already
+at its safe limit: 20 MHz is worse than 18, 22 MHz degrades to 2.2 fps with
+246 KB frames, 24 MHz and above produce none. Phase 4 measured the same ceiling
+independently (HD q24 11.25, q36 11.18 fps, harness, 55 s), so two methods agree:
+**HD tops out near 11.2 fps, about 74% of the floor, and no quality value or safe
+clock reaches 15.**
+
+**Per-pixel quality is the cleanest way to read the trade.** HD q24 and SVGA q36
+both encode 0.033 bytes per pixel - the same per-pixel image quality - but SVGA
+runs at 33.6 fps against HD's 11.2. HD q12 is 0.054 B/px, 1.6x the per-pixel
+quality, at the same ~11 fps. So the real choice is not "HD or SVGA" but
+"three times the frame rate, or the same frame rate at 2.25x the pixels".
+
+**Largest resolution clearing the preferred 20 fps target: 800x600.** The
+production resolution remains the project owner's decision (1280x720, set
+2026-09-27); what the measurements settle is that the >=15 fps acceptance cannot
+be met at 1280x720 on this hardware, and is met with margin from 800x600 down.
+
 ### Device-side optimization: camera task affinity (2026-09-27)
 
 `CAMERA_TASK_PINNED_TO_CORE` was already the ESP-IDF default (`core0`), and the
@@ -484,8 +526,14 @@ is the cheap way to tighten this if the number ever matters for a decision.
 
 ### Optimization deltas
 
-(Baseline vs each isolated change; link ADRs in `docs/decisions/`. Nothing
-measured yet - the Step 0 finding above re-prioritized the work list.)
+(Baseline vs each isolated change; link ADRs in `docs/decisions/`. Done:
+camera task affinity - core0 kept, core1 and no_affinity reverted and reflashed.
+Not done, with the reason: Wi-Fi/LwIP knobs - the measurements show the link is
+not the constraint (peak 4.36 Mbps observed against a link that carries far
+more) and ESP-IDF's httpd already sets TCP_NODELAY around every chunk send
+(`httpd_txrx.c:494`) and disables it afterwards, so the Nagle lever is already
+taken. There is no fps headroom for those knobs to win, and latency is already
+1-23 ms p95. Re-open only if the link ever becomes the constraint.)
 
 ## Soak tests
 
