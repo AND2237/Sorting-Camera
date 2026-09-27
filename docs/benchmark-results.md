@@ -456,6 +456,32 @@ is SVGA 800×600 q36 at 27 MHz with **33.6 fps** (+50% over 18 MHz), which clear
 the floor with margin, at the cost of the XCLK policy cap and the fact that 27 MHz
 is untested above the cap. Choosing it is the next decision, not this phase.
 
+### Device-side optimization: camera task affinity (2026-09-27)
+
+`CAMERA_TASK_PINNED_TO_CORE` was already the ESP-IDF default (`core0`), and the
+boot log shows the Wi-Fi driver task also on core 0, so moving the camera task
+off core 0 was the plausible win. All three variants, HD/q12/x18/fb3/latest,
+120 s + 10 s warm-up, one flash per variant:
+
+| camera task | device fps | frame B p50 | PC age p50/p95 (ms) | CPU | vs core0 |
+|---|---|---|---|---|---|
+| **core0** (IDF default) | **11.01** | 49,507 | 14 / 20 | 33.0% | — |
+| core1 | 8.53 | 50,020 | 16 / 23 | 27.7% | **−22.5%** |
+| no_affinity | 9.18 | 49,219 | 12 / 18 | 25.9% | **−16.7%** |
+
+**core0 wins; both alternatives are reverted** per the Phase 5 rule that anything
+which does not win on a real metric goes back. Frame sizes agree within 1.2%
+across the three runs, so the scene was stable and the comparison is not
+confounded by the scene sensitivity seen elsewhere in this document.
+`no_affinity` does give the best latency (12 ms p50 against 14 ms) — the only
+metric where it wins — but it costs 17% of the frame rate, and frame rate
+outranks latency in the project priority.
+
+Caveat stated rather than hidden: **one run per variant.** The frame-size
+agreement is the strongest available control on scene variation, but the
+8.5–11.0 spread is wider than a repeat would ideally settle. A second core0 run
+is the cheap way to tighten this if the number ever matters for a decision.
+
 ### Optimization deltas
 
 (Baseline vs each isolated change; link ADRs in `docs/decisions/`. Nothing
