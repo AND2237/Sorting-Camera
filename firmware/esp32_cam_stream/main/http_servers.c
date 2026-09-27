@@ -482,12 +482,12 @@ static esp_err_t sensor_set_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
     const int total = req->content_len;
-    if (total <= 0 || total > 1024) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-1024 bytes of JSON");
+    if (total <= 0 || total > 512) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-512 bytes of JSON");
         return ESP_FAIL;
     }
 
-    char body[1025];
+    char body[513];
     int received = 0;
     while (received < total) {
         const int chunk = httpd_req_recv(req, body + received, total - received);
@@ -556,11 +556,11 @@ static esp_err_t auth_challenge_handler(httpd_req_t *req)
 static esp_err_t auth_login_handler(httpd_req_t *req)
 {
     const int total = req->content_len;
-    if (total <= 0 || total > 512) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-512 bytes of JSON");
+    if (total <= 0 || total > 256) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-256 bytes of JSON");
         return ESP_FAIL;
     }
-    char body[513];
+    char body[257];
     int received = 0;
     while (received < total) {
         const int chunk = httpd_req_recv(req, body + received, total - received);
@@ -625,6 +625,7 @@ esp_err_t start_control_server(void)
     cfg.max_uri_handlers = 12;
     cfg.lru_purge_enable = true;
     cfg.recv_wait_timeout = 2;
+    cfg.stack_size = 8192;
 
     esp_err_t err = httpd_start(&s_control_server, &cfg);
     if (err != ESP_OK) {
