@@ -1,5 +1,7 @@
 #include "app.h"
+#include "auth.h"
 #include "camera_control.h"
+#include "discovery.h"
 
 #include <string.h>
 
@@ -110,8 +112,13 @@ void app_main(void)
 
     camera_control_init();
 
+    if (auth_init() != ESP_OK) {
+        ESP_LOGW(TAG, "control API running WITHOUT authentication");
+    }
+
     ESP_ERROR_CHECK(start_control_server());
     ESP_ERROR_CHECK(start_stream_server());
+    discovery_start();
 #if CONFIG_SORTING_CAM_FRAME_TRANSPORT
     if (!frame_transport_start()) {
         ESP_LOGE(TAG, "tcp/udp frame transport failed to start (http baseline still available)");

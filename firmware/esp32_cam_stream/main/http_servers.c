@@ -1,4 +1,5 @@
 #include "app.h"
+#include "auth.h"
 #include "camera_control.h"
 
 #include <errno.h>
@@ -42,6 +43,9 @@ static const char *framesize_name(framesize_t fs)
 
 static esp_err_t status_handler(httpd_req_t *req)
 {
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
     cJSON *root = cJSON_CreateObject();
     if (!root) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
@@ -113,6 +117,9 @@ static bool parse_framesize(const char *name, framesize_t *out)
 
 static esp_err_t config_handler(httpd_req_t *req)
 {
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
     int64_t t_config = esp_timer_get_time();
 
     char query[192];
@@ -265,6 +272,9 @@ static esp_err_t config_handler(httpd_req_t *req)
 
 static esp_err_t snapshot_handler(httpd_req_t *req)
 {
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
     camera_fb_t *fb = camera_fb_get();
     if (!fb) {
         metrics_capture_failure();
@@ -426,6 +436,9 @@ static cJSON *resolutions_json(void)
 
 static esp_err_t capabilities_handler(httpd_req_t *req)
 {
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
     const esp_app_desc_t *app = esp_app_get_description();
 
     cJSON *root = cJSON_CreateObject();
@@ -445,11 +458,15 @@ static esp_err_t capabilities_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "frame_budget_bytes", (int)camera_frame_budget());
     cJSON_AddItemToObject(root, "resolutions", resolutions_json());
     camera_control_add_capabilities(root);
+    auth_add_capabilities(root);
     return send_json(req, root);
 }
 
 static esp_err_t sensor_get_handler(httpd_req_t *req)
 {
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
     cJSON *root = cJSON_CreateObject();
     if (!root) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
@@ -461,6 +478,9 @@ static esp_err_t sensor_get_handler(httpd_req_t *req)
 
 static esp_err_t sensor_set_handler(httpd_req_t *req)
 {
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
     const int total = req->content_len;
     if (total <= 0 || total > 1024) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-1024 bytes of JSON");
@@ -505,12 +525,104 @@ static esp_err_t sensor_set_handler(httpd_req_t *req)
     return send_json(req, root);
 }
 
+static esp_err_t send_status_text(httpd_req_t *req, const char *status, const char *msg)
+{
+    httpd_resp_set_status(req, status);
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t auth_challenge_handler(httpd_req_t *req)
+{
+    if (!auth_is_enabled()) {
+        return send_status_text(req, "409 Conflict",
+                                "authentication not provisioned on this device");
+    }
+    if (auth_is_locked_out(req)) {
+        return send_status_text(req, "429 Too Many Requests", "client is in backoff");
+    }
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    if (!auth_issue_challenge(req, root)) {
+        cJSON_Delete(root);
+        return send_status_text(req, "429 Too Many Requests", "client is in backoff");
+    }
+    return send_json(req, root);
+}
+
+static esp_err_t auth_login_handler(httpd_req_t *req)
+{
+    const int total = req->content_len;
+    if (total <= 0 || total > 512) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-512 bytes of JSON");
+        return ESP_FAIL;
+    }
+    char body[513];
+    int received = 0;
+    while (received < total) {
+        const int chunk = httpd_req_recv(req, body + received, total - received);
+        if (chunk <= 0) {
+            if (chunk == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "incomplete body");
+            return ESP_FAIL;
+        }
+        received += chunk;
+    }
+    body[received] = '\0';
+
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid JSON body");
+        return ESP_FAIL;
+    }
+    const cJSON *nonce = cJSON_GetObjectItemCaseSensitive(root, "nonce");
+    const cJSON *proof = cJSON_GetObjectItemCaseSensitive(root, "proof");
+    char token[64] = {0};
+    char err[96] = {0};
+    const bool ok = auth_verify_login(req, cJSON_IsString(nonce) ? nonce->valuestring : NULL,
+                                      cJSON_IsString(proof) ? proof->valuestring : NULL, token,
+                                      sizeof(token), err, sizeof(err));
+    cJSON_Delete(root);
+    if (!ok) {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, err[0] ? err : "login failed");
+        return ESP_FAIL;
+    }
+
+    cJSON *resp = cJSON_CreateObject();
+    if (!resp) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    cJSON_AddStringToObject(resp, "token", token);
+    cJSON_AddNumberToObject(resp, "expires_in_s", 1800);
+    cJSON_AddStringToObject(resp, "device_id", device_id_hex());
+    return send_json(req, resp);
+}
+
+static esp_err_t auth_logout_handler(httpd_req_t *req)
+{
+    auth_logout(req);
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    cJSON_AddBoolToObject(root, "logged_out", true);
+    return send_json(req, root);
+}
+
 esp_err_t start_control_server(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = CONTROL_HTTP_PORT;
     cfg.ctrl_port = 32768;
-    cfg.max_open_sockets = 4;
+    cfg.max_open_sockets = 6;
+    cfg.max_uri_handlers = 12;
     cfg.lru_purge_enable = true;
     cfg.recv_wait_timeout = 2;
 
@@ -550,13 +662,32 @@ esp_err_t start_control_server(void)
         .method = HTTP_POST,
         .handler = sensor_set_handler,
     };
+    const httpd_uri_t auth_challenge = {
+        .uri = "/api/v1/auth/challenge",
+        .method = HTTP_GET,
+        .handler = auth_challenge_handler,
+    };
+    const httpd_uri_t auth_login = {
+        .uri = "/api/v1/auth/login",
+        .method = HTTP_POST,
+        .handler = auth_login_handler,
+    };
+    const httpd_uri_t auth_logout = {
+        .uri = "/api/v1/auth/logout",
+        .method = HTTP_POST,
+        .handler = auth_logout_handler,
+    };
     httpd_register_uri_handler(s_control_server, &status);
     httpd_register_uri_handler(s_control_server, &snapshot);
     httpd_register_uri_handler(s_control_server, &config);
     httpd_register_uri_handler(s_control_server, &capabilities);
     httpd_register_uri_handler(s_control_server, &sensor_get);
     httpd_register_uri_handler(s_control_server, &sensor_set);
-    ESP_LOGI(TAG, "control server on port %d", CONTROL_HTTP_PORT);
+    httpd_register_uri_handler(s_control_server, &auth_challenge);
+    httpd_register_uri_handler(s_control_server, &auth_login);
+    httpd_register_uri_handler(s_control_server, &auth_logout);
+    ESP_LOGI(TAG, "control server on port %d (auth %s)", CONTROL_HTTP_PORT,
+             auth_is_enabled() ? "required" : "not provisioned");
     return ESP_OK;
 }
 

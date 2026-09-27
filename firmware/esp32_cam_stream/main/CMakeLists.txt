@@ -1,8 +1,10 @@
 idf_component_register(
     SRCS
         "app_main.c"
+        "auth.c"
         "camera.c"
         "camera_control.c"
+        "discovery.c"
         "wifi.c"
         "http_servers.c"
         "frame_transport.c"
@@ -20,4 +22,5 @@ idf_component_register(
         esp_timer
         json
         esp_app_format
+        mbedtls
 )
