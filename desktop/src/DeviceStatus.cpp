@@ -1,5 +1,8 @@
 #include "DeviceStatus.h"
 
+#include "AuthClient.h"
+#include "CredentialStore.h"
+
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonDocument>
@@ -25,7 +28,23 @@ class DeviceStatusWorker : public QObject
 public:
     explicit DeviceStatusWorker(QObject *parent = nullptr)
         : QObject(parent)
+        , m_auth(new AuthClient(this))
     {
+        connect(m_auth, &AuthClient::authenticatedChanged, this, [this]() {
+            emit authChanged();
+            if (m_auth->isAuthenticated()) {
+                emit authRequiredChanged(false);
+                pollOnce();
+            }
+        });
+        connect(m_auth, &AuthClient::busyChanged, this, &DeviceStatusWorker::authChanged);
+        connect(m_auth, &AuthClient::lastErrorChanged, this, &DeviceStatusWorker::authChanged);
+        connect(m_auth, &AuthClient::settled, this, [this]() {
+            if (!m_auth->isAuthenticated() && !m_auth->hasPassword()) {
+                emit authRequiredChanged(true);
+            }
+            pollOnce();
+        });
     }
 
     ~DeviceStatusWorker() override
@@ -35,11 +54,15 @@ public:
     }
 
 public slots:
-    void startPolling(const QString &host, quint16 port)
+    void startPolling(const QString &host, quint16 port, const QString &password)
     {
         m_url = QUrl(QStringLiteral("http://%1:%2/api/v1/status")
                          .arg(host)
                          .arg(port));
+        m_host = host;
+        m_controlPort = port;
+        m_auth->configure(host, port);
+        m_auth->setPassword(password);
         if (!m_nam) {
             m_nam = new QNetworkAccessManager(this);
         }
@@ -49,7 +72,12 @@ public slots:
             connect(m_timer, &QTimer::timeout, this, &DeviceStatusWorker::pollOnce);
         }
         m_timer->start();
-        pollOnce();
+        if (m_auth->hasPassword()) {
+            m_auth->signIn();
+        } else {
+            emit authRequiredChanged(true);
+            pollOnce();
+        }
     }
 
     void stopPolling()
@@ -58,6 +86,22 @@ public slots:
             m_timer->stop();
         }
         abortReply();
+    }
+
+    void submitPassword(const QString &password)
+    {
+        m_auth->setPassword(password);
+        if (password.isEmpty()) {
+            emit authRequiredChanged(true);
+            return;
+        }
+        m_auth->signIn();
+    }
+
+    void forgetPassword()
+    {
+        m_auth->forgetPassword();
+        emit authRequiredChanged(true);
     }
 
     void setConfig(const QString &host, quint16 port, const QString &query)
@@ -74,6 +118,14 @@ signals:
     void onlineUpdated(bool online);
     void errorUpdated(const QString &errorString);
     void configFinished(bool ok, const QString &message);
+    void authChanged();
+    void authRequiredChanged(bool required);
+
+public:
+    bool authenticated() const { return m_auth->isAuthenticated(); }
+    bool authBusy() const { return m_auth->isBusy(); }
+    QString authError() const { return m_auth->lastError(); }
+    QString currentPassword() const { return m_auth->password(); }
 
 private:
     void doConfig(const QString &host, quint16 port, const QString &query)
@@ -87,7 +139,9 @@ private:
                            .arg(host)
                            .arg(port)
                            .arg(query));
-        m_configReply = m_nam->get(QNetworkRequest(url));
+        QNetworkRequest request(url);
+        m_auth->applyAuthHeaderPublic(&request);
+        m_configReply = m_nam->get(request);
         QTimer::singleShot(kRequestTimeoutMs, m_configReply, &QNetworkReply::abort);
         connect(m_configReply, &QNetworkReply::finished, this, [this]() {
             QNetworkReply *reply = m_configReply;
@@ -100,6 +154,11 @@ private:
             const int status =
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (reply->error() != QNetworkReply::NoError) {
+                if (status == 401) {
+                    m_auth->signIn();
+                    emit configFinished(false, QStringLiteral("session expired, signing in again"));
+                    return;
+                }
                 QString message;
                 if (status == 409) {
                     if (m_cfgRetries < 1) {
@@ -140,7 +199,14 @@ private slots:
             return;
         }
 
-        m_reply = m_nam->get(QNetworkRequest(m_url));
+        if (m_auth->hasPassword() && !m_auth->isAuthenticated()) {
+            m_auth->signIn();
+            return;
+        }
+
+        QNetworkRequest request(m_url);
+        m_auth->applyAuthHeaderPublic(&request);
+        m_reply = m_nam->get(request);
         QTimer::singleShot(kRequestTimeoutMs, m_reply, &QNetworkReply::abort);
         connect(m_reply, &QNetworkReply::finished, this, [this]() {
             QNetworkReply *reply = m_reply;
@@ -149,6 +215,17 @@ private slots:
                 return;
             }
             reply->deleteLater();
+
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status == 401) {
+                if (m_online) {
+                    m_online = false;
+                    emit onlineUpdated(false);
+                }
+                emit authRequiredChanged(true);
+                m_auth->signIn();
+                return;
+            }
 
             if (reply->error() != QNetworkReply::NoError) {
                 if (m_online) {
@@ -206,6 +283,7 @@ private slots:
     }
 
 private:
+    AuthClient *m_auth = nullptr;
     QNetworkAccessManager *m_nam = nullptr;
     QTimer *m_timer = nullptr;
     QNetworkReply *m_reply = nullptr;
@@ -213,6 +291,8 @@ private:
     QUrl m_url;
     QJsonObject m_status;
     bool m_online = false;
+    QString m_host;
+    quint16 m_controlPort = 80;
     QString m_cfgHost;
     quint16 m_cfgPort = 0;
     QString m_cfgQuery;
@@ -230,12 +310,29 @@ DeviceStatus::DeviceStatus(QObject *parent)
     connect(m_worker, &DeviceStatusWorker::statusUpdated, this, [this](const QJsonObject &status) {
         m_status = status;
         emit statusChanged();
+        const QString reportedId = status.value(QStringLiteral("device_id")).toString();
+        if (!reportedId.isEmpty() && reportedId != m_deviceId) {
+            m_deviceId = reportedId;
+            if (m_credentialStored) {
+                CredentialStore::movePassword(hostKey(), credentialKey());
+            }
+        }
+        refreshAuthState();
         trySendPendingConfig();
     });
     connect(m_worker, &DeviceStatusWorker::onlineUpdated, this, [this](bool online) {
         if (m_online != online) {
             m_online = online;
             emit onlineChanged();
+        }
+    });
+    connect(m_worker, &DeviceStatusWorker::authChanged, this, [this]() {
+        refreshAuthState();
+    });
+    connect(m_worker, &DeviceStatusWorker::authRequiredChanged, this, [this](bool required) {
+        if (m_authRequired != required) {
+            m_authRequired = required;
+            emit authStateChanged();
         }
     });
     connect(m_worker, &DeviceStatusWorker::errorUpdated, this, [this](const QString &err) {
@@ -276,6 +373,11 @@ bool DeviceStatus::isOnline() const
     return m_online;
 }
 
+bool DeviceStatus::isPolling() const
+{
+    return m_polling;
+}
+
 QJsonObject DeviceStatus::status() const
 {
     return m_status;
@@ -296,6 +398,90 @@ bool DeviceStatus::configBusy() const
     return m_configBusy;
 }
 
+bool DeviceStatus::isAuthRequired() const
+{
+    return m_authRequired;
+}
+
+bool DeviceStatus::isAuthenticated() const
+{
+    return m_authenticated;
+}
+
+bool DeviceStatus::isAuthBusy() const
+{
+    return m_authBusy;
+}
+
+QString DeviceStatus::authError() const
+{
+    return m_authError;
+}
+
+bool DeviceStatus::isCredentialStored() const
+{
+    return m_credentialStored;
+}
+
+bool DeviceStatus::credentialStorageAvailable() const
+{
+    return CredentialStore::isPersistent();
+}
+
+QString DeviceStatus::hostKey() const
+{
+    return QStringLiteral("%1:%2").arg(m_host).arg(m_port);
+}
+
+QString DeviceStatus::credentialKey() const
+{
+    return m_deviceId.isEmpty() ? hostKey() : m_deviceId;
+}
+
+void DeviceStatus::refreshAuthState()
+{
+    const bool authenticated = m_worker->authenticated();
+    const bool busy = m_worker->authBusy();
+    const QString error = m_worker->authError();
+    const bool stored = CredentialStore::hasPassword(credentialKey())
+                        || CredentialStore::hasPassword(hostKey());
+    if (m_authenticated != authenticated || m_authBusy != busy || m_authError != error
+        || m_credentialStored != stored) {
+        m_authenticated = authenticated;
+        m_authBusy = busy;
+        m_authError = error;
+        m_credentialStored = stored;
+        emit authStateChanged();
+    }
+}
+
+void DeviceStatus::signIn(const QString &password, bool remember)
+{
+    if (remember && CredentialStore::isPersistent()) {
+        CredentialStore::savePassword(credentialKey(), password);
+    } else if (!remember) {
+        CredentialStore::clearPassword(credentialKey());
+        CredentialStore::clearPassword(hostKey());
+    }
+    refreshAuthState();
+    QMetaObject::invokeMethod(m_worker, "submitPassword", Qt::QueuedConnection,
+                              Q_ARG(QString, password));
+}
+
+void DeviceStatus::forgetCredential()
+{
+    CredentialStore::clearPassword(credentialKey());
+    CredentialStore::clearPassword(hostKey());
+    refreshAuthState();
+    QMetaObject::invokeMethod(m_worker, "forgetPassword", Qt::QueuedConnection);
+}
+
+void DeviceStatus::retrySignIn()
+{
+    QMetaObject::invokeMethod(m_worker, "submitPassword", Qt::QueuedConnection,
+                              Q_ARG(QString, m_worker->currentPassword()));
+}
+
 void DeviceStatus::startPolling(const QString &host, quint16 port)
 {
     if (host.trimmed().isEmpty()) {
@@ -303,12 +489,29 @@ void DeviceStatus::startPolling(const QString &host, quint16 port)
     }
     m_host = host.trimmed();
     m_port = port;
+    m_deviceId = QString();
+    if (!m_polling) {
+        m_polling = true;
+        emit pollingChanged();
+    }
+
+    QString password = CredentialStore::loadPassword(hostKey());
+    if (password.isEmpty() && m_credentialStored) {
+        password = CredentialStore::loadPassword(m_deviceId);
+    }
+    refreshAuthState();
+
     QMetaObject::invokeMethod(m_worker, "startPolling", Qt::QueuedConnection,
-                              Q_ARG(QString, host.trimmed()), Q_ARG(quint16, port));
+                              Q_ARG(QString, host.trimmed()), Q_ARG(quint16, port),
+                              Q_ARG(QString, password));
 }
 
 void DeviceStatus::stopPolling()
 {
+    if (m_polling) {
+        m_polling = false;
+        emit pollingChanged();
+    }
     QMetaObject::invokeMethod(m_worker, "stopPolling", Qt::QueuedConnection);
 }
 
@@ -388,9 +591,9 @@ void DeviceStatus::setConfigQuery(const QString &query)
     m_pendingQuery = query;
     m_waitDeadline = QDateTime::currentDateTime().addSecs(kDeviceFreeWaitMs);
     m_waitingForDevice = true;
-    QMetaObject::invokeMethod(m_worker, "startPolling",
-                              Qt::BlockingQueuedConnection,
-                              Q_ARG(QString, m_host), Q_ARG(quint16, m_port));
+    QMetaObject::invokeMethod(m_worker, "startPolling", Qt::BlockingQueuedConnection,
+                              Q_ARG(QString, m_host), Q_ARG(quint16, m_port),
+                              Q_ARG(QString, m_worker->currentPassword()));
     QTimer::singleShot(0, this, [this]() { this->trySendPendingConfig(); });
 }
 

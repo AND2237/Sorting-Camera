@@ -1,0 +1,14 @@
+cmake_minimum_required(VERSION 3.21)
+
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Test)
+
+function(scam_add_test name)
+    qt_add_executable(${name} ${name}.cpp)
+    set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE OFF)
+    target_link_libraries(${name} PRIVATE scamcore Qt6::Test)
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+endfunction()
+
+scam_add_test(tst_authclient)
+scam_add_test(tst_credentialstore)

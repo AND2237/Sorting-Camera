@@ -119,8 +119,14 @@ ApplicationWindow {
             Item { Layout.fillWidth: true }
 
             Label {
-                text: deviceStatus.online ? "device online" : "device offline"
-                color: deviceStatus.online ? "#3fb950" : "#f85149"
+                text: deviceStatus.online ? "device online"
+                    : deviceStatus.authBusy ? "signing in…"
+                    : deviceStatus.authRequired ? "sign in required"
+                    : deviceStatus.polling ? "device offline"
+                    : "not connected"
+                color: deviceStatus.online ? "#3fb950"
+                    : (deviceStatus.authBusy || deviceStatus.authRequired) ? "#d29922"
+                    : "#f85149"
                 font.pixelSize: 12
             }
             Label {
@@ -169,7 +175,7 @@ ApplicationWindow {
                 id: configPanel
                 Layout.fillHeight: true
                 Layout.preferredWidth: 250
-                visible: deviceStatus.online
+                visible: deviceStatus.polling
                 color: "#171c22"
                 radius: 6
                 border.color: "#30363d"
@@ -190,6 +196,83 @@ ApplicationWindow {
                     anchors.fill: parent
                     anchors.margins: 14
                     spacing: 10
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        visible: deviceStatus.authRequired || !deviceStatus.authenticated
+
+                        Label {
+                            text: deviceStatus.authenticated ? "Authenticated" : "Sign in required"
+                            color: deviceStatus.authenticated ? "#3fb950" : "#d29922"
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: !deviceStatus.authenticated
+                            text: deviceStatus.authError.length > 0
+                                  ? deviceStatus.authError
+                                  : "The camera requires a control password."
+                            color: deviceStatus.authError.length > 0 ? "#f85149" : "#8b949e"
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                        }
+
+                        TextField {
+                            id: passwordField
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 34
+                            visible: !deviceStatus.authenticated
+                            echoMode: TextInput.Password
+                            placeholderText: "Control password"
+                            enabled: !deviceStatus.authBusy
+                            color: "#e6edf3"
+                            placeholderTextColor: "#6b7684"
+                            onAccepted: signInButton.clicked()
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: !deviceStatus.authenticated
+                            spacing: 8
+
+                            Button {
+                                id: signInButton
+                                text: deviceStatus.authBusy ? "Signing in…" : "Sign in"
+                                enabled: passwordField.text.length > 0 && !deviceStatus.authBusy
+                                onClicked: deviceStatus.signIn(passwordField.text,
+                                                                rememberCheck.checked)
+                            }
+
+                            CheckBox {
+                                id: rememberCheck
+                                text: "Remember"
+                                enabled: deviceStatus.credentialStorageAvailable
+                                checked: true
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: deviceStatus.credentialStored
+                                     && !deviceStatus.authenticated
+                            text: deviceStatus.credentialStorageAvailable
+                                  ? "A saved password is available for this camera."
+                                  : "Password storage is not available on this system."
+                            color: "#6b7684"
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: "#30363d"
+                        visible: deviceStatus.authRequired || !deviceStatus.authenticated
+                    }
 
                     Label {
                         text: "Camera settings"
