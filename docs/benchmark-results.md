@@ -320,9 +320,146 @@ frame maximum; data in `benchmarks/results/qlow-20260926.json` and
   with maximum-size frames — the USB supply, not the firmware. Streaming large
   frames at high duty cycle is the worst case seen so far.
 
-## Phase 5 — optimization deltas
+## Phase 5 — pipeline optimization
 
-(Baseline vs each isolated change; link ADRs in `docs/decisions/`.)
+### Step 0: PC-side baseline (2026-09-27)
+
+Phase 3 measured the harness with no JPEG decode, so the §13 PC-side metrics
+(decode time, render time, UI FPS, end-to-end software latency) had never been
+recorded. They are now measured in the app itself:
+
+- `desktop/src/AppMetrics.{h,cpp}` — measurement only, no behaviour change:
+  decode/parse/render/scale microseconds, present age and render age
+  milliseconds, part/frame/byte counters, process CPU%, working set.
+- `--bench <sec> --warmup <sec> --out <file> [--framesize k] [--quality n]` runs
+  the real viewer path, resets the counters when the **first frame** arrives, and
+  writes JSON on exit.
+- `benchmarks/phase5_pipeline.py` launches it, polls `/api/v1/status` every 2 s,
+  and **slices the device series to the app's exact measurement window**
+  (`metrics_start_ms`/`metrics_end_ms`) so device and PC fps are comparable.
+
+Method: 120 s measurement after a 10 s warm-up that starts at the first decoded
+frame, softAP ch1, RSSI −17/−18, fb3/latest/psram, xclk 18 MHz, PC i3-1215U,
+Windows 11, Qt 6.11.2. Raw: `benchmarks/results/phase5-baseline-20260927-*.json`.
+
+| run | device fps | app fps | presented fps | decode p50/p95 (µs) | present age p50/p95 (ms) | render p50 (µs) | CPU | MB/s | drops | recoveries | reset |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1280×720 q12 | 8.413 | 8.38 | 8.38 | 9677 / 13331 | 10 / 14 | 1 | 19.3% | 3.80 | 0 | 0 | none |
+| 800×600 q36 | 22.279 | 22.28 | 22.28 | 4520 / 6691 | 5 / 7 | 1 | 25.7% | 2.96 | 0 | 0 | none |
+| 640×480 q36 | 22.506 | 22.51 | 22.51 | 3288 / 4986 | 3 / 5 | 1 | 22.1% | 2.03 | 0 | 0 | none |
+| 320×240 q24 | 44.936 | 44.95 | 44.95 | 931 / 1624 | 1 / 2 | 1 | 24.6% | 1.87 | 0 | 0 | none |
+
+Device-side health during all four runs: `capture_failures` delta 0,
+`camera_recoveries` delta 0, `reset_reason` constant (1 = SW_RESET from the
+flash, i.e. no reboot), minimum free heap 3.50 MB. No serial log was captured
+for these runs (the COM10 reader lost the port to a USB re-enumeration), so the
+device-side evidence is the status polling only — stated rather than implied.
+
+### Finding: the camera is the ceiling, not the PC pipeline
+
+In every run `app fps == device fps` within 0.3%, with **zero** dropped, stale or
+overwritten frames, 1–14 ms of end-to-end PC age, and 19–31% of one core. Even
+at the device's maximum measured rate (44.9 fps) the app presents 44.95 fps with
+1–2 ms age. Consequences for the Phase 5 work list:
+
+1. **PC-pipeline optimization cannot raise fps.** Items 1–6 of the plan (decode
+   thread, copy reduction, render path, freshness, buffers, synchronization) are
+   therefore latency- and CPU-only wins, not fps wins. Decode is 0.93 ms at
+   320×240 and 9.7 ms at 1280×720, i.e. ~8% of a core at 8.4 fps and ~4% at
+   45 fps — never the limiter at any rate the camera can produce.
+2. **The ≥15 fps gate is a device-configuration question.** 1280×720 q12 — the
+   shipped default — produces **8.4 fps**, less than half the floor, while the PC
+   has 90% of its capacity idle. The device levers are XCLK (Phase 3 measured
+   ~27 MHz needed for a clean 15 fps at HD; the clean range tops out at 27),
+   `fb_count`/`grab_mode` (Phase 4 found fb2/latest the winner, but these runs
+   used the NVS-restored fb3), and resolution/quality.
+3. **The render path is not doing what the plan assumed.** `Main.qml` uses
+   `fillMode: Image.PreserveAspectFit`, so the scene graph scales the texture and
+   the provider is asked for the natural size: `requestImage` measures **1 µs**
+   and `scaled()` is never called (`scale_us` sample count 0). The real per-frame
+   render cost is the scene-graph texture upload, which `requestImage` does not
+   capture. The plan's "per-request CPU resample" claim was wrong; recorded here
+   rather than quietly dropped.
+4. Latency is already small (3–14 ms PC-side) and the only remaining latency
+   lever of size is the deferred early-send-during-DMA work (driver-level, risky,
+   documented as deferred).
+
+
+### Device-side A/B and sweep (2026-09-27, same 120 s + 10 s warm-up method)
+
+Run with the app in bench mode so device and PC metrics cover the identical
+window; every run is checked for config mismatch, device reboot and capture
+failures before its numbers are used. Bench-only knobs were added for this
+(`--fb-count`, `--grab`, `--xclk`); no product behaviour changed.
+
+**fb2/latest vs fb3/latest (XCLK 18 MHz)** — Phase 4 had recorded fb2/latest as
+the winner, so this was the first thing to re-test:
+
+| point | fb3 device fps | fb2 device fps | delta | fb2 run |
+|---|---|---|---|---|
+| 1280×720 q12 | 8.41 | 7.13 | **−15.2%** | clean |
+| 800×600 q36 | 22.28 | 20.64 | **−7.4%** | clean |
+| 640×480 q36 | 22.51 | 22.34 | −0.7% | clean |
+| 320×240 q24 | 44.94 | 44.25 | −1.5% | clean |
+
+**fb2 does not win at any of these points.** The Phase-4 fb2 advantage was
+measured at SVGA q12 (15.91 vs 11.44 fps) — a lower-rate regime where an extra
+buffer is not needed. In the high-rate regime the extra buffer is worth 7–15%.
+ADR-0008's fb2 recommendation is therefore **not** carried forward as a blanket
+rule; fb3/latest is the better default at every point measured today.
+
+**XCLK sweep, SVGA 800×600 q36, fb3/latest:**
+
+| XCLK (MHz) | device fps | app fps | frame B p50 | capture ms p50 | CPU | MB/s | valid |
+|---|---|---|---|---|---|---|---|
+| 18 | 22.42 | 22.43 | 17,067 | 13.6 | 34.5% | 3.08 | yes |
+| 20 | 18.61 | 18.62 | 16,770 | 0.7 | 23.4% | 2.51 | yes |
+| 22 | 27.53 | 27.54 | 16,374 | 13.5 | 32.4% | 3.63 | yes |
+| 24 | 29.82 | 29.84 | 16,165 | 10.3 | 44.0% | 3.88 | yes |
+| 26 | 32.43 | 32.41 | 15,785 | 9.7 | 44.6% | 4.12 | yes |
+| 27 | **33.62** | 33.65 | 15,749 | 7.7 | 36.0% | 4.27 | yes |
+
+**XCLK is not monotonic** — 20 MHz is a reproducible local *minimum* (18.6 fps,
+below 18 MHz), so a linear "more clock is better" model is wrong. From 22 MHz
+the curve climbs steeply and is **still rising at 27 MHz**, which is where the
+firmware's validation stops (`xclk` accepted range 6–27). 27 MHz is therefore a
+**policy cap, not a hardware limit**, and the next step is to test above it
+before treating 27 as the ceiling.
+
+**XCLK sweep, HD 1280×720 q12, fb3/latest:**
+
+| XCLK (MHz) | device fps | app fps | frame B p50 | capture ms p50 | recoveries | valid |
+|---|---|---|---|---|---|---|
+| 18 | 7.74 | 7.78 | 58,321 | 0.4 | 0 | yes |
+| 20 | 5.88 | 5.88 | 57,777 | 0.4 | 0 | yes |
+| 22 | 2.16 | 2.16 | 245,849 | 129.5 | 0 | yes (degraded) |
+| 24 | 0.00 | 0.00 | 249,514 | 173.2 | 18 | **no frames** |
+| 26 | 0.00 | 0.00 | 249,514 | 173.2 | 20 | **no frames** |
+| 27 | 0.00 | 0.00 | 249,514 | 173.2 | 18 | **no frames** |
+
+HD behaves in the opposite direction: 20 MHz is already worse than 18, 22 MHz
+inflates the frame from 58 KB to 246 KB and collapses to 2.2 fps, and 24 MHz and
+above stop producing frames entirely. The recovery path fired 18–20 times per run
+and could not recover it — the setting is invalid, not transient. **The XCLK
+sweet spot is resolution-dependent**, so a single global clock (as the app sends
+today) is the wrong model; clock has to travel with the resolution profile.
+
+### Consequence: HD/q12 is an experimental profile, not the production default
+
+HD/q12 was the shipped default on the strength of being "HD, clean sensor noise,
+18 MHz". Measured on 2026-09-27 it delivers **7.7–8.4 fps**, less than half the
+≥15 fps floor, and raising its clock makes it worse rather than better. It is
+retained as an **experimental profile** (highest resolution, sensor-noise-clean,
+useful for stills and snapshot work) and explicitly **not** as the production
+default. The production default is not yet chosen: the best measured point today
+is SVGA 800×600 q36 at 27 MHz with **33.6 fps** (+50% over 18 MHz), which clears
+the floor with margin, at the cost of the XCLK policy cap and the fact that 27 MHz
+is untested above the cap. Choosing it is the next decision, not this phase.
+
+### Optimization deltas
+
+(Baseline vs each isolated change; link ADRs in `docs/decisions/`. Nothing
+measured yet - the Step 0 finding above re-prioritized the work list.)
 
 ## Soak tests
 
