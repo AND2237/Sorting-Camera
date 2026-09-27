@@ -16,9 +16,10 @@ public:
     int version() const;
     double fps() const;
     QImage image() const;
+    qint64 lastFrameCompleteMs() const;
 
 public slots:
-    void setFrame(const QImage &image);
+    void setFrame(const QImage &image, qint64 completeMs);
 
 signals:
     void versionChanged();
@@ -30,4 +31,5 @@ private:
     int m_version = 0;
     double m_fps = 0.0;
     qint64 m_lastFrameMs = 0;
+    qint64 m_lastFrameCompleteMs = 0;
 };

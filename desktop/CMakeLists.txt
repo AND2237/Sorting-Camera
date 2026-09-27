@@ -14,6 +14,8 @@ qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(SortingCamera
     main.cpp
+    src/AppMetrics.cpp
+    src/AppMetrics.h
     src/DeviceStatus.cpp
     src/DeviceStatus.h
     src/FrameBus.cpp

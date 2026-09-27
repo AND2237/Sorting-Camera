@@ -325,6 +325,28 @@ void DeviceStatus::setQuality(int quality)
     setConfigQuery(QStringLiteral("quality=%1").arg(qBound(0, quality, 63)));
 }
 
+void DeviceStatus::setFrameBufferCount(int fbCount)
+{
+    setConfigQuery(QStringLiteral("fb_count=%1").arg(qBound(1, fbCount, 3)));
+}
+
+void DeviceStatus::setGrabMode(const QString &mode)
+{
+    const QString m = mode.trimmed().toLower();
+    if (m != QStringLiteral("latest") && m != QStringLiteral("cont")) {
+        return;
+    }
+    setConfigQuery(QStringLiteral("grab=%1").arg(m));
+}
+
+void DeviceStatus::setXclk(int mhz)
+{
+    if (mhz < 6 || mhz > 27) {
+        return;
+    }
+    setConfigQuery(QStringLiteral("xclk=%1").arg(mhz));
+}
+
 void DeviceStatus::requestCameraRecovery()
 {
     const QString fs = m_status.value(QStringLiteral("resolution")).toString();

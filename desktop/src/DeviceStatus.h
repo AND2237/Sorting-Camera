@@ -33,6 +33,9 @@ public:
     Q_INVOKABLE void setResolution(const QString &framesizeKey);
     Q_INVOKABLE void setQuality(int quality);
     Q_INVOKABLE void requestCameraRecovery();
+    Q_INVOKABLE void setFrameBufferCount(int fbCount);
+    Q_INVOKABLE void setGrabMode(const QString &mode);
+    Q_INVOKABLE void setXclk(int mhz);
 
 signals:
     void onlineChanged();

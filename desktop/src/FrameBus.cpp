@@ -1,5 +1,7 @@
 #include "FrameBus.h"
 
+#include "AppMetrics.h"
+
 #include <QDateTime>
 
 FrameBus::FrameBus(QObject *parent)
@@ -25,7 +27,13 @@ QImage FrameBus::image() const
     return m_image;
 }
 
-void FrameBus::setFrame(const QImage &image)
+qint64 FrameBus::lastFrameCompleteMs() const
+{
+    QMutexLocker lock(&m_mutex);
+    return m_lastFrameCompleteMs;
+}
+
+void FrameBus::setFrame(const QImage &image, qint64 completeMs)
 {
     if (image.isNull()) {
         return;
@@ -35,6 +43,7 @@ void FrameBus::setFrame(const QImage &image)
     {
         QMutexLocker lock(&m_mutex);
         m_image = image;
+        m_lastFrameCompleteMs = completeMs;
         ++m_version;
 
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -49,6 +58,7 @@ void FrameBus::setFrame(const QImage &image)
         fps = m_fps;
     }
 
+    AppMetrics::instance().countPresented();
     emit versionChanged();
     emit fpsChanged();
     Q_UNUSED(fps);

@@ -50,7 +50,7 @@ signals:
     void retryAttemptChanged();
     void noResponseStreakChanged();
     void recoveryHintChanged();
-    void frameReady(const QImage &image);
+    void frameReady(const QImage &image, qint64 completeMs);
     void deviceRecoveryRequested(const QString &host, quint16 port);
 
 private:

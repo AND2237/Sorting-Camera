@@ -1,5 +1,7 @@
 #include "MjpegClient.h"
 
+#include "AppMetrics.h"
+
 #include <QDateTime>
 #include <QDebug>
 #include <QObject>
@@ -98,7 +100,7 @@ signals:
     void activeUpdated(bool active);
     void statsUpdated(quint32 framesReceived, quint32 framesDropped, qint64 bytesReceived);
     void errorUpdated(const QString &errorString);
-    void frameReady(const QImage &image);
+    void frameReady(const QImage &image, qint64 completeMs);
 
 private:
     enum class HttpState { RespHeaders, Identity, ChunkSize, ChunkData, ChunkEnd, Done };
@@ -186,11 +188,18 @@ private:
         if (!m_socket) {
             return;
         }
+        const qint64 t_enter = AppMetrics::nowMs();
+        if (m_lastReadMs > 0) {
+            AppMetrics::instance().addReceiveGapMs(t_enter - m_lastReadMs);
+        }
+        m_lastReadMs = t_enter;
+
         const QByteArray chunk = m_socket->readAll();
         if (!chunk.isEmpty()) {
             m_hadData = true;
             m_lastDataMs = QDateTime::currentMSecsSinceEpoch();
         }
+        AppMetrics::instance().countBytes(chunk.size());
         m_bytes += chunk.size();
         m_raw.append(chunk);
 
@@ -200,7 +209,9 @@ private:
             return;
         }
 
+        const qint64 t_parse0 = AppMetrics::nowUs();
         pump();
+        AppMetrics::instance().addParseUs(AppMetrics::nowUs() - t_parse0);
 
         emit statsUpdated(m_received, m_dropped, m_bytes);
     }
@@ -358,17 +369,25 @@ private:
             const QByteArray payload = m_buffer.left(m_contentLength);
             m_buffer.remove(0, m_contentLength);
             m_parseState = ParseState::Boundary;
+            const qint64 completeMs = AppMetrics::nowMs();
+            m_frameCompleteMs = completeMs;
+            AppMetrics::instance().countPart();
 
+            const qint64 t_decode0 = AppMetrics::nowUs();
             QImage image;
-            if (image.loadFromData(payload, "JPG") && !image.isNull()) {
+            const bool ok = image.loadFromData(payload, "JPG") && !image.isNull();
+            AppMetrics::instance().addDecodeUs(AppMetrics::nowUs() - t_decode0);
+            if (ok) {
                 ++m_received;
+                AppMetrics::instance().countDecoded();
                 if (!m_active) {
                     m_active = true;
                     emit activeUpdated(true);
                 }
-                emit frameReady(image);
+                emit frameReady(image, completeMs);
             } else {
                 ++m_dropped;
+                AppMetrics::instance().countDecodeFailed();
             }
             return !m_buffer.isEmpty();
         }
@@ -379,6 +398,8 @@ private:
     QTcpSocket *m_socket = nullptr;
     QTimer *m_watchdog = nullptr;
     qint64 m_lastDataMs = 0;
+    qint64 m_lastReadMs = 0;
+    qint64 m_frameCompleteMs = 0;
     bool m_hadData = false;
     HttpState m_httpState = HttpState::RespHeaders;
     ParseState m_parseState = ParseState::Boundary;
@@ -463,14 +484,16 @@ MjpegClient::MjpegClient(QObject *parent)
         }
         setError(err);
     });
-    connect(m_worker, &MjpegWorker::frameReady, this, [this](const QImage &image) {
-        setRetryAttempt(0);
-        setConnecting(false);
-        setNoResponseStreak(0);
-        setReconnecting(false);
-        setRecoveryHint(QString());
-        emit frameReady(image);
-    });
+    connect(m_worker, &MjpegWorker::frameReady, this,
+            [this](const QImage &image, qint64 completeMs) {
+                AppMetrics::instance().addPresentAgeMs(AppMetrics::nowMs() - completeMs);
+                setRetryAttempt(0);
+                setConnecting(false);
+                setNoResponseStreak(0);
+                setReconnecting(false);
+                setRecoveryHint(QString());
+                emit frameReady(image, completeMs);
+            });
 
     m_thread->start();
 }
