@@ -98,17 +98,31 @@ ApplicationWindow {
         return m
     }
 
-    // Profiles are ordered by measured image quality, so a step down the list
-    // is always a real, measured trade rather than a guess.
+    // Every setting comes from the engine's own table rather than a list kept
+    // here, so a profile cannot end up labelled one thing and configured as
+    // another. The index is 1-based over profiles.names, matching modeIndex.
     function applyProfile(index) {
-        const keys = ["uxga", "hd", "svga", "qvga", "qvga"]
-        const quals = [4, 12, 24, 12, 36]
-        if (index <= 0 || index > keys.length)
+        if (index <= 0)
             return
-        deviceStatus.setResolution(keys[index - 1])
-        deviceStatus.setQuality(quals[index - 1])
-        prefs.framesize = keys[index - 1]
-        prefs.quality = quals[index - 1]
+        const key = profiles.framesizeAt(index)
+        if (!key)
+            return
+        deviceStatus.setResolution(key)
+        deviceStatus.setQuality(profiles.qualityAt(index))
+        const xclk = profiles.xclkAt(index)
+        if (xclk > 0)
+            deviceStatus.setXclk(xclk)
+        const fb = profiles.frameBufferCountAt(index)
+        if (fb > 0)
+            deviceStatus.setFrameBufferCount(fb)
+        const grab = profiles.grabModeAt(index)
+        if (grab.length > 0)
+            deviceStatus.setGrabMode(grab)
+        prefs.framesize = key
+        prefs.quality = profiles.qualityAt(index)
+        prefs.xclkMhz = xclk
+        prefs.frameBufferCount = fb
+        prefs.grabMode = grab
         root.profileHint = ""
     }
 
@@ -182,6 +196,19 @@ ApplicationWindow {
             deviceStatus.stopPolling()
         } else {
             console.log("[qml] connect", hostField.text, root.controlPort, root.streamPort)
+            // In Automatic the policy is applied, not just described: the
+            // recommended profile is what the camera is configured with before
+            // the stream starts, so a fresh connection lands on a measured
+            // operating point rather than on whatever the camera was left at.
+            // Applied before stream.start() because the firmware answers 409 to
+            // a /config change while a stream client is attached.
+            if (profiles.mode === 0) {
+                const rec = profiles.recommendedIndex()
+                if (rec > 0) {
+                    console.log("[qml] automatic profile", profiles.recommendedName())
+                    applyProfile(rec)
+                }
+            }
             stream.start(hostField.text, root.streamPort)
             deviceStatus.startPolling(hostField.text, root.controlPort)
             prefs.host = hostField.text
@@ -610,8 +637,12 @@ ApplicationWindow {
                 font.family: "Consolas"
             }
             Label {
-                text: "drop " + stream.framesDropped
-                color: stream.framesDropped > 0 ? "#f85149" : "#8b949e"
+                text: "drop " + (stream.framesDropped + frameBus.overwrittenCount)
+                // Two different things are being counted here: frames the
+                // transport discarded, and frames the bus replaced before the
+                // display could show them. Latest-frame-wins is the right
+                // policy, but a drop nobody can see is a drop nobody can fix.
+                color: (stream.framesDropped + frameBus.overwrittenCount) > 0 ? "#f85149" : "#8b949e"
                 font.pixelSize: 12
                 font.family: "Consolas"
             }
@@ -646,10 +677,16 @@ ApplicationWindow {
             Item { Layout.fillWidth: true }
 
             Label {
+                // statusText carries the only real network-layer fault
+                // description the app has - a discovery socket it could not
+                // bind - so it is preferred over a generic "no device found",
+                // which would be true but would not say why.
                 text: discovery.count > 0
                       ? discovery.count + " device(s)"
-                      : (discovery.scanning ? "searching…" : "no device found")
-                color: discovery.count > 0 ? "#3fb950" : "#8b949e"
+                      : (discovery.statusText.length > 0 ? discovery.statusText
+                         : (discovery.scanning ? "searching…" : "no device found"))
+                color: discovery.count > 0 ? "#3fb950"
+                     : (discovery.statusText.length > 0 ? "#f85149" : "#8b949e")
                 font.pixelSize: 12
             }
 
@@ -1107,8 +1144,8 @@ ApplicationWindow {
 
                         Label {
                             Layout.fillWidth: true
-                            visible: deviceStatus.online && !profiles.activeEvidence.length === 0
-                                     && !profiles.activeIsCustom
+                            visible: deviceStatus.online && !profiles.activeIsCustom
+                                     && profiles.activeEvidence.length > 0
                             text: profiles.activeEvidence
                             color: "#6b7684"
                             font.pixelSize: 10
@@ -1308,6 +1345,109 @@ ApplicationWindow {
                         color: "#f85149"
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
+                    }
+
+                    // ---- settings (section 26 / 37) ----
+                    // The three capture settings and the capture directory.
+                    // They are all user preferences, so they are written through
+                    // UserPreferences rather than sent to the camera: the
+                    // directory is a property of this PC, not of the camera.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: "#30363d"
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Settings"
+                            color: "#e6edf3"
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Capture folder"
+                            color: "#8b949e"
+                            font.pixelSize: 11
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            TextField {
+                                id: captureField
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 32
+                                text: prefs.captureDirectory.length > 0
+                                      ? prefs.captureDirectory : captureRoot
+                                color: "#e6edf3"
+                                selectByMouse: true
+                            }
+                            Button {
+                                text: "Use"
+                                enabled: captureField.text.length > 0
+                                onClicked: {
+                                    prefs.captureDirectory = captureField.text
+                                    captureField.text = prefs.captureDirectory
+                                }
+                            }
+                            Button {
+                                text: "Reset"
+                                onClicked: {
+                                    prefs.captureDirectory = ""
+                                    captureField.text = captureRoot
+                                }
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Restore with this folder on the next launch. The current "
+                                  + "session keeps using " + captureRoot + "."
+                            color: "#6b7684"
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Frame buffers: " + deviceStatus.status["fb_count"]
+                            color: "#8b949e"
+                            font.pixelSize: 11
+                            visible: deviceStatus.online
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: deviceStatus.online
+                            spacing: 8
+                            Label {
+                                Layout.fillWidth: true
+                                text: "Grab mode: " + deviceStatus.status["grab_mode"]
+                                      + "  ·  XCLK " + deviceStatus.status["xclk_mhz"] + " MHz"
+                                color: "#8b949e"
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                            }
+                            Button {
+                                text: "Defaults"
+                                enabled: !deviceStatus.configBusy && !stream.active
+                                // fb2 measured faster than fb3 at svga/q12 (15.91
+                                // vs 11.15) but ADR-0010 kept fb3 as the default
+                                // for latency; the user can still ask for it.
+                                onClicked: {
+                                    deviceStatus.setFrameBufferCount(2)
+                                    deviceStatus.setXclk(18)
+                                    deviceStatus.setGrabMode("latest")
+                                }
+                            }
+                        }
                     }
 
                     // ---- device information (section 26) ----

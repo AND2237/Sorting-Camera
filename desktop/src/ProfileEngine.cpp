@@ -275,6 +275,73 @@ QString ProfileEngine::grabModeFromFirmware(const QString &grabMode)
     return grabMode;
 }
 
+namespace {
+const ProfileEngine::Profile *atIndex(int index)
+{
+    const QList<ProfileEngine::Profile> &l = ProfileEngine::ladder();
+    if (index <= 0 || index > l.size()) {
+        return nullptr;
+    }
+    return &l.at(index - 1);
+}
+} // namespace
+
+QString ProfileEngine::framesizeAt(int index) const
+{
+    const Profile *p = atIndex(index);
+    return p ? p->framesize : QString();
+}
+
+int ProfileEngine::qualityAt(int index) const
+{
+    const Profile *p = atIndex(index);
+    return p ? p->quality : 0;
+}
+
+int ProfileEngine::xclkAt(int index) const
+{
+    const Profile *p = atIndex(index);
+    return p ? p->xclkMhz : 0;
+}
+
+int ProfileEngine::frameBufferCountAt(int index) const
+{
+    const Profile *p = atIndex(index);
+    return p ? p->frameBufferCount : 0;
+}
+
+QString ProfileEngine::grabModeAt(int index) const
+{
+    const Profile *p = atIndex(index);
+    return p ? p->grabMode : QString();
+}
+
+double ProfileEngine::measuredFpsAt(int index) const
+{
+    const Profile *p = atIndex(index);
+    return p ? p->measuredFps : 0.0;
+}
+
+int ProfileEngine::recommendedIndex() const
+{
+    const Profile *rec = recommended();
+    if (!rec) {
+        return 0;
+    }
+    for (int i = 0; i < ladder().size(); ++i) {
+        if (ladder().at(i).id == rec->id) {
+            return i + 1;
+        }
+    }
+    return 0;
+}
+
+QString ProfileEngine::recommendedName() const
+{
+    const Profile *rec = recommended();
+    return rec ? rec->name : QString();
+}
+
 int ProfileEngine::modeIndex() const
 {
     return m_modeIndex;

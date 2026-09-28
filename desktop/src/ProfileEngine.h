@@ -102,6 +102,21 @@ public:
 
     // 0 = Automatic, 1..N = the ladder in order.
     QStringList profileNames() const;
+
+    // The ladder's settings, exposed so the UI applies what the table says
+    // instead of keeping its own copy. Duplicating these in QML is how a
+    // profile ends up labelled one thing and configured as another.
+    Q_INVOKABLE QString framesizeAt(int index) const;
+    Q_INVOKABLE int qualityAt(int index) const;
+    Q_INVOKABLE int xclkAt(int index) const;
+    Q_INVOKABLE int frameBufferCountAt(int index) const;
+    Q_INVOKABLE QString grabModeAt(int index) const;
+    Q_INVOKABLE double measuredFpsAt(int index) const;
+
+    // The profile Automatic resolves to, as a 1-based ladder index (0 when
+    // there is none). Used to actually apply the policy, not just describe it.
+    Q_INVOKABLE int recommendedIndex() const;
+    Q_INVOKABLE QString recommendedName() const;
     int modeIndex() const;
     void setModeIndex(int index);
 

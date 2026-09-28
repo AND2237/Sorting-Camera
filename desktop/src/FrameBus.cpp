@@ -24,7 +24,17 @@ double FrameBus::fps() const
 QImage FrameBus::image() const
 {
     QMutexLocker lock(&m_mutex);
+    // Reading the frame is what marks it as seen. Without this there is no way
+    // to tell a frame nobody wanted from one that arrived too fast to display,
+    // and the overwrites counter would be meaningless.
+    m_consumed = true;
     return m_image;
+}
+
+int FrameBus::overwrittenCount() const
+{
+    QMutexLocker lock(&m_mutex);
+    return m_overwritten;
 }
 
 qint64 FrameBus::lastFrameCompleteMs() const
@@ -58,8 +68,19 @@ void FrameBus::setFrame(const QImage &image, const QByteArray &raw, qint64 compl
     }
 
     double fps = 0.0;
+    bool overwritten = false;
     {
         QMutexLocker lock(&m_mutex);
+        // A frame still waiting to be displayed when the next one arrives was
+        // never seen by anyone. Latest-frame-wins is the right policy for a live
+        // view, but the replacement still has to be counted.
+        if (!m_consumed && m_version > 0) {
+            ++m_overwritten;
+            overwritten = true;
+            AppMetrics::instance().countOverwritten();
+        }
+        m_consumed = false;
+
         m_image = image;
         m_raw = raw;
         m_rawFrameCompleteMs = raw.isEmpty() ? 0 : completeMs;
@@ -81,5 +102,8 @@ void FrameBus::setFrame(const QImage &image, const QByteArray &raw, qint64 compl
     AppMetrics::instance().countPresented();
     emit versionChanged();
     emit fpsChanged();
+    if (overwritten) {
+        emit overwrittenChanged();
+    }
     Q_UNUSED(fps);
 }

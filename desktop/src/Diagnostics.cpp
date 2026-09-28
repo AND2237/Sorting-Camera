@@ -198,9 +198,12 @@ Facility *Facility::instance()
     return g_instance;
 }
 
-void Facility::setMinimumLevel(Level level)
+void Facility::setMinimumLevel(int level)
 {
-    m_minimumLevel = level;
+    if (level < static_cast<int>(Level::Debug) || level > static_cast<int>(Level::Critical)) {
+        return;
+    }
+    m_minimumLevel = static_cast<Level>(level);
 }
 
 Level Facility::minimumLevel() const

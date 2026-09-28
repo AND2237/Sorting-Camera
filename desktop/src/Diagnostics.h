@@ -73,7 +73,8 @@ public:
     // The process-wide instance. One log, one ring buffer, one set of limits.
     static Facility *instance();
 
-    void setMinimumLevel(Level level);
+    // Reachable from QML: the level combo in the diagnostics panel drives it.
+    Q_INVOKABLE void setMinimumLevel(int level);
     Level minimumLevel() const;
 
     // Categories at or above this are held to a tighter budget, because they

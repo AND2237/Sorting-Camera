@@ -178,7 +178,7 @@ void TestDiagnostics::theSuppressedCountRidesOnTheNextAcceptedLine()
 void TestDiagnostics::minimumLevelFiltersBelowIt()
 {
     Facility f;
-    f.setMinimumLevel(Level::Warning);
+    f.setMinimumLevel(static_cast<int>(Level::Warning));
     f.log(Category::Config, Level::Debug, QStringLiteral("noise"));
     f.log(Category::Config, Level::Info, QStringLiteral("noise"));
     f.log(Category::Config, Level::Warning, QStringLiteral("kept"));
@@ -186,7 +186,7 @@ void TestDiagnostics::minimumLevelFiltersBelowIt()
 
     // The level control has to actually reduce volume, not merely relabel it.
     QCOMPARE(f.entryCount(), 2);
-    f.setMinimumLevel(Level::Debug);
+    f.setMinimumLevel(static_cast<int>(Level::Debug));
     f.log(Category::Config, Level::Debug, QStringLiteral("now visible"));
     QCOMPARE(f.entryCount(), 3);
 }

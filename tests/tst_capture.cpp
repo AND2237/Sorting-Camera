@@ -122,6 +122,8 @@ private slots:
     void snapshotMatchesWhatTheCameraSent();
     void recordingRoundTripsTheStreamedBytes();
     void bitrateAndFrameAgeReportLiveValues();
+    void unreadFramesAreCountedAsOverwritten();
+    void readFramesAreNotCountedAsOverwritten();
 };
 
 void TestCapture::rawBytesSurviveTheStream()
@@ -226,6 +228,48 @@ void TestCapture::recordingRoundTripsTheStreamedBytes()
         const QByteArray got = f.read(entries.at(i).bytes);
         QCOMPARE(sha256(got), sha256(payloads.at(i)));
     }
+}
+
+void TestCapture::unreadFramesAreCountedAsOverwritten()
+{
+    FrameBus bus;
+    const QImage img(64, 48, QImage::Format_RGB32);
+    const QByteArray raw = realJpegs(1).value(0);
+
+    QCOMPARE(bus.overwrittenCount(), 0);
+    bus.setFrame(img, raw, 1000);
+    QCOMPARE(bus.overwrittenCount(), 0);
+
+    // A frame nobody has read when the next one arrives is a frame the user
+    // never saw. Latest-frame-wins is the correct policy for a live view, but
+    // the replacement still has to be counted - AGENTS.md is explicit that
+    // every drop is counted and never hidden.
+    bus.setFrame(img, raw, 1042);
+    QCOMPARE(bus.overwrittenCount(), 1);
+    bus.setFrame(img, raw, 1084);
+    QCOMPARE(bus.overwrittenCount(), 2);
+
+    // The newest frame is still what is displayed, and the raw bytes are
+    // untouched by all of this.
+    QCOMPARE(bus.version(), 3);
+    QCOMPARE(bus.rawFrame(), raw);
+}
+
+void TestCapture::readFramesAreNotCountedAsOverwritten()
+{
+    FrameBus bus;
+    const QImage img(64, 48, QImage::Format_RGB32);
+    const QByteArray raw = realJpegs(1).value(0);
+
+    for (int i = 0; i < 5; ++i) {
+        bus.setFrame(img, raw, 1000 + i * 42);
+        // Reading the frame is what marks it as seen. Without this the counter
+        // would report a healthy 5 fps stream as five dropped frames.
+        QVERIFY(!bus.image().isNull());
+    }
+    // Every frame was displayed, so nothing was overwritten - a counter that
+    // fired here would train the reader to ignore it.
+    QCOMPARE(bus.overwrittenCount(), 0);
 }
 
 void TestCapture::bitrateAndFrameAgeReportLiveValues()
