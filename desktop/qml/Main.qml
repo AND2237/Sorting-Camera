@@ -21,6 +21,11 @@ ApplicationWindow {
     property int profilePending: 0
     property int profilePendingApply: 0
     property string profileHint: ""
+    // Connect waits for the configuration write it just started. The camera
+    // answers 409 to /config while a stream client is attached, so the video
+    // has to come second - and if the write never reports back, the guard
+    // timer below still opens the stream rather than leaving a spinner.
+    property bool pendingConnect: false
     // Section 38's panel, on demand rather than always-on: a permanent log
     // window costs space the picture needs and hides the thing it explains.
     property bool diagnosticsOpen: false
@@ -59,6 +64,13 @@ ApplicationWindow {
     property real zoom: 1.0
     property real panX: 0
     property real panY: 0
+
+    // Printed once so a session log states what the selector actually offers.
+    // It also pins the one expression that decides that list: JavaScript's
+    // plus operator stringifies arrays, so building it any other way turns
+    // six named profiles into sixty single-character entries.
+    Component.onCompleted: console.log("[qml] profiles:",
+                                       ["Automatic"].concat(profiles.names).join(" | "))
 
     function clampZoom(v) { return Math.min(12, Math.max(1, v)) }
 
@@ -102,8 +114,13 @@ ApplicationWindow {
     // here, so a profile cannot end up labelled one thing and configured as
     // another. The index is 1-based over profiles.names, matching modeIndex.
     function applyProfile(index) {
-        if (index <= 0)
+        // The ladder is 1..N. An index off either end used to reach here from
+        // the profile selector and send an empty framesize, which the firmware
+        // answers with a bad-request error the user then had to dismiss.
+        if (index < 1 || index > profiles.names.length) {
+            console.log("[qml] ignoring profile index", index)
             return
+        }
         const key = profiles.framesizeAt(index)
         if (!key)
             return
@@ -127,6 +144,8 @@ ApplicationWindow {
     }
 
     function requestProfile(index) {
+        if (index < 0 || index > profiles.names.length)
+            return
         if (index === 0) {
             root.profilePending = 0
             root.profileHint = "Automatic keeps the largest measured profile that clears its "
@@ -187,33 +206,97 @@ ApplicationWindow {
         prefs.host = d.address
         prefs.controlPort = d.controlPort
         prefs.streamPort = d.streamPort
+        // The control session opens when a camera is chosen, not when the
+        // video starts. Device information, sign-in and the settings panel all
+        // hang off it and none of them are video - and starting it here is
+        // what leaves the panel usable after the stream is stopped.
+        deviceStatus.startPolling(d.address, d.controlPort)
+    }
+
+    function startStreamNow() {
+        stream.start(hostField.text, root.streamPort)
+        prefs.host = hostField.text
+        prefs.controlPort = root.controlPort
+        prefs.streamPort = root.streamPort
+    }
+
+    function finishConnect() {
+        if (!root.pendingConnect)
+            return
+        root.pendingConnect = false
+        connectTimeout.stop()
+        console.log("[qml] config settled, opening the stream")
+        startStreamNow()
     }
 
     function toggleConnection() {
         if (stream.active || stream.connecting || stream.reconnecting) {
             console.log("[qml] disconnect")
+            // Only the video stops. The control session stays up, because the
+            // settings panel is what the user reaches for the moment they stop
+            // the stream - stopping the polls at the same time is what used to
+            // make the panel vanish exactly when it was needed.
+            root.pendingConnect = false
+            connectTimeout.stop()
             stream.stop()
-            deviceStatus.stopPolling()
-        } else {
-            console.log("[qml] connect", hostField.text, root.controlPort, root.streamPort)
-            // In Automatic the policy is applied, not just described: the
-            // recommended profile is what the camera is configured with before
-            // the stream starts, so a fresh connection lands on a measured
-            // operating point rather than on whatever the camera was left at.
-            // Applied before stream.start() because the firmware answers 409 to
-            // a /config change while a stream client is attached.
-            if (profiles.mode === 0) {
-                const rec = profiles.recommendedIndex()
-                if (rec > 0) {
-                    console.log("[qml] automatic profile", profiles.recommendedName())
-                    applyProfile(rec)
-                }
+            return
+        }
+
+        console.log("[qml] connect", hostField.text, root.controlPort, root.streamPort)
+        // The control session first: a configuration write issued before the
+        // host is known comes back as "not connected", and that error then
+        // parks the whole session in degraded.
+        deviceStatus.startPolling(hostField.text, root.controlPort)
+
+        // In Automatic the policy is applied, not just described - but only
+        // when the camera is not already there. Sending the profile it is
+        // already running bought nothing and cost a request the firmware
+        // rejects while a stream client is attached.
+        if (profiles.mode === 0) {
+            const rec = profiles.recommendedIndex()
+            if (rec > 0 && deviceStatus.status["resolution"] !== undefined
+                    && profiles.activeIndex !== rec) {
+                console.log("[qml] automatic profile", profiles.recommendedName())
+                applyProfile(rec)
             }
-            stream.start(hostField.text, root.streamPort)
-            deviceStatus.startPolling(hostField.text, root.controlPort)
-            prefs.host = hostField.text
-            prefs.controlPort = root.controlPort
-            prefs.streamPort = root.streamPort
+        }
+
+        // The firmware answers 409 to /config while a stream client is
+        // attached, so the video opens after the write it depends on - not
+        // into the middle of it.
+        if (deviceStatus.configBusy) {
+            root.pendingConnect = true
+            connectTimeout.restart()
+            return
+        }
+        startStreamNow()
+    }
+
+    Timer {
+        id: connectTimeout
+        interval: 5000
+        onTriggered: {
+            // A configuration write that never reports back must not cost the
+            // user the picture. The error card explains what happened.
+            if (root.pendingConnect) {
+                console.log("[qml] config did not settle in 5 s, opening the stream anyway")
+                root.finishConnect()
+            }
+        }
+    }
+
+    Connections {
+        target: deviceStatus
+        function onConfigBusyChanged() {
+            if (root.pendingConnect && !deviceStatus.configBusy)
+                root.finishConnect()
+        }
+        function onConfigErrorChanged() {
+            // A rejected setting is reported, not obeyed: the connection
+            // continues so the user reads the message over a live picture
+            // rather than a blank one.
+            if (root.pendingConnect && !deviceStatus.configBusy)
+                root.finishConnect()
         }
     }
 
@@ -308,6 +391,11 @@ ApplicationWindow {
                 enabled: !stream.active && !stream.connecting && !stream.reconnecting
 
                 delegate: ItemDelegate {
+                    // Required, like the rest: a delegate that declares
+                    // required properties has no injected context, so reading
+                    // an undeclared "index" threw a ReferenceError every time
+                    // the highlight moved and left the row unstyled.
+                    required property int index
                     required property string name
                     required property string address
                     required property string firmware
@@ -863,7 +951,13 @@ ApplicationWindow {
                 id: configPanel
                 Layout.fillHeight: true
                 Layout.preferredWidth: 250
-                visible: deviceStatus.polling
+                // Settings exist to be used while the picture is stopped: the
+                // firmware refuses a config change with a stream attached, so
+                // showing a panel of dead controls during playback only told
+                // the user what they could not do. It is here while the
+                // control session is up and the video is off, and gone while
+                // the video runs.
+                visible: deviceStatus.polling && !stream.active
                 color: "#171c22"
                 radius: 6
                 border.color: "#30363d"
@@ -1016,18 +1110,6 @@ ApplicationWindow {
         }
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: stream.active
-                        Label {
-                            Layout.fillWidth: true
-                            text: "Stop the stream to change settings"
-                            color: "#d29922"
-                            font.pixelSize: 11
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
                     Label {
                         Layout.fillWidth: true
                         text: "JPEG quality: " + Math.round(qualitySlider.value)
@@ -1117,8 +1199,15 @@ ApplicationWindow {
                             Layout.preferredHeight: 40
                             // Automatic plus the measured ladder, best image
                             // quality first.
-                            model: ["Automatic"] + profiles.names
+                            //
+                            // concat, not "+": in JavaScript the plus operator
+                            // stringifies both arrays, so the old expression
+                            // built one long string and ComboBox read it as a
+                            // list of characters - sixty single-letter options
+                            // instead of six named profiles.
+                            model: ["Automatic"].concat(profiles.names)
                             currentIndex: profiles.mode
+                            enabled: !stream.active && !stream.connecting && !stream.reconnecting
 
                             onActivated: (index) => {
                                 profiles.mode = index
@@ -1190,8 +1279,10 @@ ApplicationWindow {
                                 onClicked: {
                                     root.profilePendingApply = root.profilePending
                                     root.profilePending = 0
+                                    // Video only. The control session stays up
+                                    // so the write lands on a status the panel
+                                    // can still show the result of.
                                     stream.stop()
-                                    deviceStatus.stopPolling()
                                     profileApplyTimer.restart()
                                 }
                             }
@@ -1205,10 +1296,12 @@ ApplicationWindow {
                             }
                         }
 
-                        // The gap between stopping the stream and sending the new
-                        // configuration is the reason this exists. The camera
-                        // answers 409 while a stream client is still attached,
-                        // and stopPolling() has to land before /config does.
+                        // The gap between stopping the stream and sending the
+                        // configuration is the reason this exists: the camera
+                        // counts a stream client until its socket closes, and
+                        // answers 409 to /config until it does. The write
+                        // itself is no longer fired blind - toggleConnection
+                        // waits on configBusy before reopening the video.
                         Timer {
                             id: profileApplyTimer
                             interval: 900

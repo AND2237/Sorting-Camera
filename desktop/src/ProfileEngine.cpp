@@ -349,10 +349,14 @@ int ProfileEngine::modeIndex() const
 
 void ProfileEngine::setModeIndex(int index)
 {
-    if (m_modeIndex == index) {
+    // 0 = Automatic, 1..N = the ladder. Anything else would come from a
+    // selector that is out of step with the table, and every read of the
+    // ladder by index assumes this range holds.
+    const int clamped = qBound(0, index, ladder().size());
+    if (m_modeIndex == clamped) {
         return;
     }
-    m_modeIndex = index;
+    m_modeIndex = clamped;
     emit modeChanged();
     emit adviceChanged();
 }

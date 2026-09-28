@@ -59,6 +59,17 @@ CameraDevice::CameraDevice(const QString &deviceId, const QString &address, quin
         default:
             break;
         }
+        // A message that outlives its cause is worse than no message: the next
+        // real fault arrives while an old one is still on screen, and the two
+        // are read together. Every state that is not a fault retracts the fault
+        // messages, so a card disappears on its own the moment the condition it
+        // describes stops being true - which is also the moment nobody is
+        // watching the screen for it.
+        if (m_session->state() != SessionState::State::Error
+            && m_session->state() != SessionState::State::Degraded) {
+            m_notifications->dismissKey(QStringLiteral("session-error"));
+            m_notifications->dismissKey(QStringLiteral("session-degraded"));
+        }
     });
 
     connect(m_recorder, &Recorder::errorStringChanged, this, [this]() {
@@ -71,6 +82,9 @@ CameraDevice::CameraDevice(const QString &deviceId, const QString &address, quin
 
     connect(m_status, &DeviceStatus::configErrorChanged, this, [this]() {
         if (m_status->configError().isEmpty()) {
+            // The next successful write clears the error. Retracting the card
+            // here is what makes "fixed" mean gone rather than struck through.
+            m_notifications->dismissKey(QStringLiteral("config"));
             return;
         }
         m_notifications->postOnce(QStringLiteral("config"),

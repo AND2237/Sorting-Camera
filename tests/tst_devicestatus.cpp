@@ -154,6 +154,10 @@ private:
             respond(sock, 200, QJsonDocument(status).toJson(QJsonDocument::Compact));
             return;
         }
+        if (req.path.startsWith(QStringLiteral("/api/v1/config"))) {
+            respond(sock, 200, QJsonDocument(status).toJson(QJsonDocument::Compact));
+            return;
+        }
         respond(sock, 404, QByteArray("{\"error\":\"not found\"}"));
     }
 
@@ -197,6 +201,8 @@ private slots:
     void switchingDevicesDropsTheOldCapabilities();
     void resetAppliesEveryDefaultInOneRequest();
     void writesAreSerialisedWhileOneIsInFlight();
+    void aProfileLeavesAsASingleConfigRequest();
+    void aStaleNotConnectedErrorClearsWhenTheCameraAnswers();
 };
 
 void TestDeviceStatus::capabilitiesArriveAfterAStatusPoll()
@@ -402,6 +408,67 @@ void TestDeviceStatus::writesAreSerialisedWhileOneIsInFlight()
         if (r.method == QStringLiteral("POST"))
             ++posts;
     QCOMPARE(posts, 1);
+    status.stopPolling();
+}
+
+void TestDeviceStatus::aProfileLeavesAsASingleConfigRequest()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    // A profile is five settings issued in the same tick, which is how the
+    // profile selector sends them. The camera takes all of them in one query,
+    // and the desktop used to keep a single pending slot that returned early
+    // on the second write - so the first setting went out, the other four were
+    // discarded in silence, and the camera stayed on whatever it had.
+    status.setResolution(QStringLiteral("hd"));
+    status.setQuality(12);
+    status.setXclk(18);
+    status.setFrameBufferCount(3);
+    status.setGrabMode(QStringLiteral("latest"));
+    QVERIFY(status.configBusy());
+
+    QTRY_VERIFY_WITH_TIMEOUT(!status.configBusy(), 8000);
+    QVERIFY2(status.configError().isEmpty(), qPrintable(status.configError()));
+
+    int configRequests = 0;
+    QString query;
+    for (const ControlApiStub::Request &r : stub.requests) {
+        if (r.path.startsWith(QStringLiteral("/api/v1/config"))) {
+            ++configRequests;
+            query = r.path;
+        }
+    }
+    QCOMPARE(configRequests, 1);
+    QVERIFY2(query.contains(QStringLiteral("framesize=hd")), qPrintable(query));
+    QVERIFY2(query.contains(QStringLiteral("quality=12")), qPrintable(query));
+    QVERIFY2(query.contains(QStringLiteral("xclk=18")), qPrintable(query));
+    QVERIFY2(query.contains(QStringLiteral("fb_count=3")), qPrintable(query));
+    QVERIFY2(query.contains(QStringLiteral("grab=latest")), qPrintable(query));
+    status.stopPolling();
+}
+
+void TestDeviceStatus::aStaleNotConnectedErrorClearsWhenTheCameraAnswers()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    // A write attempted while no camera is known reports "not connected".
+    // That sentence has to stop being true the moment the camera answers a
+    // status poll - otherwise the card stays on screen for a fault that has
+    // already passed, and nobody clears it because nobody is watching for it.
+    status.setQuality(12);
+    QCOMPARE(status.configError(), QStringLiteral("not connected"));
+
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(status.configError().isEmpty(), 8000);
+
     status.stopPolling();
 }
 

@@ -125,13 +125,19 @@ int main(int argc, char *argv[])
             : prefs.captureDirectory();
 
     // Bench runs are scripted against an explicit --host, so they get a device
-    // with no discovery behind it.
+    // with no discovery behind it. A normal run gets the same placeholder so
+    // the QML names have something to point at before discovery reports a
+    // camera - but it must not start talking. Starting the control session
+    // here left a second CameraDevice polling for the whole session alongside
+    // the one discovery selects: two status polls a second, two logins, and a
+    // view bound to a placeholder until the switch happened.
     CameraDevice *device =
         registry.acquire(QStringLiteral("bench:%1").arg(host), host, controlPort, streamPort);
     registry.setActive(device->deviceId());
-    device->status()->startPolling(host, controlPort);
+    if (benchMode) {
+        device->status()->startPolling(host, controlPort);
+    }
 
-    FrameBus &frameBus = *device->frames();
     MjpegClient &stream = *device->stream();
     DeviceStatus &deviceStatus = *device->status();
 

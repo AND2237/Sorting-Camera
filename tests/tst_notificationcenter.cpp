@@ -21,6 +21,8 @@ private slots:
     void repeatingTheSameKeyDoesNotGrowTheList();
     void repeatingTheSameKeyRefreshesAndMovesToTop();
     void dismissRemovesOneRow();
+    void refreshingARowAnnouncesItsRemoval();
+    void dismissKeyRetractsOnlyItsOwnCondition();
     void dismissAllClearsEverything();
     void countsTrackSeverity();
     void stickyIsWarningAndAbove();
@@ -138,6 +140,59 @@ void TestNotificationCenter::dismissRemovesOneRow()
     // index a card holds can be stale by the time it is clicked.
     n.dismiss(99);
     n.dismiss(-1);
+    QCOMPARE(n.rowCount(), 1);
+}
+
+void TestNotificationCenter::refreshingARowAnnouncesItsRemoval()
+{
+    NotificationCenter n;
+    n.postOnce(QStringLiteral("a"), Level::Warning, Category::Connection, QStringLiteral("alpha"));
+    n.postOnce(QStringLiteral("b"), Level::Warning, Category::Connection, QStringLiteral("bravo"));
+
+    // Refreshing "a" takes it out of its old row and re-inserts it at the top.
+    // The removal has to be announced: a view that is only told about the
+    // insert ends up with one more delegate than the model has rows, and from
+    // that point its row indices point at the wrong cards - which is how a
+    // message becomes impossible to close.
+    QSignalSpy removed(&n, &QAbstractItemModel::rowsRemoved);
+    n.postOnce(QStringLiteral("a"), Level::Warning, Category::Connection, QStringLiteral("alpha"));
+    QCOMPARE(removed.count(), 1);
+    QCOMPARE(removed.at(0).at(1).toInt(), 1);
+    QCOMPARE(removed.at(0).at(2).toInt(), 1);
+
+    // The delegate count and the row count still agree afterwards, which is
+    // the property the whole list depends on.
+    QCOMPARE(n.rowCount(), 2);
+    QCOMPARE(n.data(n.index(0, 0), NotificationCenter::TextRole).toString(),
+             QStringLiteral("alpha"));
+    QCOMPARE(n.data(n.index(1, 0), NotificationCenter::TextRole).toString(),
+             QStringLiteral("bravo"));
+}
+
+void TestNotificationCenter::dismissKeyRetractsOnlyItsOwnCondition()
+{
+    NotificationCenter n;
+    n.postOnce(QStringLiteral("session-degraded"), Level::Warning, Category::Connection,
+               QStringLiteral("control API not answering"));
+    n.postOnce(QStringLiteral("config"), Level::Error, Category::Config,
+               QStringLiteral("stream active: disconnect before config change"));
+    n.postOnce(QStringLiteral("session-error"), Level::Error, Category::Connection,
+               QStringLiteral("stream stalled"));
+    QCOMPARE(n.rowCount(), 3);
+
+    // The session recovered: both of its cards go, because neither condition
+    // is true any more and nobody is watching for them to disappear.
+    n.dismissKey(QStringLiteral("session-degraded"));
+    n.dismissKey(QStringLiteral("session-error"));
+    QCOMPARE(n.rowCount(), 1);
+    QCOMPARE(n.data(n.index(0, 0), NotificationCenter::TextRole).toString(),
+             QStringLiteral("stream active: disconnect before config change"));
+    QVERIFY(!n.hasKey(QStringLiteral("session-degraded")));
+    QVERIFY(n.hasKey(QStringLiteral("config")));
+
+    // An empty key means nothing to retract; taking it literally would clear
+    // every unkeyed card in the list.
+    n.dismissKey(QString());
     QCOMPARE(n.rowCount(), 1);
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QJsonObject>
+#include <QMap>
 #include <QObject>
 #include <QString>
 
@@ -108,7 +109,13 @@ private:
     QString m_host;
     quint16 m_port = 0;
     QString m_deviceId;
-    QString m_pendingQuery;
+    // One pending config write is a batch, not a slot. Keyed so a second write
+    // to the same key replaces the first and the batch still leaves as a
+    // single request, which is what /api/v1/config is built for.
+    QMap<QString, QString> m_pendingKv;
+    bool m_configInFlight = false;
+    bool m_statusFresh = false;
+    int m_cfgDebounceGen = 0;
     QDateTime m_waitDeadline;
-    bool m_waitingForDevice = false;
+    QDateTime m_statusWaitDeadline;
 };

@@ -54,6 +54,12 @@ public:
     Q_INVOKABLE void dismiss(int row);
     Q_INVOKABLE void dismissAll();
     Q_INVOKABLE void acknowledgeAll();
+    // Retract every message posted under one key. Where dismiss() answers "the
+    // user closed this card", this answers "the condition behind this card is
+    // gone" - the two are not the same event, and only the second one can
+    // happen without anyone watching the screen.
+    void dismissKey(const QString &key);
+    bool hasKey(const QString &key) const;
 
     // How long an informational message stays. Errors and warnings are sticky
     // and ignore this.

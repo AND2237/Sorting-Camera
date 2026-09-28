@@ -19,6 +19,14 @@ namespace {
 constexpr int kPollIntervalMs = 1000;
 constexpr int kRequestTimeoutMs = 3000;
 constexpr int kDeviceFreeWaitMs = 8000;
+// A profile is five setters called back to back. They are coalesced into the
+// one request /api/v1/config is designed to take rather than raced at the
+// camera as five separate round trips.
+constexpr int kConfigDebounceMs = 120;
+// How long to wait for a status poll to land before sending anyway. The
+// camera's own stream_clients count is what makes a config write legal, so
+// guessing at it is what produced the 409.
+constexpr int kConfigStatusWaitMs = 1500;
 } // namespace
 
 class DeviceStatusWorker : public QObject
@@ -427,12 +435,22 @@ DeviceStatus::DeviceStatus(QObject *parent)
         }
         refreshAuthState();
         requestCapabilities();
+        // Fresh enough to decide whether a config write is legal.
+        m_statusFresh = true;
         trySendPendingConfig();
     });
     connect(m_worker, &DeviceStatusWorker::onlineUpdated, this, [this](bool online) {
         if (m_online != online) {
             m_online = online;
             emit onlineChanged();
+        }
+        // "not connected" stops being true the moment this answer arrives.
+        // Leaving it standing after the camera replies is how a card outlives
+        // the fault it describes, and nobody clears it because nobody is
+        // watching the screen for it.
+        if (online && m_configError == QStringLiteral("not connected")) {
+            m_configError.clear();
+            emit configErrorChanged();
         }
     });
     connect(m_worker, &DeviceStatusWorker::authChanged, this, [this]() {
@@ -453,12 +471,22 @@ DeviceStatus::DeviceStatus(QObject *parent)
     connect(m_worker, &DeviceStatusWorker::configFinished, this,
             [this](bool ok, const QString &message) {
                 qDebug() << "[config] finished ok=" << ok << message;
-                m_configBusy = false;
-                emit configBusyChanged();
+                m_configInFlight = false;
+                // Setters that arrived while this request was in flight form
+                // the next batch; the panel stays busy until they are out too,
+                // so nothing reads a half-applied profile.
+                const bool busyNow = !m_pendingKv.isEmpty();
+                if (m_configBusy != busyNow) {
+                    m_configBusy = busyNow;
+                    emit configBusyChanged();
+                }
                 const QString err = ok ? QString() : message;
                 if (m_configError != err) {
                     m_configError = err;
                     emit configErrorChanged();
+                }
+                if (busyNow) {
+                    trySendPendingConfig();
                 }
             });
 
@@ -633,19 +661,27 @@ void DeviceStatus::retrySignIn()
 
 void DeviceStatus::startPolling(const QString &host, quint16 port)
 {
-    if (host.trimmed().isEmpty()) {
+    const QString trimmed = host.trimmed();
+    if (trimmed.isEmpty()) {
         return;
     }
-    m_host = host.trimmed();
+    // Selecting the camera again must not look like a different camera.
+    // Capabilities describe one device, and dropping them on every connect
+    // emptied the controls panel for as long as it took to fetch them back -
+    // which is the moment the panel is most likely to be on screen.
+    const bool sameDevice = trimmed == m_host && port == m_port;
+    m_host = trimmed;
     m_port = port;
-    m_deviceId = QString();
-    // Capabilities describe one camera. Carrying them across a switch to a
-    // different one would offer controls the new device may not have.
-    if (!m_capabilities.isEmpty()) {
-        m_capabilities = QJsonObject();
-        emit capabilitiesChanged();
+    if (!sameDevice) {
+        m_deviceId = QString();
+        // Capabilities describe one camera. Carrying them across a switch to a
+        // different one would offer controls the new device may not have.
+        if (!m_capabilities.isEmpty()) {
+            m_capabilities = QJsonObject();
+            emit capabilitiesChanged();
+        }
+        m_sensorError.clear();
     }
-    m_sensorError.clear();
     if (!m_polling) {
         m_polling = true;
         emit pollingChanged();
@@ -658,7 +694,7 @@ void DeviceStatus::startPolling(const QString &host, quint16 port)
     refreshAuthState();
 
     QMetaObject::invokeMethod(m_worker, "startPolling", Qt::QueuedConnection,
-                              Q_ARG(QString, host.trimmed()), Q_ARG(quint16, port),
+                              Q_ARG(QString, trimmed), Q_ARG(quint16, port),
                               Q_ARG(QString, password));
 }
 
@@ -812,42 +848,84 @@ void DeviceStatus::setConfigQuery(const QString &query)
         }
         return;
     }
-    if (m_configBusy) {
+    // Every setter adds to one batch instead of replacing it. The previous
+    // version kept a single slot and returned early whenever a write was
+    // already pending, so a profile - five setters invoked in the same tick -
+    // sent the first and discarded the other four without a word. The camera
+    // kept the configuration it already had, the profile selector appeared to
+    // do nothing, and the four lost writes never reached a log either.
+    bool added = false;
+    const QStringList pairs = query.split(QLatin1Char('&'));
+    for (const QString &pair : pairs) {
+        const int eq = pair.indexOf(QLatin1Char('='));
+        if (eq <= 0) {
+            continue;
+        }
+        m_pendingKv.insert(pair.left(eq), pair.mid(eq + 1));
+        added = true;
+    }
+    if (!added) {
         return;
     }
-    m_configBusy = true;
-    emit configBusyChanged();
+
+    if (!m_configBusy) {
+        m_configBusy = true;
+        emit configBusyChanged();
+    }
     if (!m_configError.isEmpty()) {
         m_configError.clear();
         emit configErrorChanged();
     }
-    m_pendingQuery = query;
+
+    m_statusFresh = false;
     m_waitDeadline = QDateTime::currentDateTime().addSecs(kDeviceFreeWaitMs);
-    m_waitingForDevice = true;
-    QMetaObject::invokeMethod(m_worker, "refreshStatus", Qt::BlockingQueuedConnection);
-    QTimer::singleShot(0, this, [this]() { this->trySendPendingConfig(); });
+    m_statusWaitDeadline = QDateTime::currentDateTime().addMSecs(kConfigStatusWaitMs);
+    // Queued, not blocking. BlockingQueuedConnection stopped the GUI thread
+    // until the worker picked the call up, and the worker is the thread that
+    // talks to the camera - so the stall was longest precisely when the
+    // network was busiest. The status update it asks for arrives as a signal
+    // anyway, and that signal is what resumes the send.
+    QMetaObject::invokeMethod(m_worker, "refreshStatus", Qt::QueuedConnection);
+
+    const int gen = ++m_cfgDebounceGen;
+    QTimer::singleShot(kConfigDebounceMs, this, [this, gen]() {
+        if (gen == m_cfgDebounceGen) {
+            trySendPendingConfig();
+        }
+    });
 }
 
 void DeviceStatus::trySendPendingConfig()
 {
-    if (!m_waitingForDevice || m_pendingQuery.isEmpty()) {
+    if (m_pendingKv.isEmpty() || m_configInFlight) {
         return;
     }
-    const QJsonObject st = m_status;
-    const int clients = st.value(QStringLiteral("stream_clients")).toInt(0);
+    const QDateTime now = QDateTime::currentDateTime();
+    if (!m_statusFresh && now < m_statusWaitDeadline) {
+        QTimer::singleShot(100, this, [this]() { trySendPendingConfig(); });
+        return;
+    }
+    if (!m_statusFresh) {
+        qDebug("[config] no fresh status within %d ms, sending anyway", kConfigStatusWaitMs);
+    }
+    const int clients = m_status.value(QStringLiteral("stream_clients")).toInt(0);
     if (clients > 0) {
-        if (QDateTime::currentDateTime() < m_waitDeadline) {
-            QTimer::singleShot(250, this, [this]() { this->trySendPendingConfig(); });
+        if (now < m_waitDeadline) {
+            QTimer::singleShot(250, this, [this]() { trySendPendingConfig(); });
             return;
         }
         qDebug("[config] device still reports %d stream client(s), sending anyway", clients);
     }
-    const QString query = m_pendingQuery;
-    m_pendingQuery.clear();
-    m_waitingForDevice = false;
+
+    QStringList parts;
+    for (auto it = m_pendingKv.constBegin(); it != m_pendingKv.constEnd(); ++it) {
+        parts << it.key() + QLatin1Char('=') + it.value();
+    }
+    m_pendingKv.clear();
+    m_configInFlight = true;
     QMetaObject::invokeMethod(m_worker, "setConfig", Qt::QueuedConnection,
                               Q_ARG(QString, m_host), Q_ARG(quint16, m_port),
-                              Q_ARG(QString, query));
+                              Q_ARG(QString, parts.join(QLatin1Char('&'))));
 }
 
 #include "DeviceStatus.moc"

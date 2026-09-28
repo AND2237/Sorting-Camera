@@ -105,10 +105,20 @@ void NotificationCenter::postOnce(const QString &key, Diagnostics::Level level,
         // Refresh in place and move to the top. A link that flaps every two
         // seconds must not fill the list with the same sentence, and must not
         // push everything else off the screen while doing it.
-        m_items[existing].text = text;
-        m_items[existing].createdMs = QDateTime::currentMSecsSinceEpoch();
-        m_items[existing].level = level;
-        const Item moved = m_items.takeAt(existing);
+        //
+        // The removal has to be announced to the views. Taking the item out
+        // first and only then calling beginInsertRows() shifts every row after
+        // it without telling anybody, so the delegates keep holding the row
+        // index they were created with and the next dismiss() removes whatever
+        // now occupies that slot instead of the card that was clicked. The
+        // message then appears stuck to the screen, which is exactly what
+        // happened.
+        beginRemoveRows(QModelIndex(), existing, existing);
+        Item moved = m_items.takeAt(existing);
+        endRemoveRows();
+        moved.text = text;
+        moved.createdMs = QDateTime::currentMSecsSinceEpoch();
+        moved.level = level;
         beginInsertRows(QModelIndex(), 0, 0);
         m_items.prepend(moved);
         endInsertRows();
@@ -152,6 +162,31 @@ void NotificationCenter::dismissAll()
     m_items.clear();
     endResetModel();
     emit countsChanged();
+}
+
+void NotificationCenter::dismissKey(const QString &key)
+{
+    if (key.isEmpty()) {
+        return;
+    }
+    bool removed = false;
+    for (int i = m_items.size() - 1; i >= 0; --i) {
+        if (m_items.at(i).key != key) {
+            continue;
+        }
+        beginRemoveRows(QModelIndex(), i, i);
+        m_items.remove(i);
+        endRemoveRows();
+        removed = true;
+    }
+    if (removed) {
+        emit countsChanged();
+    }
+}
+
+bool NotificationCenter::hasKey(const QString &key) const
+{
+    return !key.isEmpty() && indexOfKey(key) >= 0;
 }
 
 void NotificationCenter::acknowledgeAll()
