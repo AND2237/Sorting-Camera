@@ -33,7 +33,25 @@ qint64 FrameBus::lastFrameCompleteMs() const
     return m_lastFrameCompleteMs;
 }
 
-void FrameBus::setFrame(const QImage &image, qint64 completeMs)
+QByteArray FrameBus::rawFrame() const
+{
+    QMutexLocker lock(&m_mutex);
+    return m_raw;
+}
+
+bool FrameBus::hasRawFrame() const
+{
+    QMutexLocker lock(&m_mutex);
+    return !m_raw.isEmpty();
+}
+
+qint64 FrameBus::rawFrameCompleteMs() const
+{
+    QMutexLocker lock(&m_mutex);
+    return m_rawFrameCompleteMs;
+}
+
+void FrameBus::setFrame(const QImage &image, const QByteArray &raw, qint64 completeMs)
 {
     if (image.isNull()) {
         return;
@@ -43,6 +61,8 @@ void FrameBus::setFrame(const QImage &image, qint64 completeMs)
     {
         QMutexLocker lock(&m_mutex);
         m_image = image;
+        m_raw = raw;
+        m_rawFrameCompleteMs = raw.isEmpty() ? 0 : completeMs;
         m_lastFrameCompleteMs = completeMs;
         ++m_version;
 

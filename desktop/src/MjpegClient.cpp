@@ -100,7 +100,7 @@ signals:
     void activeUpdated(bool active);
     void statsUpdated(quint32 framesReceived, quint32 framesDropped, qint64 bytesReceived);
     void errorUpdated(const QString &errorString);
-    void frameReady(const QImage &image, qint64 completeMs);
+    void frameReady(const QImage &image, const QByteArray &raw, qint64 completeMs);
 
 private:
     enum class HttpState { RespHeaders, Identity, ChunkSize, ChunkData, ChunkEnd, Done };
@@ -382,9 +382,14 @@ private:
                 AppMetrics::instance().countDecoded();
                 if (!m_active) {
                     m_active = true;
+                    // Once per connection only: proves the raw payload and its
+                    // dimensions without flooding a log at frame rate.
+                    qDebug().noquote() << "[stream] first frame" << payload.size()
+                                       << "bytes," << image.width() << "x"
+                                       << image.height();
                     emit activeUpdated(true);
                 }
-                emit frameReady(image, completeMs);
+                emit frameReady(image, payload, completeMs);
             } else {
                 ++m_dropped;
                 AppMetrics::instance().countDecodeFailed();
@@ -460,7 +465,7 @@ MjpegClient::MjpegClient(QObject *parent)
             setNoResponseStreak(m_noResponseStreak + 1);
             if (m_noResponseStreak == 2 && m_recoveriesTriggered < 2) {
                 m_recoveriesTriggered++;
-                setRecoveryHint(QStringLiteral("camera not responding, asking device to re-init…"));
+                setRecoveryHint(QStringLiteral("camera not responding, asking device to re-initâ€¦"));
                 emit deviceRecoveryRequested(m_host, m_port);
             }
         }
@@ -485,14 +490,14 @@ MjpegClient::MjpegClient(QObject *parent)
         setError(err);
     });
     connect(m_worker, &MjpegWorker::frameReady, this,
-            [this](const QImage &image, qint64 completeMs) {
+            [this](const QImage &image, const QByteArray &raw, qint64 completeMs) {
                 AppMetrics::instance().addPresentAgeMs(AppMetrics::nowMs() - completeMs);
                 setRetryAttempt(0);
                 setConnecting(false);
                 setNoResponseStreak(0);
                 setReconnecting(false);
                 setRecoveryHint(QString());
-                emit frameReady(image, completeMs);
+                emit frameReady(image, raw, completeMs);
             });
 
     m_thread->start();

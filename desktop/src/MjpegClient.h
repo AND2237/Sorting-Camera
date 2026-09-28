@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QImage>
 #include <QObject>
 #include <QString>
@@ -57,7 +58,7 @@ signals:
     void noResponseStreakChanged();
     void recoveryHintChanged();
     void userConnectedChanged();
-    void frameReady(const QImage &image, qint64 completeMs);
+    void frameReady(const QImage &image, const QByteArray &raw, qint64 completeMs);
     void deviceRecoveryRequested(const QString &host, quint16 port);
 
 private:

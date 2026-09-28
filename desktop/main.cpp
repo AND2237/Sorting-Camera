@@ -4,7 +4,9 @@
 #include "src/FrameBus.h"
 #include "src/FrameImageProvider.h"
 #include "src/MjpegClient.h"
+#include "src/Recorder.h"
 #include "src/SessionState.h"
+#include "src/SnapshotWriter.h"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -13,6 +15,7 @@
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QStandardPaths>
 #include <QTimer>
 
 namespace {
@@ -91,13 +94,28 @@ int main(int argc, char *argv[])
     DiscoveryService discovery;
     SessionState sessionState;
     sessionState.observe(&stream, &deviceStatus, &discovery);
+    Recorder recorder;
+    SnapshotWriter snapshotWriter(&frameBus);
+
+    const QString captureRoot =
+        QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
+        + QStringLiteral("/SortingCamera");
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("frame"), new FrameImageProvider(&frameBus));
 
     QObject::connect(&stream, &MjpegClient::frameReady, &frameBus,
-                     [&frameBus](const QImage &image, qint64 completeMs) {
-                         frameBus.setFrame(image, completeMs);
+                     [&frameBus, &recorder](const QImage &image, const QByteArray &raw,
+                                            qint64 completeMs) {
+                         // The bus keeps both views of the same frame, so a
+                         // snapshot is always the picture on screen and the
+                         // recorder always gets the untouched network bytes.
+                         frameBus.setFrame(image, raw, completeMs);
+                         if (recorder.isRecording() && !raw.isEmpty()) {
+                             recorder.appendFrame(raw, int(recorder.framesWritten()),
+                                                  QDateTime::currentMSecsSinceEpoch(),
+                                                  image.width(), image.height());
+                         }
                      });
     QObject::connect(&stream, &MjpegClient::deviceRecoveryRequested, &deviceStatus,
                      [&deviceStatus, controlPort](const QString &h, quint16) {
@@ -111,6 +129,10 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("deviceStatus"), &deviceStatus);
     engine.rootContext()->setContextProperty(QStringLiteral("discovery"), &discovery);
     engine.rootContext()->setContextProperty(QStringLiteral("sessionState"), &sessionState);
+    engine.rootContext()->setContextProperty(QStringLiteral("recorder"), &recorder);
+    engine.rootContext()->setContextProperty(QStringLiteral("snapshotWriter"),
+                                             &snapshotWriter);
+    engine.rootContext()->setContextProperty(QStringLiteral("captureRoot"), captureRoot);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -244,7 +266,8 @@ int main(int argc, char *argv[])
         QCoreApplication::exit(0);
     });
     QObject::connect(&stream, &MjpegClient::frameReady, &app,
-                     [&warmupTimer, warmupSeconds, &warmupArmed](const QImage &, qint64) {
+                     [&warmupTimer, warmupSeconds, &warmupArmed](const QImage &, const QByteArray &,
+                                                                 qint64) {
                          if (!warmupArmed) {
                              warmupArmed = true;
                              warmupTimer.start(warmupSeconds * 1000);

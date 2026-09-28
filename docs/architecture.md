@@ -195,9 +195,26 @@ This is the "no reconnect storms" requirement of §24.
 
 ## Recording & snapshot
 
-- PC-side only. Store received JPEG bytes verbatim.
-- Container: indexed frame stream (length-prefixed frames + JSON sidecar index with seq/timestamp/dims/device/firmware) — chosen in Phase 6 after format evaluation; crash-recoverable by scanning markers.
-- Snapshot = current frame's exact bytes to `.jpg`.
+_PC-side only. The ESP32 performs no recording and no transcoding._
+
+Both features consume the **exact JPEG bytes the camera sent**, never a
+decoded-and-re-encoded copy (§21, §22). The pipeline was changed to make that
+possible: `MjpegWorker` used to hand over only a decoded `QImage`, which
+discarded the payload at `image.loadFromData()`. It now passes the untouched
+`payload` alongside the image, and `FrameBus` holds both views of the same
+frame — so a snapshot is always the picture on screen, and the recorder always
+gets the network bytes.
+
+| | |
+|---|---|
+| Snapshot | current frame's bytes straight to `<Pictures>/SortingCamera/snapshots/snap_<stamp>_<device>.jpg`, size verified against what was written. Exposed to QML only as `save(directory, deviceId)`; the bytes stay in C++ |
+| Recording | `.scamrec` container: magic + JSON header, then `u32` length + raw JPEG per frame, plus a `.json` sidecar index with `offset/seq/ts/w/h`. Written at `<Pictures>/SortingCamera/recordings/` |
+| Index | flushed at most every 60 frames and again on a clean stop. It is a convenience, not a dependency |
+| Recovery | `Recorder::scan` rebuilds the frame table from the container alone: read the length, check it is plausible, check the bytes are a well-formed JPEG, stop at the first failure — which is where a truncated write ends. A killed application costs the frames since the last flush, never the file |
+
+Format selection, with the four candidates evaluated against §21's six
+criteria: `decisions/0011-recording-container-format.md`.
+
 
 ## Threading summary
 

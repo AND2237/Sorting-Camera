@@ -13,6 +13,30 @@ ApplicationWindow {
 
     property int controlPort: 80
     property int streamPort: 81
+    property string selectedDeviceId: ""
+
+    function deviceMeta() {
+        const m = {
+            "host": hostField.text,
+            "control_port": root.controlPort,
+            "stream_port": root.streamPort,
+            "app_version": Qt.application.version
+        }
+        const idx = devicePicker.currentIndex
+        if (idx >= 0) {
+            const d = discovery.deviceAt(idx)
+            if (d && d.deviceId) {
+                m["device_id"] = d.deviceId
+                m["device_name"] = d.name
+                m["firmware"] = d.firmware
+                m["sensor"] = d.sensor
+            }
+        }
+        const st = deviceStatus.status
+        if (st["framesize"] !== undefined) m["framesize"] = st["framesize"]
+        if (st["quality"] !== undefined) m["quality"] = st["quality"]
+        return m
+    }
 
     function applyDevice(index) {
         const d = discovery.deviceAt(index)
@@ -22,6 +46,7 @@ ApplicationWindow {
         hostField.text = d.address
         root.controlPort = d.controlPort
         root.streamPort = d.streamPort
+        root.selectedDeviceId = d.deviceId
     }
 
     function toggleConnection() {
@@ -141,6 +166,50 @@ ApplicationWindow {
             }
 
             Button {
+                text: "Snapshot"
+                enabled: snapshotWriter.available
+                onClicked: {
+                    const p = snapshotWriter.save(captureRoot + "/snapshots",
+                                                  root.selectedDeviceId)
+                    console.log("[qml] snapshot ->", p !== "" ? p : snapshotWriter.errorString)
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: snapshotWriter.available
+                    ? "Save the current frame exactly as the camera sent it"
+                    : "Waiting for a frame"
+            }
+
+            Button {
+                text: recorder.recording ? "Stop recording" : "Record"
+                enabled: stream.active || recorder.recording
+                onClicked: {
+                    if (recorder.recording) {
+                        console.log("[qml] stop recording ->", recorder.path)
+                        recorder.stop()
+                    } else {
+                        const ok = recorder.start(captureRoot + "/recordings", root.deviceMeta())
+                        console.log("[qml] record ->", ok ? recorder.path : recorder.errorString)
+                    }
+                }
+                contentItem: Row {
+                    spacing: 6
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 8; height: 8; radius: 4
+                        color: recorder.recording ? "#f85149" : "#6b7684"
+                    }
+                    Label {
+                        text: recorder.recording ? "Stop recording" : "Record"
+                        font.pixelSize: 13
+                    }
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: recorder.recording
+                    ? recorder.framesWritten + " frames written to " + recorder.path
+                    : "Record the incoming JPEGs without re-encoding"
+            }
+
+            Button {
                 text: "Recover camera"
                 visible: deviceStatus.online && !stream.active
                 onClicked: deviceStatus.requestCameraRecovery()
@@ -219,6 +288,50 @@ ApplicationWindow {
                 color: "#6b7684"
                 font.pixelSize: 11
                 font.family: "Consolas"
+            }
+
+            Label {
+                visible: recorder.recording
+                text: "REC " + recorder.framesWritten + " / "
+                      + (recorder.bytesWritten / 1048576).toFixed(1) + " MB"
+                color: "#f85149"
+                font.pixelSize: 12
+                font.family: "Consolas"
+            }
+
+            Label {
+                visible: recorder.errorString.length > 0
+                text: recorder.errorString
+                color: "#f85149"
+                font.pixelSize: 11
+            }
+
+            Label {
+                visible: snapshotWriter.errorString.length > 0
+                text: snapshotWriter.errorString
+                color: "#f85149"
+                font.pixelSize: 11
+            }
+
+            Label {
+                visible: snapIndicatorTimer.running
+                text: "saved " + snapshotWriter.lastPath
+                color: "#3fb950"
+                font.pixelSize: 11
+            }
+
+            Timer {
+                id: snapIndicatorTimer
+                interval: 5000
+            }
+
+            Connections {
+                target: snapshotWriter
+                function onSaved() { snapIndicatorTimer.restart() }
+                function onErrorStringChanged() {
+                    if (snapshotWriter.errorString.length === 0)
+                        snapIndicatorTimer.stop()
+                }
             }
             Label {
                 visible: deviceStatus.online
