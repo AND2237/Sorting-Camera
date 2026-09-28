@@ -2,10 +2,12 @@
 #include "src/CameraDevice.h"
 #include "src/DeviceRegistry.h"
 #include "src/DeviceStatus.h"
+#include "src/Diagnostics.h"
 #include "src/DiscoveryService.h"
 #include "src/FrameBus.h"
 #include "src/FrameImageProvider.h"
 #include "src/MjpegClient.h"
+#include "src/NotificationCenter.h"
 #include "src/ProfileEngine.h"
 #include "src/Recorder.h"
 #include "src/SessionState.h"
@@ -34,6 +36,10 @@ int main(int argc, char *argv[])
     // profile engine cannot be exposed to QML as an object pointer.
     qmlRegisterUncreatableType<ProfileEngine>("SortingCamera", 1, 0,
                                              "ProfileEngine", QStringLiteral("owned by its camera"));
+    qmlRegisterUncreatableType<NotificationCenter>("SortingCamera", 1, 0, "NotificationCenter",
+                                                   QStringLiteral("owned by its camera"));
+    qmlRegisterUncreatableType<Diagnostics::Facility>("SortingCamera", 1, 0, "Facility",
+                                                      QStringLiteral("one per process"));
 
     QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("SortingCamera"));
@@ -102,6 +108,12 @@ int main(int argc, char *argv[])
     // allows a single active stream in the view - but the objects behind the
     // view are per camera, not per application, so a second camera is a second
     // entry here rather than a second architecture.
+    // One facility for the process, installed before anything else logs, so
+    // every subsystem's messages are categorised and rate limited from the
+    // first line rather than from whenever this object happens to be built.
+    Diagnostics::Facility diagnostics;
+    diagnostics.setMaxEntries(800);
+
     DiscoveryService discovery;
     DeviceRegistry registry(&discovery);
     UserPreferences prefs;
@@ -148,6 +160,8 @@ int main(int argc, char *argv[])
         ctx->setContextProperty(QStringLiteral("snapshotWriter"), active->snapshots());
         ctx->setContextProperty(QStringLiteral("streamStats"), active->stats());
         ctx->setContextProperty(QStringLiteral("profiles"), active->profiles());
+        ctx->setContextProperty(QStringLiteral("notify"), active->notifications());
+        ctx->setContextProperty(QStringLiteral("diagnostics"), Diagnostics::Facility::instance());
     };
     QObject::connect(&registry, &DeviceRegistry::activeDeviceChanged, &app,
                      [&exposeActiveDevice]() { exposeActiveDevice(); });

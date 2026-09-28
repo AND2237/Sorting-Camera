@@ -21,6 +21,9 @@ ApplicationWindow {
     property int profilePending: 0
     property int profilePendingApply: 0
     property string profileHint: ""
+    // Section 38's panel, on demand rather than always-on: a permanent log
+    // window costs space the picture needs and hides the thing it explains.
+    property bool diagnosticsOpen: false
     // Section 26 controls, derived from what the camera advertises. Grouped
     // here rather than hard-coded so the panel follows the firmware.
     readonly property var controlGroups: {
@@ -210,6 +213,12 @@ ApplicationWindow {
         sequence: "F11"
         onActivated: root.toggleFullScreen()
     }
+    // Section 38's diagnostics view, on the same key people already reach for
+    // on a second monitor.
+    Shortcut {
+        sequence: "F12"
+        onActivated: root.diagnosticsOpen = !root.diagnosticsOpen
+    }
     Shortcut {
         sequence: "Esc"
         enabled: root.visibility === Window.FullScreen
@@ -395,6 +404,186 @@ ApplicationWindow {
         }
     }
 
+    // ---- notifications (section 26) ----
+    // Over the footer, newest first. Errors and warnings wait to be dismissed
+    // because nobody has acknowledged them; informational cards expire on their
+    // own, since a user does not need to be told twice that the camera was
+    // found.
+    Column {
+        id: notifyColumn
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 44
+        anchors.margins: 12
+        width: Math.min(360, parent.width - 24)
+        spacing: 6
+        z: 50
+
+        Repeater {
+            model: notify
+            delegate: Rectangle {
+                id: notifyCard
+                required property int index
+                required property int severity
+                required property string category
+                required property string text
+                required property bool sticky
+
+                width: notifyColumn.width
+                implicitHeight: notifyText.implicitHeight + 30
+                radius: 6
+                border.width: 1
+                color: severity >= 3 ? "#3d1d1d" : (severity === 2 ? "#3a2f14" : "#1c2430")
+                border.color: severity >= 3 ? "#f85149" : (severity === 2 ? "#d29922" : "#30363d")
+
+                Label {
+                    id: notifyText
+                    anchors.left: parent.left
+                    anchors.right: dismissButton.left
+                    anchors.top: parent.top
+                    anchors.margins: 9
+                    text: notifyCard.text
+                    color: "#e6edf3"
+                    font.pixelSize: 12
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 9
+                    anchors.top: notifyText.bottom
+                    anchors.topMargin: 2
+                    text: notifyCard.category
+                    color: "#6b7684"
+                    font.pixelSize: 10
+                    font.family: "Consolas"
+                }
+
+                ToolButton {
+                    id: dismissButton
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 4
+                    width: 22
+                    height: 22
+                    text: "×"
+                    onClicked: notify.dismiss(notifyCard.index)
+                }
+
+                // Keeps the card from swallowing wheel events meant for the
+                // picture underneath while still letting the button work.
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.NoButton
+                }
+            }
+        }
+    }
+
+    // ---- diagnostics (section 38) ----
+    Rectangle {
+        id: diagPanel
+        visible: root.diagnosticsOpen
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 44
+        anchors.margins: 8
+        width: 380
+        height: Math.min(360, root.height - 90)
+        color: "#171c22"
+        radius: 6
+        border.color: "#30363d"
+        z: 60
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: "Diagnostics"
+                    color: "#e6edf3"
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+                Button {
+                    text: "×"
+                    onClicked: root.diagnosticsOpen = false
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    text: "min level"
+                    color: "#8b949e"
+                    font.pixelSize: 11
+                }
+                ComboBox {
+                    id: levelCombo
+                    Layout.fillWidth: true
+                    model: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+                    currentIndex: 0
+                    onActivated: (index) => diagnostics.setMinimumLevel(index)
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: diagnostics.warningCount() + " warnings, "
+                      + diagnostics.errorCount() + " errors buffered"
+                color: "#8b949e"
+                font.pixelSize: 11
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: diagnostics.statisticsText().length > 0
+                      ? diagnostics.statisticsText() : "no frame statistics yet"
+                color: "#6b7684"
+                font.pixelSize: 10
+                font.family: "Consolas"
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            }
+
+            ListView {
+                id: diagList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                // Rebuilt on demand rather than held as a model: the log is a
+                // debugging view of a bounded ring buffer, not something worth
+                // keeping live in step with every entry.
+                model: diagnostics.recentEntries(120)
+                spacing: 3
+
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Label {
+                        text: modelData[1]
+                        color: modelData[0] >= 3 ? "#f85149"
+                             : (modelData[0] === 2 ? "#d29922"
+                             : (modelData[0] === 1 ? "#8b949e" : "#6b7684"))
+                        font.pixelSize: 10
+                        font.family: "Consolas"
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: modelData[2] + "  " + modelData[3]
+                        color: "#c9d1d9"
+                        font.pixelSize: 10
+                        font.family: "Consolas"
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                }
+            }
+        }
+    }
+
     footer: ToolBar {
         height: 34
 
@@ -426,10 +615,10 @@ ApplicationWindow {
                 font.pixelSize: 12
                 font.family: "Consolas"
             }
-            Label {
-                visible: streamStats.hasFrame
-                text: streamStats.bitrateMbps.toFixed(2) + " Mbps"
-                color: "#8b949e"
+                        Label {
+                            visible: streamStats.hasFrame
+                            text: streamStats.bitrateMbps.toFixed(2) + " Mbps"
+                            color: "#8b949e"
                 font.pixelSize: 12
                 font.family: "Consolas"
                 MouseArea {

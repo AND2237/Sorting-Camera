@@ -4,6 +4,7 @@
 #include "DiscoveryService.h"
 #include "FrameBus.h"
 #include "MjpegClient.h"
+#include "NotificationCenter.h"
 #include "ProfileEngine.h"
 #include "Recorder.h"
 #include "SessionState.h"
@@ -29,8 +30,81 @@ CameraDevice::CameraDevice(const QString &deviceId, const QString &address, quin
     , m_snapshots(new SnapshotWriter(m_frames, this))
     , m_stats(new StreamStats(m_stream, m_frames, this))
     , m_profiles(new ProfileEngine(this))
+    , m_notifications(new NotificationCenter(this))
 {
     m_session->observe(m_stream, m_status, discovery);
+
+    // Every logged warning or worse is also worth seeing on screen, and the two
+    // use one severity vocabulary so a condition cannot be a warning in the log
+    // and an error on screen. Information is left out on purpose: a user does
+    // not need a card for every poll that succeeded.
+    connect(m_session, &SessionState::changed, this, [this]() {
+        Diagnostics::Scope scope(Diagnostics::Category::Connection);
+        switch (m_session->state()) {
+        case SessionState::State::Error:
+            m_notifications->postOnce(QStringLiteral("session-error"),
+                                      Diagnostics::Level::Error, Diagnostics::Category::Connection,
+                                      m_session->detail());
+            break;
+        case SessionState::State::Degraded:
+            m_notifications->postOnce(QStringLiteral("session-degraded"),
+                                      Diagnostics::Level::Warning, Diagnostics::Category::Connection,
+                                      m_session->detail());
+            break;
+        case SessionState::State::Authenticated:
+            m_notifications->postOnce(QStringLiteral("session-auth"),
+                                      Diagnostics::Level::Info, Diagnostics::Category::Auth,
+                                      QStringLiteral("Control channel authenticated"));
+            break;
+        default:
+            break;
+        }
+    });
+
+    connect(m_recorder, &Recorder::errorStringChanged, this, [this]() {
+        const QString err = m_recorder->errorString();
+        if (err.isEmpty()) {
+            return;
+        }
+        m_notifications->post(Diagnostics::Level::Error, Diagnostics::Category::Recording, err);
+    });
+
+    connect(m_status, &DeviceStatus::configErrorChanged, this, [this]() {
+        if (m_status->configError().isEmpty()) {
+            return;
+        }
+        m_notifications->postOnce(QStringLiteral("config"),
+                                  Diagnostics::Level::Error, Diagnostics::Category::Config,
+                                  m_status->configError());
+    });
+
+    // Frames are the one quantity that would flood a log at 20 fps, so the
+    // size and the pipeline age of each frame go to counters and never become a
+    // line. The spread the counters keep is what makes a periodic report worth
+    // reading: a p95 by eye instead of a single last value.
+    connect(m_stream, &MjpegClient::frameReady, this,
+            [this](const QImage &, const QByteArray &raw, qint64 completeMs) {
+                if (Diagnostics::Facility *f = Diagnostics::Facility::instance()) {
+                    f->countFrame(QStringLiteral("frame.bytes"), raw.size());
+                    f->countFrame(QStringLiteral("frame.age_ms"),
+                                  QDateTime::currentMSecsSinceEpoch() - completeMs);
+                }
+            });
+
+    // Drops arrive as a running total, so the change since the last sample is
+    // what gets counted - counting the total each time would report a number
+    // that grows whether or not anything was dropped.
+    connect(m_stream, &MjpegClient::statsChanged, this, [this]() {
+        if (Diagnostics::Facility *f = Diagnostics::Facility::instance()) {
+            const qint64 dropped = m_stream->framesDropped();
+            const qint64 delta = dropped - m_lastDrops;
+            if (delta > 0) {
+                f->countDrop(QStringLiteral("stale"), delta);
+            }
+            m_lastDrops = dropped;
+            f->countFrame(QStringLiteral("frames.received"), m_stream->framesReceived());
+        }
+    });
 
     // The profile engine learns what the camera is actually doing from the
     // status payload rather than from what was requested: a profile is a
@@ -171,4 +245,9 @@ StreamStats *CameraDevice::stats() const
 ProfileEngine *CameraDevice::profiles() const
 {
     return m_profiles;
+}
+
+NotificationCenter *CameraDevice::notifications() const
+{
+    return m_notifications;
 }

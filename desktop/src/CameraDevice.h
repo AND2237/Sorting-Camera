@@ -7,6 +7,7 @@ class DeviceStatus;
 class DiscoveryService;
 class FrameBus;
 class MjpegClient;
+class NotificationCenter;
 class ProfileEngine;
 class Recorder;
 class SessionState;
@@ -52,6 +53,7 @@ public:
     SnapshotWriter *snapshots() const;
     StreamStats *stats() const;
     ProfileEngine *profiles() const;
+    NotificationCenter *notifications() const;
 
 signals:
     void endpointChanged();
@@ -70,4 +72,6 @@ private:
     SnapshotWriter *m_snapshots = nullptr;
     StreamStats *m_stats = nullptr;
     ProfileEngine *m_profiles = nullptr;
+    NotificationCenter *m_notifications = nullptr;
+    qint64 m_lastDrops = 0;
 };
