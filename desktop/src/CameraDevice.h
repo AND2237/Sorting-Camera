@@ -7,6 +7,7 @@ class DeviceStatus;
 class DiscoveryService;
 class FrameBus;
 class MjpegClient;
+class ProfileEngine;
 class Recorder;
 class SessionState;
 class SnapshotWriter;
@@ -50,6 +51,7 @@ public:
     Recorder *recorder() const;
     SnapshotWriter *snapshots() const;
     StreamStats *stats() const;
+    ProfileEngine *profiles() const;
 
 signals:
     void endpointChanged();
@@ -67,4 +69,5 @@ private:
     Recorder *m_recorder = nullptr;
     SnapshotWriter *m_snapshots = nullptr;
     StreamStats *m_stats = nullptr;
+    ProfileEngine *m_profiles = nullptr;
 };

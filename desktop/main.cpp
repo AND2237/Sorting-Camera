@@ -6,6 +6,7 @@
 #include "src/FrameBus.h"
 #include "src/FrameImageProvider.h"
 #include "src/MjpegClient.h"
+#include "src/ProfileEngine.h"
 #include "src/Recorder.h"
 #include "src/SessionState.h"
 #include "src/SnapshotWriter.h"
@@ -29,10 +30,15 @@ int main(int argc, char *argv[])
 {
     qputenv("QT_QUICK_CONTROLS_STYLE", QByteArrayLiteral("Basic"));
 
+    // Registered before any context property can carry it, otherwise the
+    // profile engine cannot be exposed to QML as an object pointer.
+    qmlRegisterUncreatableType<ProfileEngine>("SortingCamera", 1, 0,
+                                             "ProfileEngine", QStringLiteral("owned by its camera"));
+
     QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("SortingCamera"));
     QCoreApplication::setApplicationName(QStringLiteral("SortingCamera"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("0.2.0"));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
@@ -141,6 +147,7 @@ int main(int argc, char *argv[])
         ctx->setContextProperty(QStringLiteral("recorder"), active->recorder());
         ctx->setContextProperty(QStringLiteral("snapshotWriter"), active->snapshots());
         ctx->setContextProperty(QStringLiteral("streamStats"), active->stats());
+        ctx->setContextProperty(QStringLiteral("profiles"), active->profiles());
     };
     QObject::connect(&registry, &DeviceRegistry::activeDeviceChanged, &app,
                      [&exposeActiveDevice]() { exposeActiveDevice(); });

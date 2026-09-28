@@ -18,6 +18,9 @@ ApplicationWindow {
     // What the host field held at startup, so auto-selection only happens
     // while the user has not typed an address of their own.
     property string initialHost: prefs.host
+    property int profilePending: 0
+    property int profilePendingApply: 0
+    property string profileHint: ""
     // Section 26 controls, derived from what the camera advertises. Grouped
     // here rather than hard-coded so the panel follows the firmware.
     readonly property var controlGroups: {
@@ -90,6 +93,38 @@ ApplicationWindow {
         if (st["framesize"] !== undefined) m["framesize"] = st["framesize"]
         if (st["quality"] !== undefined) m["quality"] = st["quality"]
         return m
+    }
+
+    // Profiles are ordered by measured image quality, so a step down the list
+    // is always a real, measured trade rather than a guess.
+    function applyProfile(index) {
+        const keys = ["uxga", "hd", "svga", "qvga", "qvga"]
+        const quals = [4, 12, 24, 12, 36]
+        if (index <= 0 || index > keys.length)
+            return
+        deviceStatus.setResolution(keys[index - 1])
+        deviceStatus.setQuality(quals[index - 1])
+        prefs.framesize = keys[index - 1]
+        prefs.quality = quals[index - 1]
+        root.profileHint = ""
+    }
+
+    function requestProfile(index) {
+        if (index === 0) {
+            root.profilePending = 0
+            root.profileHint = "Automatic keeps the largest measured profile that clears its "
+                               + "floor. On this camera that is High Quality, the production default."
+            return
+        }
+        root.profilePending = index
+        if (stream.active || stream.connecting || stream.reconnecting) {
+            // Shown rather than done: dropping a live stream without asking
+            // would be a worse surprise than the slower frame rate the user
+            // chose to keep.
+            return
+        }
+        applyProfile(index)
+        root.profilePending = 0
     }
 
     function formatUptime(seconds) {
@@ -830,6 +865,136 @@ ApplicationWindow {
                     }
 
                     Item { Layout.fillHeight: true }
+
+                    // ---- operating profile (section 12 / 26) ----
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: "#30363d"
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Operating profile"
+                            color: "#e6edf3"
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+
+                        ComboBox {
+                            id: profileCombo
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 40
+                            // Automatic plus the measured ladder, best image
+                            // quality first.
+                            model: ["Automatic"] + profiles.names
+                            currentIndex: profiles.mode
+
+                            onActivated: (index) => {
+                                profiles.mode = index
+                                root.requestProfile(index)
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: deviceStatus.online
+                            text: profiles.activeIsCustom
+                                  ? "Custom configuration"
+                                  : profiles.activeName
+                                    + "  -  measured " + profiles.activeMeasuredFps.toFixed(2)
+                                    + " fps against a " + profiles.activeFloorFps.toFixed(0)
+                                    + " fps floor"
+                            color: deviceStatus.online && !profiles.activeMeetsFloor
+                                  ? "#d29922" : "#8b949e"
+                            font.pixelSize: 11
+                            font.family: "Consolas"
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: deviceStatus.online && !profiles.activeEvidence.length === 0
+                                     && !profiles.activeIsCustom
+                            text: profiles.activeEvidence
+                            color: "#6b7684"
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: profiles.advice.length > 0
+                            text: profiles.advice
+                            color: "#d29922"
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: root.profileHint.length > 0
+                            text: root.profileHint
+                            color: "#6b7684"
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: root.profilePending > 0
+                            spacing: 8
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: "The camera refuses a configuration change while a "
+                                      + "stream is attached, so applying this profile "
+                                      + "restarts the stream."
+                                color: "#d29922"
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Button {
+                                text: "Stop and apply"
+                                onClicked: {
+                                    root.profilePendingApply = root.profilePending
+                                    root.profilePending = 0
+                                    stream.stop()
+                                    deviceStatus.stopPolling()
+                                    profileApplyTimer.restart()
+                                }
+                            }
+
+                            Button {
+                                text: "Cancel"
+                                onClicked: {
+                                    root.profilePending = 0
+                                    profileCombo.currentIndex = profiles.mode
+                                }
+                            }
+                        }
+
+                        // The gap between stopping the stream and sending the new
+                        // configuration is the reason this exists. The camera
+                        // answers 409 while a stream client is still attached,
+                        // and stopPolling() has to land before /config does.
+                        Timer {
+                            id: profileApplyTimer
+                            interval: 900
+                            onTriggered: {
+                                if (root.profilePendingApply > 0) {
+                                    applyProfile(root.profilePendingApply)
+                                    root.profilePendingApply = 0
+                                }
+                                toggleConnection()
+                            }
+                        }
+                    }
 
                     // ---- camera controls (section 26) ----
                     // Built entirely from /api/v1/capabilities. The firmware
