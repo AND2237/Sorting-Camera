@@ -4,6 +4,7 @@
 #include "src/FrameBus.h"
 #include "src/FrameImageProvider.h"
 #include "src/MjpegClient.h"
+#include "src/SessionState.h"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -88,6 +89,8 @@ int main(int argc, char *argv[])
     MjpegClient stream;
     DeviceStatus deviceStatus;
     DiscoveryService discovery;
+    SessionState sessionState;
+    sessionState.observe(&stream, &deviceStatus, &discovery);
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("frame"), new FrameImageProvider(&frameBus));
@@ -107,6 +110,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("stream"), &stream);
     engine.rootContext()->setContextProperty(QStringLiteral("deviceStatus"), &deviceStatus);
     engine.rootContext()->setContextProperty(QStringLiteral("discovery"), &discovery);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionState"), &sessionState);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);

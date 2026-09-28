@@ -22,6 +22,9 @@ class MjpegClient : public QObject
     Q_PROPERTY(int retryAttempt READ retryAttempt NOTIFY retryAttemptChanged)
     Q_PROPERTY(int noResponseStreak READ noResponseStreak NOTIFY noResponseStreakChanged)
     Q_PROPERTY(QString recoveryHint READ recoveryHint NOTIFY recoveryHintChanged)
+    Q_PROPERTY(bool userConnected READ isUserConnected NOTIFY userConnectedChanged)
+    Q_PROPERTY(int retryDelayMs READ retryDelayMs NOTIFY retryAttemptChanged)
+    Q_PROPERTY(int maxRetries READ maxRetries CONSTANT)
 
 public:
     explicit MjpegClient(QObject *parent = nullptr);
@@ -37,6 +40,9 @@ public:
     int retryAttempt() const;
     int noResponseStreak() const;
     QString recoveryHint() const;
+    bool isUserConnected() const;
+    int retryDelayMs() const;
+    int maxRetries() const;
 
     Q_INVOKABLE void start(const QString &host, quint16 port);
     Q_INVOKABLE void stop();
@@ -50,6 +56,7 @@ signals:
     void retryAttemptChanged();
     void noResponseStreakChanged();
     void recoveryHintChanged();
+    void userConnectedChanged();
     void frameReady(const QImage &image, qint64 completeMs);
     void deviceRecoveryRequested(const QString &host, quint16 port);
 

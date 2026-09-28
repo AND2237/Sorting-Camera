@@ -549,6 +549,24 @@ int MjpegClient::retryAttempt() const
     return m_retryAttempt;
 }
 
+bool MjpegClient::isUserConnected() const
+{
+    return m_userConnected;
+}
+
+int MjpegClient::retryDelayMs() const
+{
+    if (m_retryAttempt <= 0 || m_retryAttempt > kMaxRetries) {
+        return 0;
+    }
+    return kRetryDelayMs[m_retryAttempt - 1];
+}
+
+int MjpegClient::maxRetries() const
+{
+    return kMaxRetries;
+}
+
 int MjpegClient::noResponseStreak() const
 {
     return m_noResponseStreak;
@@ -628,7 +646,10 @@ void MjpegClient::start(const QString &host, quint16 port)
     }
     m_host = host.trimmed();
     m_port = port;
-    m_userConnected = true;
+    if (!m_userConnected) {
+        m_userConnected = true;
+        emit userConnectedChanged();
+    }
     cancelRetry();
     setRetryAttempt(0);
     setReconnecting(false);
@@ -641,7 +662,10 @@ void MjpegClient::start(const QString &host, quint16 port)
 
 void MjpegClient::stop()
 {
-    m_userConnected = false;
+    if (m_userConnected) {
+        m_userConnected = false;
+        emit userConnectedChanged();
+    }
     cancelRetry();
     setReconnecting(false);
     setConnecting(false);

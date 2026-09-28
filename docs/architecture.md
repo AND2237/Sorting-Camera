@@ -150,6 +150,43 @@ The stable device id is what keeps §19 authentication intact across a DHCP
 change: credentials are keyed by device id, so a new IP does not orphan a
 stored password. Manual IP entry remains for a device that cannot announce.
 
+## Connection state machine (§24)
+
+`SessionState` derives one token from three independent observers — discovery,
+control plane, video transport — so the UI reads a single value instead of
+inferring meaning from a pile of booleans. The eight states named in §24 are
+the contract:
+
+| token | meaning |
+|---|---|
+| `discovering` | nothing connected, UDP search in progress |
+| `connecting` | first stream attempt in flight |
+| `authenticated` | control API answering, video not started |
+| `streaming` | video and control both healthy |
+| `degraded` | video running but something is wrong: frames stalled, control unreachable, sign-in still required, or the last setting was rejected |
+| `reconnecting` | inside the bounded retry ladder, with attempt/delay shown |
+| `disconnected` | not connected and not searching |
+| `error` | retries exhausted, or credentials rejected |
+
+The derivation lives in the pure function `SessionState::derive(SessionInput)`,
+which takes a plain struct and returns a plain struct. That is deliberate: the
+whole table is unit-testable without a network, a camera, or a Qt event loop —
+see `tests/tst_sessionstate.cpp` (18 checks), including the ordering rules that
+matter most:
+
+- an exhausted retry ladder **outranks** a still-reachable control plane, so a
+  stale error can never let the UI claim the camera is fine;
+- reconnecting **outranks** authenticated;
+- authenticated **outranks** discovering — discovery runs continuously, so
+  without this rule the token would never stop saying "searching";
+- "sign in required" reports as `warn`, not `err`, because the user can clear
+  it by acting; rejected credentials report as `err`.
+
+Reconnection itself is bounded in `MjpegClient`: 5 attempts at
+0.5/1/2/3/5 s, counters reset only on a **decoded frame** (a TCP connect is not
+success), two watchdogs bound every attempt (6 s to first byte, 8 s stalled).
+This is the "no reconnect storms" requirement of §24.
+
 ## Authentication (control plane only)
 
 - Session token issued after challenge–response login (HMAC of server nonce + password hash); token required on all control endpoints.

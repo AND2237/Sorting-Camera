@@ -199,15 +199,26 @@ ApplicationWindow {
             }
 
             Label {
-                text: deviceStatus.online ? "device online"
-                    : deviceStatus.authBusy ? "signing in…"
-                    : deviceStatus.authRequired ? "sign in required"
-                    : deviceStatus.polling ? "device offline"
-                    : "not connected"
-                color: deviceStatus.online ? "#3fb950"
-                    : (deviceStatus.authBusy || deviceStatus.authRequired) ? "#d29922"
-                    : "#f85149"
+                id: sessionLabel
+                text: sessionState.label
+                color: sessionState.severity === "ok" ? "#3fb950"
+                    : sessionState.severity === "warn" ? "#d29922"
+                    : sessionState.severity === "err" ? "#f85149"
+                    : "#8b949e"
                 font.pixelSize: 12
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    ToolTip.delay: 300
+                    ToolTip.visible: containsMouse && sessionState.detail.length > 0
+                    ToolTip.text: sessionState.detail
+                }
+            }
+            Label {
+                text: "[" + sessionState.state + "]"
+                color: "#6b7684"
+                font.pixelSize: 11
+                font.family: "Consolas"
             }
             Label {
                 visible: deviceStatus.online
@@ -483,11 +494,10 @@ ApplicationWindow {
             anchors.centerIn: parent
             visible: frameImage.status !== Image.Ready || frameBus.version === 0
             text: stream.recoveryHint.length > 0 ? stream.recoveryHint
-                : stream.reconnecting ? "Reconnecting…"
-                : stream.connecting ? "Connecting…"
-                : stream.active ? "Waiting for frames…"
-                : "Enter camera IP and press Connect"
-            color: "#6b7684"
+                : sessionState.state === "discovering" ? "Searching for a camera…"
+                : sessionState.state === "error" ? sessionState.detail
+                : sessionState.label + "…"
+            color: sessionState.severity === "err" ? "#f85149" : "#6b7684"
             font.pixelSize: 18
         }
 
@@ -495,8 +505,10 @@ ApplicationWindow {
             anchors.left: parent.left
             anchors.bottom: parent.bottom
             anchors.margins: 14
-            visible: stream.reconnecting
-            text: "reconnecting… (" + stream.retryAttempt + "/5)"
+            visible: sessionState.state === "reconnecting"
+            text: "reconnecting… (" + sessionState.retryAttempt + "/"
+                  + sessionState.maxRetries + ") in "
+                  + sessionState.retryDelayMs + " ms"
             color: "#d29922"
             font.pixelSize: 12
             font.family: "Consolas"

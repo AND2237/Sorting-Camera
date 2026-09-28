@@ -25,6 +25,8 @@ qt_add_library(scamcore STATIC
     src/FrameBus.h
     src/MjpegClient.cpp
     src/MjpegClient.h
+    src/SessionState.cpp
+    src/SessionState.h
     src/AppMetrics.cpp
     src/AppMetrics.h
 )
