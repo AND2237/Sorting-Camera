@@ -20,6 +20,7 @@ private slots:
     void initTestCase();
     void init();
     void defaultsMatchTheDocumentedFirstRun();
+    void anUnknownThemeModeFallsBackToDark();
     void everyFieldRoundTrips();
     void rewritesOnlyWhenTheValueActuallyChanges();
     void valuesSurviveAnIndependentInstance();
@@ -31,7 +32,7 @@ const char *kPrefsKeys[] = {
     "preferences/host",          "preferences/controlPort",  "preferences/streamPort",
     "preferences/deviceId",      "preferences/captureDirectory",
     "preferences/framesize",     "preferences/quality",      "preferences/xclkMhz",
-    "preferences/frameBufferCount", "preferences/grabMode",
+    "preferences/frameBufferCount", "preferences/grabMode", "preferences/themeMode",
 };
 } // namespace
 
@@ -69,6 +70,23 @@ void TestUserPreferences::defaultsMatchTheDocumentedFirstRun()
     QCOMPARE(p.xclkMhz(), 18);
     QCOMPARE(p.frameBufferCount(), 3);
     QCOMPARE(p.grabMode(), QStringLiteral("latest"));
+    QCOMPARE(p.themeMode(), QStringLiteral("dark"));
+}
+
+// A corrupt or hand-edited value must not reach the QML that reads it: the
+// theme has exactly two valid answers, and an unrecognised one falls back to
+// dark rather than leaving the interface with undefined colours.
+void TestUserPreferences::anUnknownThemeModeFallsBackToDark()
+{
+    UserPreferences p;
+    p.setThemeMode(QStringLiteral("light"));
+    QCOMPARE(p.themeMode(), QStringLiteral("light"));
+
+    p.setThemeMode(QStringLiteral("solarized"));
+    QCOMPARE(p.themeMode(), QStringLiteral("dark"));
+
+    p.setThemeMode(QString());
+    QCOMPARE(p.themeMode(), QStringLiteral("dark"));
 }
 
 void TestUserPreferences::everyFieldRoundTrips()
@@ -84,6 +102,7 @@ void TestUserPreferences::everyFieldRoundTrips()
     p.setXclkMhz(20);
     p.setFrameBufferCount(2);
     p.setGrabMode(QStringLiteral("oldest"));
+    p.setThemeMode(QStringLiteral("light"));
 
     UserPreferences fresh;
     QCOMPARE(fresh.host(), QStringLiteral("10.0.0.7"));
@@ -96,6 +115,7 @@ void TestUserPreferences::everyFieldRoundTrips()
     QCOMPARE(fresh.xclkMhz(), 20);
     QCOMPARE(fresh.frameBufferCount(), 2);
     QCOMPARE(fresh.grabMode(), QStringLiteral("oldest"));
+    QCOMPARE(fresh.themeMode(), QStringLiteral("light"));
 }
 
 void TestUserPreferences::rewritesOnlyWhenTheValueActuallyChanges()
@@ -130,6 +150,7 @@ void TestUserPreferences::valuesSurviveAnIndependentInstance()
         writer.setXclkMhz(24);
         writer.setFrameBufferCount(1);
         writer.setGrabMode(QStringLiteral("oldest"));
+        writer.setThemeMode(QStringLiteral("light"));
     }
 
     QSettings s;
@@ -148,6 +169,7 @@ void TestUserPreferences::valuesSurviveAnIndependentInstance()
     QCOMPARE(reader.xclkMhz(), 24);
     QCOMPARE(reader.frameBufferCount(), 1);
     QCOMPARE(reader.grabMode(), QStringLiteral("oldest"));
+    QCOMPARE(reader.themeMode(), QStringLiteral("light"));
 }
 
 void TestUserPreferences::defaultCaptureDirectoryHandlesMissingPictures()

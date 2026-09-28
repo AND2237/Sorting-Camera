@@ -308,12 +308,45 @@ and an error on screen.
 ## User preferences (37)
 
 `UserPreferences` holds only choices a person made: address, ports, last device
-id, resolution, quality, capture directory. It is deliberately a separate class
-from `CredentialStore` — preferences are plain text a user may edit, credentials
-are DPAPI-protected blobs, and mixing them would put a password one key away
-from a host name. Writes are deduplicated against the stored value and `sync()`ed
-immediately, so a crash cannot lose the address that would otherwise cost a
-manual reconnect.
+id, resolution, quality, capture directory, theme. It is deliberately a separate
+class from `CredentialStore` — preferences are plain text a user may edit,
+credentials are DPAPI-protected blobs, and mixing them would put a password one
+key away from a host name. Writes are deduplicated against the stored value and
+`sync()`ed immediately, so a crash cannot lose the address that would otherwise
+cost a manual reconnect.
+
+## Visual design (25)
+
+`qml/Theme.qml` is a singleton and the single owner of every design token: the
+colour palette, the type scale, the spacing steps, the interaction metrics and
+the motion durations. `Main.qml` binds to it and paints no literals of its own —
+it went from 105 hard-coded colours across 16 values, and 21 repeated
+`font.family` declarations, to zero. That is what makes the light/dark switch
+one property rather than a second stylesheet, and it is why adding a control
+does not mean choosing colours again.
+
+Two decisions are worth recording because both were found the hard way:
+
+- **`QQuickStyle::setStyle("Basic")` in `main.cpp`.** The default Windows style
+  paints its own colours and ignores `QPalette` entirely, so the first light
+  build switched the hand-painted panels and left every combo box, slider and
+  text field dark. `Main.qml` then maps the Theme tokens onto the standard
+  palette *roles*. Only roles exist as QML properties — `palette.disabledText`
+  and friends do not, because "disabled" is a group rather than a role, and
+  naming one fails the whole component load at startup.
+- **The dark palette is the one the application already shipped with.** The
+  tokens are the pre-existing values, so introducing the file changed no
+  pixels; the light palette is new.
+
+`touchTarget` (44 px) is applied to the interactive controls rather than left
+as a constant, per §25's requirement that targets be large enough for a future
+touchscreen HMI. The 34 px diagnostics/footer bar is deliberately excluded —
+44 px targets do not fit there without the bar overflowing.
+
+Motion is limited to opacity on two things: a notification card fading in, and
+the settings panel arriving and leaving. Both are short (90 / 160 ms) and the
+panel's `visible` binding is untouched, because that binding is what keeps the
+panel available at the moment a user needs it.
 
 ## Risks / open questions
 
@@ -321,6 +354,16 @@ manual reconnect.
   near 11.2 fps; reaching 15 needs +34 % and the only measured lever (XCLK) is
   past its safe limit. ADR-0010 scoped HD's floor to ≥7 provisionally. Profiles
   below 800×600 meet the general ≥15 / preferred ≥20 targets (ADR-0012).
+- **The frame rate at a fixed configuration is scene-dependent, not a single
+  number.** Measured 2026-09-29: 11.14 fps at 27,971 B/frame and 7.99 fps at
+  55,792 B/frame at the same HD/q12 settings with nothing reconfigured in
+  between. The bracketed measurement puts the camera itself at 8.19 frames
+  captured / 8.17 delivered, so nothing between sensor and screen is the limit.
+  Full numbers and the measured/correlation/hypothesis split are in
+  `benchmark-results.md`. Two open items: the owner's 4–5 fps report was not
+  reproduced and would need ~90–110 KiB frames, a size no run has recorded at
+  HD/q12; and the cause of the scene change is uncontrolled. A deliberate
+  still-scene / changed-scene A/B is the missing experiment.
 - **The ≥1 h soak is still open.** All current stability evidence is from runs of
   120 s, one 4.9 min partial and one aborted attempt. Nothing here certifies
   long-duration stability, and the final endurance test must be designed around

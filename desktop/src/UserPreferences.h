@@ -21,6 +21,7 @@ class UserPreferences : public QObject
     Q_PROPERTY(int xclkMhz READ xclkMhz WRITE setXclkMhz NOTIFY changed)
     Q_PROPERTY(int frameBufferCount READ frameBufferCount WRITE setFrameBufferCount NOTIFY changed)
     Q_PROPERTY(QString grabMode READ grabMode WRITE setGrabMode NOTIFY changed)
+    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY changed)
 
 public:
     explicit UserPreferences(QObject *parent = nullptr);
@@ -45,6 +46,11 @@ public:
     void setFrameBufferCount(int count);
     QString grabMode() const;
     void setGrabMode(const QString &mode);
+    // Section 25's dark/light readiness. Persisted as a choice like any other
+    // preference, so the application comes up the way the user left it rather
+    // than snapping back to the build's default.
+    QString themeMode() const;
+    void setThemeMode(const QString &mode);
 
     // Sensible defaults used on first run; kept here rather than in QML so
     // there is one place that defines what "unset" means.

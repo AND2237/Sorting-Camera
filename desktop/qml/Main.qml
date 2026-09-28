@@ -9,8 +9,48 @@ ApplicationWindow {
     width: 1100
     height: 720
     visible: true
-    color: "#101418"
+    color: Theme.background
     title: "Sorting Camera"
+
+    // Section 25's dark/light readiness. The mode is a user choice, so it
+    // comes from preferences like any other setting rather than being baked
+    // into the build. The design tokens themselves live in Theme.qml; this
+    // file only binds them to what it draws.
+    function toggleTheme() {
+        Theme.toggleMode()
+        prefs.themeMode = Theme.mode
+    }
+
+    // Qt Quick Controls style themselves from QPalette. Mapping the Theme
+    // tokens onto the standard roles is what makes one switch restyle every
+    // combo box, slider, text field and button, rather than only the surfaces
+    // this file paints by hand. The values all live in Theme.qml; this is the
+    // one place they meet the controls' own vocabulary.
+    //
+    // Only the standard QPalette colour *roles* exist as properties here -
+    // there is no palette.disabledButtonText, because disabled is a group
+    // rather than a role, and naming one fails the whole component load.
+    palette.window: Theme.surface
+    palette.windowText: Theme.text
+    palette.base: Theme.surfaceSunken
+    palette.alternateBase: Theme.surface
+    palette.text: Theme.text
+    palette.brightText: Theme.danger
+    palette.button: Theme.surfaceRaised
+    palette.buttonText: Theme.text
+    palette.light: Theme.textSecondary
+    palette.midlight: Theme.border
+    palette.mid: Theme.textFaint
+    palette.dark: Theme.border
+    palette.shadow: Theme.scrim
+    palette.highlight: Theme.accent
+    palette.highlightedText: Theme.textOnAccent
+    palette.link: Theme.focusRing
+    palette.linkVisited: Theme.focusRing
+    palette.placeholderText: Theme.textFaint
+    palette.toolTipBase: Theme.surfaceRaised
+    palette.toolTipText: Theme.text
+    palette.accent: Theme.accent
 
     property int controlPort: 80
     property int streamPort: 81
@@ -68,9 +108,13 @@ ApplicationWindow {
     // Printed once so a session log states what the selector actually offers.
     // It also pins the one expression that decides that list: JavaScript's
     // plus operator stringifies arrays, so building it any other way turns
-    // six named profiles into sixty single-character entries.
-    Component.onCompleted: console.log("[qml] profiles:",
-                                       ["Automatic"].concat(profiles.names).join(" | "))
+    // six named profiles into sixty single-character entries. The theme is
+    // applied from the same handler because a QML object has exactly one.
+    Component.onCompleted: {
+        Theme.setMode(prefs.themeMode)
+        console.log("[qml] profiles:",
+                    ["Automatic"].concat(profiles.names).join(" | "))
+    }
 
     function clampZoom(v) { return Math.min(12, Math.max(1, v)) }
 
@@ -343,6 +387,10 @@ ApplicationWindow {
         }
     }
     Shortcut {
+        sequence: "Ctrl+T"
+        onActivated: root.toggleTheme()
+    }
+    Shortcut {
         sequence: "Ctrl+Plus"
         onActivated: root.nudgeZoom(1.25)
     }
@@ -355,25 +403,26 @@ ApplicationWindow {
         height: 48
 
         background: Rectangle {
-            color: "#171c22"
+            color: Theme.surface
         }
 
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 12
             anchors.rightMargin: 12
-            spacing: 10
+            spacing: Theme.spaceLg
 
             Label {
                 text: "Sorting Camera"
-                color: "#e6edf3"
-                font.pixelSize: 16
+                color: Theme.text
+                font.pixelSize: Theme.fontTitle
                 font.bold: true
             }
 
             Item { Layout.fillWidth: true }
 
             ComboBox {
+                implicitHeight: Theme.touchTarget
                 id: devicePicker
                 Layout.preferredWidth: 250
                 Layout.preferredHeight: 30
@@ -407,39 +456,41 @@ ApplicationWindow {
                         spacing: 1
                         Label {
                             text: name
-                            font.pixelSize: 13
-                            color: highlighted ? "#101418" : "#e6edf3"
+                            font.pixelSize: Theme.fontBody
+                            color: highlighted ? Theme.textOnAccent : Theme.text
                         }
                         Label {
                             text: address + "  ·  " + sensor + "  ·  " + firmware
                                   + (authRequired ? "  ·  sign-in" : "")
-                            font.pixelSize: 11
-                            color: highlighted ? "#30363d" : "#8b949e"
+                            font.pixelSize: Theme.fontCaption
+                            color: highlighted ? Theme.border : Theme.textMuted
                         }
                     }
                     background: Rectangle {
-                        color: highlighted ? "#3fb950" : (hovered ? "#21262d" : "transparent")
+                        color: highlighted ? Theme.success : (hovered ? Theme.surfaceRaised : "transparent")
                     }
                 }
             }
 
             TextField {
+                implicitHeight: Theme.touchTarget
                 id: hostField
                 text: prefs.host
                 placeholderText: "Camera AP IP (default 192.168.4.1)"
-                color: "#e6edf3"
-                placeholderTextColor: "#6b7684"
+                color: Theme.text
+                placeholderTextColor: Theme.textFaint
                 width: 240
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 background: Rectangle {
-                    color: "#0d1117"
-                    border.color: "#30363d"
+                    color: Theme.surfaceSunken
+                    border.color: Theme.border
                     radius: 4
                 }
                 onAccepted: root.toggleConnection()
             }
 
             Button {
+                implicitHeight: Theme.touchTarget
                 text: stream.active ? "Disconnect"
                      : stream.reconnecting ? "Cancel (" + stream.retryAttempt + "/5)"
                      : stream.connecting ? "Connecting…" : "Connect"
@@ -447,6 +498,7 @@ ApplicationWindow {
             }
 
             Button {
+                implicitHeight: Theme.touchTarget
                 text: "Snapshot"
                 enabled: snapshotWriter.available
                 onClicked: {
@@ -461,6 +513,7 @@ ApplicationWindow {
             }
 
             Button {
+                implicitHeight: Theme.touchTarget
                 text: recorder.recording ? "Stop recording" : "Record"
                 enabled: stream.active || recorder.recording
                 onClicked: {
@@ -473,15 +526,15 @@ ApplicationWindow {
                     }
                 }
                 contentItem: Row {
-                    spacing: 6
+                    spacing: Theme.spaceSm
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 8; height: 8; radius: 4
-                        color: recorder.recording ? "#f85149" : "#6b7684"
+                        color: recorder.recording ? Theme.danger : Theme.textFaint
                     }
                     Label {
                         text: recorder.recording ? "Stop recording" : "Record"
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                     }
                 }
                 ToolTip.visible: hovered
@@ -491,6 +544,7 @@ ApplicationWindow {
             }
 
             Button {
+                implicitHeight: Theme.touchTarget
                 text: "Zoom reset"
                 visible: root.zoom > 1
                 onClicked: {
@@ -503,6 +557,7 @@ ApplicationWindow {
             }
 
             Button {
+                implicitHeight: Theme.touchTarget
                 text: root.visibility === Window.FullScreen ? "Windowed" : "Fullscreen"
                 onClicked: root.toggleFullScreen()
                 ToolTip.visible: hovered
@@ -510,6 +565,15 @@ ApplicationWindow {
             }
 
             Button {
+                implicitHeight: Theme.touchTarget
+                text: Theme.dark ? "Light theme" : "Dark theme"
+                onClicked: root.toggleTheme()
+                ToolTip.visible: hovered
+                ToolTip.text: "Switch between the dark and light palettes (Ctrl+T)"
+            }
+
+            Button {
+                implicitHeight: Theme.touchTarget
                 text: "Recover camera"
                 visible: deviceStatus.online && !stream.active
                 onClicked: deviceStatus.requestCameraRecovery()
@@ -531,7 +595,7 @@ ApplicationWindow {
         anchors.bottomMargin: 44
         anchors.margins: 12
         width: Math.min(360, parent.width - 24)
-        spacing: 6
+        spacing: Theme.spaceSm
         z: 50
 
         Repeater {
@@ -548,8 +612,17 @@ ApplicationWindow {
                 implicitHeight: notifyText.implicitHeight + 30
                 radius: 6
                 border.width: 1
-                color: severity >= 3 ? "#3d1d1d" : (severity === 2 ? "#3a2f14" : "#1c2430")
-                border.color: severity >= 3 ? "#f85149" : (severity === 2 ? "#d29922" : "#30363d")
+                color: severity >= 3 ? Theme.dangerSoft : (severity === 2 ? Theme.warningSoft : Theme.noticeSoft)
+                // Section 25 asks for smooth transitions where useful and restrained
+                // animation. Fading a new card in says "this just changed" without
+                // moving anything already on screen; a card that is merely re-laid-
+                // out by a newer one does not animate at all. No scale, no
+                // attention-grabbing motion.
+                opacity: 0
+                Behavior on opacity {
+                    NumberAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic }
+                }
+                Component.onCompleted: opacity = 1
 
                 Label {
                     id: notifyText
@@ -558,8 +631,8 @@ ApplicationWindow {
                     anchors.top: parent.top
                     anchors.margins: 9
                     text: notifyCard.text
-                    color: "#e6edf3"
-                    font.pixelSize: 12
+                    color: Theme.text
+                    font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
                 }
 
@@ -569,9 +642,9 @@ ApplicationWindow {
                     anchors.top: notifyText.bottom
                     anchors.topMargin: 2
                     text: notifyCard.category
-                    color: "#6b7684"
-                    font.pixelSize: 10
-                    font.family: "Consolas"
+                    color: Theme.textFaint
+                    font.pixelSize: Theme.fontMicro
+                    font.family: Theme.fontMonoFamily
                 }
 
                 ToolButton {
@@ -605,26 +678,27 @@ ApplicationWindow {
         anchors.margins: 8
         width: 380
         height: Math.min(360, root.height - 90)
-        color: "#171c22"
+        color: Theme.surface
         radius: 6
-        border.color: "#30363d"
+        border.color: Theme.border
         z: 60
 
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 12
-            spacing: 8
+            spacing: Theme.spaceMd
 
             RowLayout {
                 Layout.fillWidth: true
                 Label {
                     Layout.fillWidth: true
                     text: "Diagnostics"
-                    color: "#e6edf3"
-                    font.pixelSize: 14
+                    color: Theme.text
+                    font.pixelSize: Theme.fontSubtitle
                     font.bold: true
                 }
                 Button {
+                    implicitHeight: Theme.touchTarget
                     text: "×"
                     onClicked: root.diagnosticsOpen = false
                 }
@@ -634,10 +708,11 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Label {
                     text: "min level"
-                    color: "#8b949e"
-                    font.pixelSize: 11
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontCaption
                 }
                 ComboBox {
+                    implicitHeight: Theme.touchTarget
                     id: levelCombo
                     Layout.fillWidth: true
                     model: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -650,17 +725,17 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: diagnostics.warningCount() + " warnings, "
                       + diagnostics.errorCount() + " errors buffered"
-                color: "#8b949e"
-                font.pixelSize: 11
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontCaption
             }
 
             Label {
                 Layout.fillWidth: true
                 text: diagnostics.statisticsText().length > 0
                       ? diagnostics.statisticsText() : "no frame statistics yet"
-                color: "#6b7684"
-                font.pixelSize: 10
-                font.family: "Consolas"
+                color: Theme.textFaint
+                font.pixelSize: Theme.fontMicro
+                font.family: Theme.fontMonoFamily
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
 
@@ -680,18 +755,18 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Label {
                         text: modelData[1]
-                        color: modelData[0] >= 3 ? "#f85149"
-                             : (modelData[0] === 2 ? "#d29922"
-                             : (modelData[0] === 1 ? "#8b949e" : "#6b7684"))
-                        font.pixelSize: 10
-                        font.family: "Consolas"
+                        color: modelData[0] >= 3 ? Theme.danger
+                             : (modelData[0] === 2 ? Theme.warning
+                             : (modelData[0] === 1 ? Theme.textMuted : Theme.textFaint))
+                        font.pixelSize: Theme.fontMicro
+                        font.family: Theme.fontMonoFamily
                     }
                     Label {
                         Layout.fillWidth: true
                         text: modelData[2] + "  " + modelData[3]
-                        color: "#c9d1d9"
-                        font.pixelSize: 10
-                        font.family: "Consolas"
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontMicro
+                        font.family: Theme.fontMonoFamily
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     }
                 }
@@ -703,26 +778,26 @@ ApplicationWindow {
         height: 34
 
         background: Rectangle {
-            color: "#171c22"
+            color: Theme.surface
         }
 
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 12
             anchors.rightMargin: 12
-            spacing: 18
+            spacing: Theme.spaceXl
 
             Label {
                 text: frameBus.fps.toFixed(1) + " fps"
-                color: "#3fb950"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: Theme.success
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
             }
             Label {
                 text: "recv " + stream.framesReceived
-                color: "#8b949e"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
             }
             Label {
                 text: "drop " + (stream.framesDropped + frameBus.overwrittenCount)
@@ -730,16 +805,16 @@ ApplicationWindow {
                 // transport discarded, and frames the bus replaced before the
                 // display could show them. Latest-frame-wins is the right
                 // policy, but a drop nobody can see is a drop nobody can fix.
-                color: (stream.framesDropped + frameBus.overwrittenCount) > 0 ? "#f85149" : "#8b949e"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: (stream.framesDropped + frameBus.overwrittenCount) > 0 ? Theme.danger : Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
             }
                         Label {
                             visible: streamStats.hasFrame
                             text: streamStats.bitrateMbps.toFixed(2) + " Mbps"
-                            color: "#8b949e"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                            color: Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
                 MouseArea {
                     anchors.fill: parent
                     hoverEnabled: true
@@ -751,9 +826,9 @@ ApplicationWindow {
             Label {
                 visible: streamStats.hasFrame
                 text: "age " + streamStats.frameAgeMs + " ms"
-                color: streamStats.frameAgeMs > 500 ? "#d29922" : "#8b949e"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: streamStats.frameAgeMs > 500 ? Theme.warning : Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
                 MouseArea {
                     anchors.fill: parent
                     hoverEnabled: true
@@ -773,19 +848,19 @@ ApplicationWindow {
                       ? discovery.count + " device(s)"
                       : (discovery.statusText.length > 0 ? discovery.statusText
                          : (discovery.scanning ? "searching…" : "no device found"))
-                color: discovery.count > 0 ? "#3fb950"
-                     : (discovery.statusText.length > 0 ? "#f85149" : "#8b949e")
-                font.pixelSize: 12
+                color: discovery.count > 0 ? Theme.success
+                     : (discovery.statusText.length > 0 ? Theme.danger : Theme.textMuted)
+                font.pixelSize: Theme.fontSmall
             }
 
             Label {
                 id: sessionLabel
                 text: sessionState.label
-                color: sessionState.severity === "ok" ? "#3fb950"
-                    : sessionState.severity === "warn" ? "#d29922"
-                    : sessionState.severity === "err" ? "#f85149"
-                    : "#8b949e"
-                font.pixelSize: 12
+                color: sessionState.severity === "ok" ? Theme.success
+                    : sessionState.severity === "warn" ? Theme.warning
+                    : sessionState.severity === "err" ? Theme.danger
+                    : Theme.textMuted
+                font.pixelSize: Theme.fontSmall
                 MouseArea {
                     anchors.fill: parent
                     hoverEnabled: true
@@ -796,39 +871,39 @@ ApplicationWindow {
             }
             Label {
                 text: "[" + sessionState.state + "]"
-                color: "#6b7684"
-                font.pixelSize: 11
-                font.family: "Consolas"
+                color: Theme.textFaint
+                font.pixelSize: Theme.fontCaption
+                font.family: Theme.fontMonoFamily
             }
 
             Label {
                 visible: recorder.recording
                 text: "REC " + recorder.framesWritten + " / "
                       + (recorder.bytesWritten / 1048576).toFixed(1) + " MB"
-                color: "#f85149"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: Theme.danger
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
             }
 
             Label {
                 visible: recorder.errorString.length > 0
                 text: recorder.errorString
-                color: "#f85149"
-                font.pixelSize: 11
+                color: Theme.danger
+                font.pixelSize: Theme.fontCaption
             }
 
             Label {
                 visible: snapshotWriter.errorString.length > 0
                 text: snapshotWriter.errorString
-                color: "#f85149"
-                font.pixelSize: 11
+                color: Theme.danger
+                font.pixelSize: Theme.fontCaption
             }
 
             Label {
                 visible: snapIndicatorTimer.running
                 text: "saved " + snapshotWriter.lastPath
-                color: "#3fb950"
-                font.pixelSize: 11
+                color: Theme.success
+                font.pixelSize: Theme.fontCaption
             }
 
             Timer {
@@ -847,23 +922,23 @@ ApplicationWindow {
             Label {
                 visible: deviceStatus.online
                 text: "rssi " + (deviceStatus.status["rssi"] !== undefined ? deviceStatus.status["rssi"] : "?") + " dBm"
-                color: "#8b949e"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
             }
             Label {
                 visible: deviceStatus.online
                 text: deviceStatus.status["resolution"] !== undefined ? deviceStatus.status["resolution"] : ""
-                color: "#8b949e"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
             }
             Label {
                 visible: deviceStatus.online
                 text: "fw " + (deviceStatus.status["fw_version"] !== undefined ? deviceStatus.status["fw_version"] : "")
-                color: "#8b949e"
-                font.pixelSize: 12
-                font.family: "Consolas"
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
             }
         }
     }
@@ -874,7 +949,7 @@ ApplicationWindow {
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
-            spacing: 8
+            spacing: Theme.spaceMd
 
             Item {
                 id: viewport
@@ -935,15 +1010,15 @@ ApplicationWindow {
                     anchors.margins: 12
                     visible: root.zoom > 1
                     text: root.zoom.toFixed(1) + "x"
-                    color: "#e6edf3"
+                    color: Theme.text
                     background: Rectangle {
-                        color: "#99101418"
+                        color: Theme.scrim
                         radius: 4
                         anchors.fill: parent
                         anchors.margins: -4
                     }
-                    font.pixelSize: 12
-                    font.family: "Consolas"
+                    font.pixelSize: Theme.fontSmall
+                    font.family: Theme.fontMonoFamily
                 }
             }
 
@@ -958,9 +1033,19 @@ ApplicationWindow {
                 // control session is up and the video is off, and gone while
                 // the video runs.
                 visible: deviceStatus.polling && !stream.active
-                color: "#171c22"
+                color: Theme.surface
                 radius: 6
-                border.color: "#30363d"
+                border.color: Theme.border
+
+                // The panel arrives when there is something to configure and
+                // leaves when the picture starts, so the change is worth
+                // softening. Opacity only - the visible binding above is left
+                // exactly as it is, because that binding is what keeps the
+                // panel available at the moment a user needs it.
+                opacity: visible ? 1.0 : 0.0
+                Behavior on opacity {
+                    NumberAnimation { duration: Theme.motionNormal; easing.type: Easing.OutCubic }
+                }
 
                 ListModel {
                     id: resModel
@@ -991,17 +1076,17 @@ ApplicationWindow {
                         x: 14
                         y: 14
                         width: configFlick.width - 34
-                        spacing: 10
+                        spacing: Theme.spaceLg
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 6
+                        spacing: Theme.spaceSm
                         visible: deviceStatus.authRequired || !deviceStatus.authenticated
 
                         Label {
                             text: deviceStatus.authenticated ? "Authenticated" : "Sign in required"
-                            color: deviceStatus.authenticated ? "#3fb950" : "#d29922"
-                            font.pixelSize: 14
+                            color: deviceStatus.authenticated ? Theme.success : Theme.warning
+                            font.pixelSize: Theme.fontSubtitle
                             font.bold: true
                         }
 
@@ -1011,12 +1096,13 @@ ApplicationWindow {
                             text: deviceStatus.authError.length > 0
                                   ? deviceStatus.authError
                                   : "The camera requires a control password."
-                            color: deviceStatus.authError.length > 0 ? "#f85149" : "#8b949e"
-                            font.pixelSize: 11
+                            color: deviceStatus.authError.length > 0 ? Theme.danger : Theme.textMuted
+                            font.pixelSize: Theme.fontCaption
                             wrapMode: Text.WordWrap
                         }
 
                         TextField {
+                            implicitHeight: Theme.touchTarget
                             id: passwordField
                             Layout.fillWidth: true
                             Layout.preferredHeight: 34
@@ -1024,17 +1110,18 @@ ApplicationWindow {
                             echoMode: TextInput.Password
                             placeholderText: "Control password"
                             enabled: !deviceStatus.authBusy
-                            color: "#e6edf3"
-                            placeholderTextColor: "#6b7684"
+                            color: Theme.text
+                            placeholderTextColor: Theme.textFaint
                             onAccepted: signInButton.clicked()
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
                             visible: !deviceStatus.authenticated
-                            spacing: 8
+                            spacing: Theme.spaceMd
 
                             Button {
+                                implicitHeight: Theme.touchTarget
                                 id: signInButton
                                 text: deviceStatus.authBusy ? "Signing in…" : "Sign in"
                                 enabled: passwordField.text.length > 0 && !deviceStatus.authBusy
@@ -1043,6 +1130,7 @@ ApplicationWindow {
                             }
 
                             CheckBox {
+                                implicitHeight: Theme.touchTarget
                                 id: rememberCheck
                                 text: "Remember"
                                 enabled: deviceStatus.credentialStorageAvailable
@@ -1057,8 +1145,8 @@ ApplicationWindow {
                             text: deviceStatus.credentialStorageAvailable
                                   ? "A saved password is available for this camera."
                                   : "Password storage is not available on this system."
-                            color: "#6b7684"
-                            font.pixelSize: 11
+                            color: Theme.textFaint
+                            font.pixelSize: Theme.fontCaption
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -1066,24 +1154,25 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         height: 1
-                        color: "#30363d"
+                        color: Theme.border
                         visible: deviceStatus.authRequired || !deviceStatus.authenticated
                     }
 
                     Label {
                         text: "Camera settings"
-                        color: "#e6edf3"
-                        font.pixelSize: 14
+                        color: Theme.text
+                        font.pixelSize: Theme.fontSubtitle
                         font.bold: true
                     }
 
                     Label {
                         text: "Resolution"
-                        color: "#8b949e"
-                        font.pixelSize: 12
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSmall
                     }
 
                     ComboBox {
+                        implicitHeight: Theme.touchTarget
                         id: resCombo
                         Layout.fillWidth: true
                         Layout.preferredHeight: 40
@@ -1115,11 +1204,12 @@ ApplicationWindow {
                         text: "JPEG quality: " + Math.round(qualitySlider.value)
                               + (deviceStatus.status["quality_floor"] !== undefined
                                  ? "  (device floor " + deviceStatus.status["quality_floor"] + ")" : "")
-                        color: "#8b949e"
-                        font.pixelSize: 12
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSmall
                     }
 
                     Slider {
+                        implicitHeight: Theme.touchTarget
                         id: qualitySlider
                         Layout.fillWidth: true
                         Layout.preferredHeight: 36
@@ -1158,8 +1248,8 @@ ApplicationWindow {
                     Label {
                         Layout.fillWidth: true
                         text: "Lower = better image, larger files"
-                        color: "#6b7684"
-                        font.pixelSize: 11
+                        color: Theme.textFaint
+                        font.pixelSize: Theme.fontCaption
                         wrapMode: Text.WordWrap
                     }
 
@@ -1167,8 +1257,8 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         visible: deviceStatus.configError.length > 0
                         text: deviceStatus.configError
-                        color: "#f85149"
-                        font.pixelSize: 11
+                        color: Theme.danger
+                        font.pixelSize: Theme.fontCaption
                         wrapMode: Text.WordWrap
                     }
 
@@ -1177,23 +1267,24 @@ ApplicationWindow {
                     // ---- operating profile (section 12 / 26) ----
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: Theme.spaceMd
 
                         Rectangle {
                             Layout.fillWidth: true
                             height: 1
-                            color: "#30363d"
+                            color: Theme.border
                         }
 
                         Label {
                             Layout.fillWidth: true
                             text: "Operating profile"
-                            color: "#e6edf3"
-                            font.pixelSize: 14
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSubtitle
                             font.bold: true
                         }
 
                         ComboBox {
+                            implicitHeight: Theme.touchTarget
                             id: profileCombo
                             Layout.fillWidth: true
                             Layout.preferredHeight: 40
@@ -1225,9 +1316,9 @@ ApplicationWindow {
                                     + " fps against a " + profiles.activeFloorFps.toFixed(0)
                                     + " fps floor"
                             color: deviceStatus.online && !profiles.activeMeetsFloor
-                                  ? "#d29922" : "#8b949e"
-                            font.pixelSize: 11
-                            font.family: "Consolas"
+                                  ? Theme.warning : Theme.textMuted
+                            font.pixelSize: Theme.fontCaption
+                            font.family: Theme.fontMonoFamily
                             wrapMode: Text.WordWrap
                         }
 
@@ -1236,8 +1327,8 @@ ApplicationWindow {
                             visible: deviceStatus.online && !profiles.activeIsCustom
                                      && profiles.activeEvidence.length > 0
                             text: profiles.activeEvidence
-                            color: "#6b7684"
-                            font.pixelSize: 10
+                            color: Theme.textFaint
+                            font.pixelSize: Theme.fontMicro
                             wrapMode: Text.WordWrap
                         }
 
@@ -1245,8 +1336,8 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             visible: profiles.advice.length > 0
                             text: profiles.advice
-                            color: "#d29922"
-                            font.pixelSize: 11
+                            color: Theme.warning
+                            font.pixelSize: Theme.fontCaption
                             wrapMode: Text.WordWrap
                         }
 
@@ -1254,27 +1345,28 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             visible: root.profileHint.length > 0
                             text: root.profileHint
-                            color: "#6b7684"
-                            font.pixelSize: 10
+                            color: Theme.textFaint
+                            font.pixelSize: Theme.fontMicro
                             wrapMode: Text.WordWrap
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
                             visible: root.profilePending > 0
-                            spacing: 8
+                            spacing: Theme.spaceMd
 
                             Label {
                                 Layout.fillWidth: true
                                 text: "The camera refuses a configuration change while a "
                                       + "stream is attached, so applying this profile "
                                       + "restarts the stream."
-                                color: "#d29922"
-                                font.pixelSize: 11
+                                color: Theme.warning
+                                font.pixelSize: Theme.fontCaption
                                 wrapMode: Text.WordWrap
                             }
 
                             Button {
+                                implicitHeight: Theme.touchTarget
                                 text: "Stop and apply"
                                 onClicked: {
                                     root.profilePendingApply = root.profilePending
@@ -1288,6 +1380,7 @@ ApplicationWindow {
                             }
 
                             Button {
+                                implicitHeight: Theme.touchTarget
                                 text: "Cancel"
                                 onClicked: {
                                     root.profilePending = 0
@@ -1323,13 +1416,13 @@ ApplicationWindow {
                     // stale against a different board.
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: Theme.spaceMd
                         visible: root.controlGroups.length > 0
 
                         Rectangle {
                             Layout.fillWidth: true
                             height: 1
-                            color: "#30363d"
+                            color: Theme.border
                         }
 
                         RowLayout {
@@ -1337,11 +1430,12 @@ ApplicationWindow {
                             Label {
                                 Layout.fillWidth: true
                                 text: "Camera controls"
-                                color: "#e6edf3"
-                                font.pixelSize: 14
+                                color: Theme.text
+                                font.pixelSize: Theme.fontSubtitle
                                 font.bold: true
                             }
                             Button {
+                                implicitHeight: Theme.touchTarget
                                 text: "Defaults"
                                 enabled: !deviceStatus.sensorBusy
                                        && deviceStatus.online
@@ -1359,8 +1453,8 @@ ApplicationWindow {
                                 Label {
                                     Layout.fillWidth: true
                                     text: modelData.group
-                                    color: "#8b949e"
-                                    font.pixelSize: 11
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontCaption
                                     font.capitalization: Font.AllUppercase
                                     elide: Text.ElideRight
                                 }
@@ -1384,19 +1478,20 @@ ApplicationWindow {
                                             Label {
                                                 Layout.fillWidth: true
                                                 text: cname.replace(/_/g, " ")
-                                                color: "#e6edf3"
-                                                font.pixelSize: 12
+                                                color: Theme.text
+                                                font.pixelSize: Theme.fontSmall
                                                 elide: Text.ElideRight
                                             }
                                             Label {
                                                 text: modelData.min + " … " + modelData.max
-                                                color: "#6b7684"
-                                                font.pixelSize: 10
-                                                font.family: "Consolas"
+                                                color: Theme.textFaint
+                                                font.pixelSize: Theme.fontMicro
+                                                font.family: Theme.fontMonoFamily
                                             }
                                         }
 
                                         Slider {
+                                            implicitHeight: Theme.touchTarget
                                             id: ctrlSlider
                                             Layout.fillWidth: true
                                             Layout.preferredHeight: 30
@@ -1421,8 +1516,8 @@ ApplicationWindow {
                                                      && modelData.note !== ""
                                             text: modelData.note !== undefined
                                                   ? modelData.note : ""
-                                            color: "#6b7684"
-                                            font.pixelSize: 10
+                                            color: Theme.textFaint
+                                            font.pixelSize: Theme.fontMicro
                                             wrapMode: Text.WordWrap
                                         }
                                     }
@@ -1435,8 +1530,8 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         visible: deviceStatus.sensorError.length > 0
                         text: deviceStatus.sensorError
-                        color: "#f85149"
-                        font.pixelSize: 11
+                        color: Theme.danger
+                        font.pixelSize: Theme.fontCaption
                         wrapMode: Text.WordWrap
                     }
 
@@ -1447,42 +1542,44 @@ ApplicationWindow {
                     // directory is a property of this PC, not of the camera.
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: Theme.spaceMd
 
                         Rectangle {
                             Layout.fillWidth: true
                             height: 1
-                            color: "#30363d"
+                            color: Theme.border
                         }
 
                         Label {
                             Layout.fillWidth: true
                             text: "Settings"
-                            color: "#e6edf3"
-                            font.pixelSize: 14
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSubtitle
                             font.bold: true
                         }
 
                         Label {
                             Layout.fillWidth: true
                             text: "Capture folder"
-                            color: "#8b949e"
-                            font.pixelSize: 11
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontCaption
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 6
+                            spacing: Theme.spaceSm
                             TextField {
+                                implicitHeight: Theme.touchTarget
                                 id: captureField
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 32
                                 text: prefs.captureDirectory.length > 0
                                       ? prefs.captureDirectory : captureRoot
-                                color: "#e6edf3"
+                                color: Theme.text
                                 selectByMouse: true
                             }
                             Button {
+                                implicitHeight: Theme.touchTarget
                                 text: "Use"
                                 enabled: captureField.text.length > 0
                                 onClicked: {
@@ -1491,6 +1588,7 @@ ApplicationWindow {
                                 }
                             }
                             Button {
+                                implicitHeight: Theme.touchTarget
                                 text: "Reset"
                                 onClicked: {
                                     prefs.captureDirectory = ""
@@ -1503,32 +1601,33 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             text: "Restore with this folder on the next launch. The current "
                                   + "session keeps using " + captureRoot + "."
-                            color: "#6b7684"
-                            font.pixelSize: 10
+                            color: Theme.textFaint
+                            font.pixelSize: Theme.fontMicro
                             wrapMode: Text.WordWrap
                         }
 
                         Label {
                             Layout.fillWidth: true
                             text: "Frame buffers: " + deviceStatus.status["fb_count"]
-                            color: "#8b949e"
-                            font.pixelSize: 11
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontCaption
                             visible: deviceStatus.online
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
                             visible: deviceStatus.online
-                            spacing: 8
+                            spacing: Theme.spaceMd
                             Label {
                                 Layout.fillWidth: true
                                 text: "Grab mode: " + deviceStatus.status["grab_mode"]
                                       + "  ·  XCLK " + deviceStatus.status["xclk_mhz"] + " MHz"
-                                color: "#8b949e"
-                                font.pixelSize: 11
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontCaption
                                 wrapMode: Text.WordWrap
                             }
                             Button {
+                                implicitHeight: Theme.touchTarget
                                 text: "Defaults"
                                 enabled: !deviceStatus.configBusy && !stream.active
                                 // fb2 measured faster than fb3 at svga/q12 (15.91
@@ -1546,20 +1645,20 @@ ApplicationWindow {
                     // ---- device information (section 26) ----
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 4
+                        spacing: Theme.spaceXs
                         visible: deviceStatus.online
 
                         Rectangle {
                             Layout.fillWidth: true
                             height: 1
-                            color: "#30363d"
+                            color: Theme.border
                         }
 
                         Label {
                             Layout.fillWidth: true
                             text: "Device"
-                            color: "#e6edf3"
-                            font.pixelSize: 14
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSubtitle
                             font.bold: true
                         }
 
@@ -1585,18 +1684,18 @@ ApplicationWindow {
                             delegate: RowLayout {
                                 required property var modelData
                                 Layout.fillWidth: true
-                                spacing: 8
+                                spacing: Theme.spaceMd
                                 Label {
                                     Layout.fillWidth: true
                                     text: modelData.k
-                                    color: "#8b949e"
-                                    font.pixelSize: 11
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontCaption
                                 }
                                 Label {
                                     text: modelData.v === undefined ? "—" : String(modelData.v)
-                                    color: "#c9d1d9"
-                                    font.pixelSize: 11
-                                    font.family: "Consolas"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontCaption
+                                    font.family: Theme.fontMonoFamily
                                     elide: Text.ElideRight
                                     Layout.maximumWidth: 150
                                 }
@@ -1629,8 +1728,8 @@ ApplicationWindow {
                 : sessionState.state === "discovering" ? "Searching for a camera…"
                 : sessionState.state === "error" ? sessionState.detail
                 : sessionState.label + "…"
-            color: sessionState.severity === "err" ? "#f85149" : "#6b7684"
-            font.pixelSize: 18
+            color: sessionState.severity === "err" ? Theme.danger : Theme.textFaint
+            font.pixelSize: Theme.fontDisplay
         }
 
         Label {
@@ -1641,9 +1740,9 @@ ApplicationWindow {
             text: "reconnecting… (" + sessionState.retryAttempt + "/"
                   + sessionState.maxRetries + ") in "
                   + sessionState.retryDelayMs + " ms"
-            color: "#d29922"
-            font.pixelSize: 12
-            font.family: "Consolas"
+            color: Theme.warning
+            font.pixelSize: Theme.fontSmall
+            font.family: Theme.fontMonoFamily
         }
 
         Label {
@@ -1654,9 +1753,9 @@ ApplicationWindow {
                  && deviceStatus.status["camera_recoveries"] !== undefined
                  && deviceStatus.status["camera_recoveries"] > 0
             text: "camera recoveries: " + deviceStatus.status["camera_recoveries"]
-            color: "#d29922"
-            font.pixelSize: 12
-            font.family: "Consolas"
+            color: Theme.warning
+            font.pixelSize: Theme.fontSmall
+            font.family: Theme.fontMonoFamily
         }
 
         Label {
@@ -1665,9 +1764,9 @@ ApplicationWindow {
             anchors.margins: 14
             visible: stream.errorString.length > 0
             text: stream.errorString
-            color: "#f85149"
-            font.pixelSize: 12
-            font.family: "Consolas"
+            color: Theme.danger
+            font.pixelSize: Theme.fontSmall
+            font.family: Theme.fontMonoFamily
         }
     }
 }

@@ -5,7 +5,7 @@ project(SortingCamera VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Qml Quick Network Test)
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Network Test)
 
 qt_standard_project_setup()
 
@@ -71,14 +71,21 @@ target_link_libraries(SortingCamera PRIVATE
     scamcore
     Qt6::Qml
     Qt6::Quick
+    Qt6::QuickControls2
 )
 
+# Theme is a singleton, not an instantiable component: the design tokens have
+# to be one object per application, shared by everything that draws. The
+# property has to be set before qt_add_qml_module reads the file list.
+set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(SortingCamera
-    VERSION 1.0
-    URI SortingCamera
-    QML_FILES
-        qml/Main.qml
-)
+        VERSION 1.0
+        URI SortingCamera
+        QML_FILES
+            qml/Theme.qml
+            qml/Main.qml
+    )
 
 if(BUILD_TESTING)
     enable_testing()

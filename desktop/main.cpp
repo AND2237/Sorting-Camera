@@ -22,6 +22,7 @@
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QStandardPaths>
 #include <QTimer>
 
@@ -140,6 +141,14 @@ int main(int argc, char *argv[])
 
     MjpegClient &stream = *device->stream();
     DeviceStatus &deviceStatus = *device->status();
+
+    // Section 25's dark/light readiness only works if the built-in controls
+    // obey the palette. The default style on Windows is the native one, which
+    // paints its own colours and ignores QPalette entirely - which is why the
+    // first light-theme build switched the panels but left every combo box,
+    // slider and button dark. Basic honours the palette, so one source of
+    // truth in Theme.qml reaches the whole interface.
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(

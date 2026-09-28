@@ -146,3 +146,17 @@ void UserPreferences::setGrabMode(const QString &mode)
 {
     setValue("preferences/grabMode", mode);
 }
+
+QString UserPreferences::themeMode() const
+{
+    return value("preferences/themeMode", QStringLiteral("dark")).toString();
+}
+
+void UserPreferences::setThemeMode(const QString &mode)
+{
+    // Anything unrecognised falls back to dark rather than propagating a
+    // corrupt value into the QML that reads it.
+    const QString v = (mode == QLatin1String("light")) ? QStringLiteral("light")
+                                                        : QStringLiteral("dark");
+    setValue("preferences/themeMode", v);
+}
