@@ -93,6 +93,8 @@ public slots:
             m_timer->stop();
         }
         abortReply();
+        abortCapabilitiesReply();
+        abortSensorReply();
     }
 
     void submitPassword(const QString &password)
@@ -120,8 +122,83 @@ public slots:
         doConfig(host, port, query);
     }
 
+    void fetchCapabilities(const QString &host, quint16 port)
+    {
+        if (!m_nam) {
+            m_nam = new QNetworkAccessManager(this);
+        }
+        abortCapabilitiesReply();
+
+        const QUrl url(QStringLiteral("http://%1:%2/api/v1/capabilities").arg(host).arg(port));
+        QNetworkRequest request(url);
+        m_auth->applyAuthHeaderPublic(&request);
+        m_capReply = m_nam->get(request);
+        QTimer::singleShot(kRequestTimeoutMs, m_capReply, &QNetworkReply::abort);
+        connect(m_capReply, &QNetworkReply::finished, this, [this]() {
+            QNetworkReply *reply = m_capReply;
+            m_capReply = nullptr;
+            if (!reply) {
+                return;
+            }
+            reply->deleteLater();
+            if (reply->error() != QNetworkReply::NoError) {
+                // Capabilities are a convenience, not a requirement: the view
+                // still works without them, so this is not a hard failure.
+                qDebug() << "[caps] unavailable:" << reply->errorString();
+                return;
+            }
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (doc.isObject()) {
+                emit capabilitiesUpdated(doc.object());
+            }
+        });
+    }
+
+    // Sensor writes are a plain POST of the changed control, kept separate
+    // from setConfig so a slider cannot be mistaken for a stream-tearing
+    // reconfiguration.
+    void setSensor(const QString &host, quint16 port, const QString &body)
+    {
+        if (!m_nam) {
+            m_nam = new QNetworkAccessManager(this);
+        }
+        abortSensorReply();
+
+        const QUrl url(QStringLiteral("http://%1:%2/api/v1/sensor").arg(host).arg(port));
+        QNetworkRequest request(url);
+        m_auth->applyAuthHeaderPublic(&request);
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QStringLiteral("application/json"));
+        m_sensorReply = m_nam->post(request, body.toUtf8());
+        QTimer::singleShot(kRequestTimeoutMs, m_sensorReply, &QNetworkReply::abort);
+        connect(m_sensorReply, &QNetworkReply::finished, this, [this]() {
+            QNetworkReply *reply = m_sensorReply;
+            m_sensorReply = nullptr;
+            if (!reply) {
+                return;
+            }
+            reply->deleteLater();
+            const int status =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (reply->error() != QNetworkReply::NoError) {
+                if (status == 401) {
+                    m_auth->signIn();
+                    emit sensorFinished(false, QStringLiteral("session expired, signing in again"));
+                    return;
+                }
+                const QByteArray err = reply->readAll();
+                emit sensorFinished(false, err.isEmpty() ? reply->errorString()
+                                                          : QString::fromUtf8(err).trimmed());
+                return;
+            }
+            emit sensorFinished(true, QString());
+        });
+    }
+
 signals:
     void statusUpdated(const QJsonObject &status);
+    void capabilitiesUpdated(const QJsonObject &capabilities);
+    void sensorFinished(bool ok, const QString &message);
     void onlineUpdated(bool online);
     void errorUpdated(const QString &errorString);
     void configFinished(bool ok, const QString &message);
@@ -289,12 +366,36 @@ private slots:
         }
     }
 
+    void abortCapabilitiesReply()
+    {
+        QNetworkReply *reply = m_capReply;
+        m_capReply = nullptr;
+        if (reply) {
+            reply->disconnect(this);
+            reply->abort();
+            reply->deleteLater();
+        }
+    }
+
+    void abortSensorReply()
+    {
+        QNetworkReply *reply = m_sensorReply;
+        m_sensorReply = nullptr;
+        if (reply) {
+            reply->disconnect(this);
+            reply->abort();
+            reply->deleteLater();
+        }
+    }
+
 private:
     AuthClient *m_auth = nullptr;
     QNetworkAccessManager *m_nam = nullptr;
     QTimer *m_timer = nullptr;
     QNetworkReply *m_reply = nullptr;
     QNetworkReply *m_configReply = nullptr;
+    QNetworkReply *m_capReply = nullptr;
+    QNetworkReply *m_sensorReply = nullptr;
     QUrl m_url;
     QJsonObject m_status;
     bool m_online = false;
@@ -325,6 +426,7 @@ DeviceStatus::DeviceStatus(QObject *parent)
             }
         }
         refreshAuthState();
+        requestCapabilities();
         trySendPendingConfig();
     });
     connect(m_worker, &DeviceStatusWorker::onlineUpdated, this, [this](bool online) {
@@ -360,6 +462,31 @@ DeviceStatus::DeviceStatus(QObject *parent)
                 }
             });
 
+    connect(m_worker, &DeviceStatusWorker::capabilitiesUpdated, this,
+            [this](const QJsonObject &caps) {
+                if (caps == m_capabilities) {
+                    return;
+                }
+                m_capabilities = caps;
+                emit capabilitiesChanged();
+            });
+    connect(m_worker, &DeviceStatusWorker::sensorFinished, this,
+            [this](bool ok, const QString &message) {
+                m_sensorBusy = false;
+                const QString err = ok ? QString() : message;
+                if (m_sensorError != err) {
+                    m_sensorError = err;
+                }
+                emit sensorStateChanged();
+                if (ok) {
+                    qDebug() << "[sensor] control applied";
+                    QMetaObject::invokeMethod(m_worker, "refreshStatus",
+                                              Qt::QueuedConnection);
+                } else {
+                    qDebug() << "[sensor] control rejected:" << message;
+                }
+            });
+
     m_thread->start();
 }
 
@@ -388,6 +515,21 @@ bool DeviceStatus::isPolling() const
 QJsonObject DeviceStatus::status() const
 {
     return m_status;
+}
+
+QJsonObject DeviceStatus::capabilities() const
+{
+    return m_capabilities;
+}
+
+bool DeviceStatus::isSensorBusy() const
+{
+    return m_sensorBusy;
+}
+
+QString DeviceStatus::sensorError() const
+{
+    return m_sensorError;
 }
 
 QString DeviceStatus::errorString() const
@@ -497,6 +639,13 @@ void DeviceStatus::startPolling(const QString &host, quint16 port)
     m_host = host.trimmed();
     m_port = port;
     m_deviceId = QString();
+    // Capabilities describe one camera. Carrying them across a switch to a
+    // different one would offer controls the new device may not have.
+    if (!m_capabilities.isEmpty()) {
+        m_capabilities = QJsonObject();
+        emit capabilitiesChanged();
+    }
+    m_sensorError.clear();
     if (!m_polling) {
         m_polling = true;
         emit pollingChanged();
@@ -575,6 +724,83 @@ void DeviceStatus::requestCameraRecovery()
     }
     qDebug() << "[config] requesting camera re-init at" << key;
     setConfigQuery(QStringLiteral("framesize=%1").arg(key));
+}
+
+// Capabilities are requested once the camera has answered a status poll, which
+// only happens after authentication has succeeded - asking earlier would earn
+// a 401 and never be retried. The 5 s floor stops a firmware that lacks the
+// endpoint from being polled for it on every single status tick.
+void DeviceStatus::requestCapabilities()
+{
+    if (!m_polling || m_host.isEmpty() || !m_capabilities.isEmpty()) {
+        return;
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    if (!m_lastCapAttempt.isValid() || m_lastCapAttempt.secsTo(now) >= 5) {
+        m_lastCapAttempt = now;
+        QMetaObject::invokeMethod(m_worker, "fetchCapabilities", Qt::QueuedConnection,
+                                  Q_ARG(QString, m_host), Q_ARG(quint16, m_port));
+    }
+}
+
+void DeviceStatus::setSensorControl(const QString &name, int value)
+{
+    if (m_host.isEmpty() || name.isEmpty() || m_sensorBusy) {
+        return;
+    }
+    // Only names the firmware advertises are sent: a typo reaching the camera
+    // would be rejected, but a plausible-looking one would also be silently
+    // accepted as an unknown key depending on firmware version.
+    const QJsonObject ctrl =
+        m_capabilities.value(QStringLiteral("controls")).toObject();
+    if (!ctrl.contains(name)) {
+        m_sensorError = QStringLiteral("unknown control: %1").arg(name);
+        emit sensorStateChanged();
+        return;
+    }
+
+    m_sensorBusy = true;
+    m_sensorError.clear();
+    emit sensorStateChanged();
+
+    QJsonObject body;
+    body.insert(name, value);
+    QMetaObject::invokeMethod(
+        m_worker, "setSensor", Qt::QueuedConnection, Q_ARG(QString, m_host),
+        Q_ARG(quint16, m_port),
+        Q_ARG(QString, QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact))));
+}
+
+void DeviceStatus::resetSensorControls()
+{
+    if (m_host.isEmpty() || m_sensorBusy) {
+        return;
+    }
+    const QJsonObject ctrl =
+        m_capabilities.value(QStringLiteral("controls")).toObject();
+    if (ctrl.isEmpty()) {
+        return;
+    }
+    QJsonObject body;
+    for (auto it = ctrl.constBegin(); it != ctrl.constEnd(); ++it) {
+        const QJsonObject entry = it.value().toObject();
+        if (!entry.value(QStringLiteral("supported")).toBool()) {
+            continue;
+        }
+        body.insert(it.key(), entry.value(QStringLiteral("default")).toInt());
+    }
+    if (body.isEmpty()) {
+        return;
+    }
+
+    m_sensorBusy = true;
+    m_sensorError.clear();
+    emit sensorStateChanged();
+    qDebug() << "[sensor] restoring defaults for" << body.size() << "control(s)";
+    QMetaObject::invokeMethod(
+        m_worker, "setSensor", Qt::QueuedConnection, Q_ARG(QString, m_host),
+        Q_ARG(quint16, m_port),
+        Q_ARG(QString, QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact))));
 }
 
 void DeviceStatus::setConfigQuery(const QString &query)

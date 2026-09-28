@@ -1,0 +1,409 @@
+// Section 26 asks for camera configuration controls, and those controls only
+// exist if the desktop takes their shape from what the camera advertises
+// rather than from a hard-coded list. This test drives DeviceStatus against a
+// stub camera and pins that contract: capabilities arrive, a write reaches the
+// right endpoint with the right body, an unknown control never leaves the PC,
+// and a device switch cannot leave stale controls on screen.
+#include "DeviceStatus.h"
+
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSignalSpy>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTest>
+
+namespace {
+
+// Stands in for the camera's control port. Records every request so a test can
+// assert on the path and body, and answers with a fixture that matches the
+// shape camera_control_add_capabilities() produces on the device.
+class ControlApiStub : public QObject
+{
+    Q_OBJECT
+public:
+    explicit ControlApiStub(QObject *parent = nullptr) : QObject(parent)
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, &ControlApiStub::onConnection);
+        connect(&m_server, &QTcpServer::pendingConnectionAvailable, this,
+                &ControlApiStub::onConnection);
+    }
+
+    bool listen()
+    {
+        return m_server.listen(QHostAddress::LocalHost, 0);
+    }
+
+    quint16 port() const { return m_server.serverPort(); }
+
+    struct Request
+    {
+        QString method;
+        QString path;
+        QByteArray body;
+    };
+
+    QList<Request> requests;
+    bool authRequired = false;
+    int capabilitiesStatus = 200;
+    int sensorPostStatus = 200;
+    QString sensorPostError = QStringLiteral("rejected");
+
+    const QJsonObject capabilities = QJsonObject{
+        {QStringLiteral("controls"),
+         QJsonObject{
+             {QStringLiteral("brightness"),
+              QJsonObject{{QStringLiteral("supported"), true},
+                          {QStringLiteral("group"), QStringLiteral("image")},
+                          {QStringLiteral("min"), -2},
+                          {QStringLiteral("max"), 2},
+                          {QStringLiteral("default"), 0}}},
+             {QStringLiteral("contrast"),
+              QJsonObject{{QStringLiteral("supported"), true},
+                          {QStringLiteral("group"), QStringLiteral("image")},
+                          {QStringLiteral("min"), -2},
+                          {QStringLiteral("max"), 2},
+                          {QStringLiteral("default"), 0}}},
+             {QStringLiteral("hmirror"),
+              QJsonObject{{QStringLiteral("supported"), true},
+                          {QStringLiteral("group"), QStringLiteral("flip")},
+                          {QStringLiteral("min"), 0},
+                          {QStringLiteral("max"), 1},
+                          {QStringLiteral("default"), 0}}},
+             // Present in the payload but unusable: the panel must not offer it.
+             {QStringLiteral("colorbar"),
+              QJsonObject{{QStringLiteral("supported"), false},
+                          {QStringLiteral("group"), QStringLiteral("test")},
+                          {QStringLiteral("min"), 0},
+                          {QStringLiteral("max"), 1},
+                          {QStringLiteral("default"), 0}}},
+         }},
+        {QStringLiteral("features"), QJsonObject{}}};
+
+    const QJsonObject status = QJsonObject{
+        {QStringLiteral("device_id"), QStringLiteral("b4bfe9343ae0")},
+        {QStringLiteral("fw_version"), QStringLiteral("v0.1.0-7-ga376882")},
+        {QStringLiteral("resolution"), QStringLiteral("1280x720")},
+        {QStringLiteral("quality"), 12},
+        {QStringLiteral("brightness"), 0},
+        {QStringLiteral("contrast"), 0},
+        {QStringLiteral("hmirror"), 0},
+        {QStringLiteral("stream_clients"), 0},
+    };
+
+private:
+    void onConnection()
+    {
+        QTcpSocket *sock = m_server.nextPendingConnection();
+        if (!sock) {
+            return;
+        }
+        connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+        connect(sock, &QTcpSocket::readyRead, this, [this, sock]() {
+            m_buffer[sock] += sock->readAll();
+            handle(sock);
+        });
+    }
+
+    void handle(QTcpSocket *sock)
+    {
+        QByteArray &buf = m_buffer[sock];
+        // Header block first, then any body the headers promised.
+        int end = buf.indexOf("\r\n\r\n");
+        if (end < 0) {
+            return;
+        }
+        const QByteArray head = buf.left(end + 4);
+        const int contentLength = parseContentLength(head);
+        if (buf.size() < end + 4 + contentLength) {
+            return;
+        }
+
+        const QByteArray body = buf.mid(end + 4, contentLength);
+        buf.remove(0, end + 4 + contentLength);
+
+        const QList<QByteArray> lines = head.split('\n');
+        const QList<QByteArray> first = lines.value(0).trimmed().split(' ');
+        Request req;
+        req.method = QString::fromUtf8(first.value(0));
+        req.path = QString::fromUtf8(first.value(1));
+        req.body = body;
+        requests.append(req);
+
+        if (authRequired && !req.path.startsWith(QStringLiteral("/api/v1/auth/"))) {
+            respond(sock, 401, QByteArray("{\"error\":\"unauthorized\"}"));
+            return;
+        }
+        if (req.path == QStringLiteral("/api/v1/capabilities")) {
+            if (capabilitiesStatus != 200) {
+                respond(sock, capabilitiesStatus, QByteArray("{\"error\":\"no\"}"));
+            } else {
+                respond(sock, 200, QJsonDocument(capabilities).toJson(QJsonDocument::Compact));
+            }
+            return;
+        }
+        if (req.path == QStringLiteral("/api/v1/sensor")) {
+            if (sensorPostStatus != 200) {
+                respond(sock, sensorPostStatus, sensorPostError.toUtf8());
+            } else {
+                respond(sock, 200, QJsonDocument(status).toJson(QJsonDocument::Compact));
+            }
+            return;
+        }
+        if (req.path == QStringLiteral("/api/v1/status")) {
+            respond(sock, 200, QJsonDocument(status).toJson(QJsonDocument::Compact));
+            return;
+        }
+        respond(sock, 404, QByteArray("{\"error\":\"not found\"}"));
+    }
+
+    static int parseContentLength(const QByteArray &head)
+    {
+        for (const QByteArray &line : head.split('\n')) {
+            const QByteArray l = line.trimmed();
+            if (l.toLower().startsWith("content-length:"))
+                return l.mid(QByteArray("content-length:").size()).trimmed().toInt();
+        }
+        return 0;
+    }
+
+    static void respond(QTcpSocket *sock, int code, const QByteArray &body)
+    {
+        QByteArray out = "HTTP/1.1 " + QByteArray::number(code) + " \r\n";
+        out += "Content-Type: application/json\r\n";
+        out += "Content-Length: " + QByteArray::number(body.size()) + "\r\n";
+        out += "Connection: close\r\n\r\n";
+        out += body;
+        sock->write(out);
+        sock->flush();
+        sock->disconnectFromHost();
+    }
+
+    QTcpServer m_server;
+    QHash<QTcpSocket *, QByteArray> m_buffer;
+};
+
+} // namespace
+
+class TestDeviceStatus : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void capabilitiesArriveAfterAStatusPoll();
+    void sensorControlWriteReachesTheSensorEndpoint();
+    void unknownControlNeverLeavesTheMachine();
+    void rejectedWriteSurfacesTheReasonAndClearsBusy();
+    void switchingDevicesDropsTheOldCapabilities();
+    void resetAppliesEveryDefaultInOneRequest();
+    void writesAreSerialisedWhileOneIsInFlight();
+};
+
+void TestDeviceStatus::capabilitiesArriveAfterAStatusPoll()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    const QJsonObject controls =
+        status.capabilities().value(QStringLiteral("controls")).toObject();
+    QCOMPARE(controls.size(), 4);
+    QVERIFY(controls.contains(QStringLiteral("brightness")));
+    QVERIFY(controls.contains(QStringLiteral("hmirror")));
+    QCOMPARE(controls.value(QStringLiteral("brightness"))
+                 .toObject()
+                 .value(QStringLiteral("max"))
+                 .toInt(),
+             2);
+
+    // Capabilities are only asked for once the camera has answered a status
+    // poll, which is the first point at which authentication is known good.
+    bool sawStatus = false;
+    for (const ControlApiStub::Request &r : stub.requests) {
+        if (r.path == QStringLiteral("/api/v1/status"))
+            sawStatus = true;
+        if (r.path == QStringLiteral("/api/v1/capabilities") && !sawStatus)
+            QFAIL("capabilities were requested before any successful status poll");
+    }
+    status.stopPolling();
+}
+
+void TestDeviceStatus::sensorControlWriteReachesTheSensorEndpoint()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    status.setSensorControl(QStringLiteral("brightness"), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!status.isSensorBusy(), 8000);
+    QVERIFY(status.sensorError().isEmpty());
+
+    ControlApiStub::Request post;
+    bool found = false;
+    for (const ControlApiStub::Request &r : stub.requests) {
+        if (r.method == QStringLiteral("POST") && r.path == QStringLiteral("/api/v1/sensor")) {
+            post = r;
+            found = true;
+        }
+    }
+    QVERIFY2(found, "no POST reached /api/v1/sensor");
+
+    const QJsonDocument sent = QJsonDocument::fromJson(post.body);
+    QVERIFY(sent.isObject());
+    QCOMPARE(sent.object().value(QStringLiteral("brightness")).toInt(), 1);
+    // Exactly the control that moved, nothing else: a slider drag must not
+    // also commit a resolution or a quality change.
+    QCOMPARE(sent.object().size(), 1);
+    status.stopPolling();
+}
+
+void TestDeviceStatus::unknownControlNeverLeavesTheMachine()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    const int postsBefore = [&] {
+        int n = 0;
+        for (const ControlApiStub::Request &r : stub.requests)
+            if (r.method == QStringLiteral("POST"))
+                ++n;
+        return n;
+    }();
+
+    status.setSensorControl(QStringLiteral("not_a_control"), 1);
+    QVERIFY(status.sensorError().contains(QStringLiteral("not_a_control")));
+    QVERIFY(!status.isSensorBusy());
+
+    // Let any stray request have time to arrive, then prove none did.
+    QTest::qWait(500);
+    int postsAfter = 0;
+    for (const ControlApiStub::Request &r : stub.requests)
+        if (r.method == QStringLiteral("POST"))
+            ++postsAfter;
+    QCOMPARE(postsAfter, postsBefore);
+    status.stopPolling();
+}
+
+void TestDeviceStatus::rejectedWriteSurfacesTheReasonAndClearsBusy()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+    stub.sensorPostStatus = 409;
+    stub.sensorPostError = QStringLiteral("stream active: disconnect before config change");
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    status.setSensorControl(QStringLiteral("contrast"), -1);
+    QTRY_VERIFY_WITH_TIMEOUT(!status.isSensorBusy(), 8000);
+    QCOMPARE(status.sensorError(),
+             QStringLiteral("stream active: disconnect before config change"));
+    status.stopPolling();
+}
+
+void TestDeviceStatus::switchingDevicesDropsTheOldCapabilities()
+{
+    ControlApiStub first;
+    QVERIFY(first.listen());
+    ControlApiStub second;
+    QVERIFY(second.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), first.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+    QTRY_VERIFY_WITH_TIMEOUT(!status.capabilities().isEmpty(), 8000);
+
+    status.startPolling(QStringLiteral("127.0.0.1"), second.port());
+    // The drop has to be immediate: until the new camera has answered, the
+    // panel must not offer controls that describe a different sensor.
+    QVERIFY(status.capabilities().isEmpty());
+    QTRY_VERIFY_WITH_TIMEOUT(!status.capabilities().isEmpty(), 8000);
+
+    // And the re-fetch must go to the new camera, not be satisfied from cache.
+    bool askedSecond = false;
+    for (const ControlApiStub::Request &r : second.requests) {
+        if (r.path == QStringLiteral("/api/v1/capabilities"))
+            askedSecond = true;
+    }
+    QVERIFY2(askedSecond, "capabilities were not re-requested from the new device");
+    status.stopPolling();
+}
+
+void TestDeviceStatus::resetAppliesEveryDefaultInOneRequest()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    status.resetSensorControls();
+    QTRY_VERIFY_WITH_TIMEOUT(!status.isSensorBusy(), 8000);
+    QVERIFY(status.sensorError().isEmpty());
+
+    for (const ControlApiStub::Request &r : stub.requests) {
+        if (r.method != QStringLiteral("POST") || r.path != QStringLiteral("/api/v1/sensor"))
+            continue;
+        const QJsonObject sent = QJsonDocument::fromJson(r.body).object();
+        // Three supported controls, and the unsupported colorbar left out even
+        // though the payload advertises it.
+        QCOMPARE(sent.size(), 3);
+        QVERIFY(sent.contains(QStringLiteral("brightness")));
+        QVERIFY(sent.contains(QStringLiteral("contrast")));
+        QVERIFY(sent.contains(QStringLiteral("hmirror")));
+        QVERIFY(!sent.contains(QStringLiteral("colorbar")));
+        return;
+    }
+    QFAIL("no reset POST reached /api/v1/sensor");
+}
+
+void TestDeviceStatus::writesAreSerialisedWhileOneIsInFlight()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    // Fire three writes back to back. Only the first may reach the camera:
+    // otherwise a drag across several controls would interleave POSTs and the
+    // camera would apply them in an order nobody asked for.
+    status.setSensorControl(QStringLiteral("brightness"), 1);
+    QVERIFY(status.isSensorBusy());
+    status.setSensorControl(QStringLiteral("contrast"), 1);
+    status.setSensorControl(QStringLiteral("hmirror"), 1);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!status.isSensorBusy(), 8000);
+    QTest::qWait(400);
+
+    int posts = 0;
+    for (const ControlApiStub::Request &r : stub.requests)
+        if (r.method == QStringLiteral("POST"))
+            ++posts;
+    QCOMPARE(posts, 1);
+    status.stopPolling();
+}
+
+QTEST_MAIN(TestDeviceStatus)
+#include "tst_devicestatus.moc"

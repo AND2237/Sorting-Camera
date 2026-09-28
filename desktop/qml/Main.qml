@@ -18,6 +18,35 @@ ApplicationWindow {
     // What the host field held at startup, so auto-selection only happens
     // while the user has not typed an address of their own.
     property string initialHost: prefs.host
+    // Section 26 controls, derived from what the camera advertises. Grouped
+    // here rather than hard-coded so the panel follows the firmware.
+    readonly property var controlGroups: {
+        const c = deviceStatus.capabilities["controls"]
+        if (!c)
+            return []
+        const byGroup = {}
+        for (const name of Object.keys(c)) {
+            const e = c[name]
+            if (!e.supported)
+                continue
+            if (!byGroup[e.group])
+                byGroup[e.group] = []
+            byGroup[e.group].push({
+                name: name, min: e.min, max: e.max, def: e.default,
+                note: e.note !== undefined ? e.note : ""
+            })
+        }
+        const order = ["image", "auto", "white balance", "flip", "sharpening"]
+        const keys = Object.keys(byGroup)
+        keys.sort((a, b) => {
+            const ia = order.indexOf(a), ib = order.indexOf(b)
+            if (ia === ib) return a < b ? -1 : 1
+            if (ia < 0) return 1
+            if (ib < 0) return -1
+            return ia - ib
+        })
+        return keys.map(g => ({ group: g, items: byGroup[g] }))
+    }
     // Display-only zoom (23). Scaling happens in the rendering path; the
     // frame in FrameBus - and therefore every snapshot and recording - is
     // untouched.
@@ -61,6 +90,32 @@ ApplicationWindow {
         if (st["framesize"] !== undefined) m["framesize"] = st["framesize"]
         if (st["quality"] !== undefined) m["quality"] = st["quality"]
         return m
+    }
+
+    function formatUptime(seconds) {
+        if (seconds === undefined)
+            return "—"
+        const s = Math.floor(seconds)
+        const d = Math.floor(s / 86400)
+        const h = Math.floor((s % 86400) / 3600)
+        const m = Math.floor((s % 3600) / 60)
+        if (d > 0)
+            return d + " d " + h + " h"
+        if (h > 0)
+            return h + " h " + m + " m"
+        if (m > 0)
+            return m + " m " + (s % 60) + " s"
+        return s + " s"
+    }
+
+    function formatBytes(n) {
+        if (n === undefined)
+            return "—"
+        if (n >= 1048576)
+            return (n / 1048576).toFixed(1) + " MB"
+        if (n >= 1024)
+            return (n / 1024).toFixed(0) + " kB"
+        return n + " B"
     }
 
     function applyDevice(index) {
@@ -560,10 +615,24 @@ ApplicationWindow {
                     ListElement { key: "uxga";  dims: "1600x1200"; label: "1600 × 1200 (UXGA)" }
                 }
 
-                ColumnLayout {
+                // The panel scrolls: with the full sensor control set there is
+                // more content here than fits, and clipping the bottom would
+                // hide controls the firmware says exist.
+                Flickable {
+                    id: configFlick
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 10
+                    clip: true
+                    contentWidth: width
+                    contentHeight: innerCol.implicitHeight + 28
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    ColumnLayout {
+                        id: innerCol
+                        x: 14
+                        y: 14
+                        width: configFlick.width - 34
+                        spacing: 10
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -757,6 +826,195 @@ ApplicationWindow {
                     }
 
                     Item { Layout.fillHeight: true }
+
+                    // ---- camera controls (section 26) ----
+                    // Built entirely from /api/v1/capabilities. The firmware
+                    // advertises which controls it supports and over what
+                    // range, so the panel adds or drops a control when the
+                    // camera does rather than keeping a list that can go
+                    // stale against a different board.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: root.controlGroups.length > 0
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: "#30363d"
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label {
+                                Layout.fillWidth: true
+                                text: "Camera controls"
+                                color: "#e6edf3"
+                                font.pixelSize: 14
+                                font.bold: true
+                            }
+                            Button {
+                                text: "Defaults"
+                                enabled: !deviceStatus.sensorBusy
+                                       && deviceStatus.online
+                                onClicked: deviceStatus.resetSensorControls()
+                            }
+                        }
+
+                        Repeater {
+                            model: root.controlGroups
+                            delegate: ColumnLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.group
+                                    color: "#8b949e"
+                                    font.pixelSize: 11
+                                    font.capitalization: Font.AllUppercase
+                                    elide: Text.ElideRight
+                                }
+
+                                Repeater {
+                                    model: modelData.items
+                                    delegate: ColumnLayout {
+                                        required property var modelData
+                                        required property string group
+                                        Layout.fillWidth: true
+                                        spacing: 0
+
+                                        readonly property var def: modelData
+                                        readonly property string cname: modelData.name
+                                        readonly property real current: {
+                                            const v = deviceStatus.status[cname]
+                                            return v !== undefined ? v : modelData.def
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: cname.replace(/_/g, " ")
+                                                color: "#e6edf3"
+                                                font.pixelSize: 12
+                                                elide: Text.ElideRight
+                                            }
+                                            Label {
+                                                text: modelData.min + " … " + modelData.max
+                                                color: "#6b7684"
+                                                font.pixelSize: 10
+                                                font.family: "Consolas"
+                                            }
+                                        }
+
+                                        Slider {
+                                            id: ctrlSlider
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 30
+                                            from: modelData.min
+                                            to: modelData.max
+                                            stepSize: 1
+                                            snapMode: Slider.SnapAlways
+                                            value: parent.current
+                                            // Live while streaming: unlike
+                                            // resolution and quality, a sensor
+                                            // write does not restart the
+                                            // camera or the stream.
+                                            enabled: deviceStatus.online
+                                                     && !deviceStatus.sensorBusy
+                                            onMoved: deviceStatus.setSensorControl(
+                                                         cname, Math.round(value))
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            visible: modelData.note !== undefined
+                                                     && modelData.note !== ""
+                                            text: modelData.note !== undefined
+                                                  ? modelData.note : ""
+                                            color: "#6b7684"
+                                            font.pixelSize: 10
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: deviceStatus.sensorError.length > 0
+                        text: deviceStatus.sensorError
+                        color: "#f85149"
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // ---- device information (section 26) ----
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        visible: deviceStatus.online
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: "#30363d"
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Device"
+                            color: "#e6edf3"
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+
+                        Repeater {
+                            model: [
+                                { k: "device",   v: root.selectedDeviceId.length > 0
+                                               ? root.selectedDeviceId : "—" },
+                                { k: "name",     v: deviceStatus.status["device_name"] },
+                                { k: "address",  v: hostField.text + ":" + root.streamPort },
+                                { k: "sensor",   v: deviceStatus.status["resolution"] !== undefined
+                                               ? "OV2640" : "—" },
+                                { k: "firmware", v: deviceStatus.status["fw_version"] },
+                                { k: "protocol", v: deviceStatus.status["proto_version"] },
+                                { k: "uptime",   v: root.formatUptime(deviceStatus.status["uptime_s"]) },
+                                { k: "rssi",     v: deviceStatus.status["rssi"] + " dBm" },
+                                { k: "free heap", v: root.formatBytes(deviceStatus.status["free_heap"]) },
+                                { k: "psram free", v: root.formatBytes(deviceStatus.status["free_spiram"]) },
+                                { k: "frames",   v: deviceStatus.status["frames_captured"] + " captured, "
+                                                + deviceStatus.status["capture_failures"] + " failed" },
+                                { k: "clients",  v: deviceStatus.status["stream_clients"] },
+                                { k: "capture",  v: deviceStatus.status["avg_capture_ms"] + " ms avg" }
+                            ]
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.k
+                                    color: "#8b949e"
+                                    font.pixelSize: 11
+                                }
+                                Label {
+                                    text: modelData.v === undefined ? "—" : String(modelData.v)
+                                    color: "#c9d1d9"
+                                    font.pixelSize: 11
+                                    font.family: "Consolas"
+                                    elide: Text.ElideRight
+                                    Layout.maximumWidth: 150
+                                }
+                            }
+                        }
+                    }
+                }
+
                 }
 
                 Connections {
