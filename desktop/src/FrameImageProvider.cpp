@@ -3,9 +3,15 @@
 #include "AppMetrics.h"
 #include "FrameBus.h"
 
+FrameImageProvider::FrameImageProvider(Resolver resolver)
+    : QQuickImageProvider(QQuickImageProvider::Image)
+    , m_resolver(std::move(resolver))
+{
+}
+
 FrameImageProvider::FrameImageProvider(FrameBus *bus)
     : QQuickImageProvider(QQuickImageProvider::Image)
-    , m_bus(bus)
+    , m_resolver([bus]() { return bus; })
 {
 }
 
@@ -15,8 +21,11 @@ QImage FrameImageProvider::requestImage(const QString &id, QSize *size, const QS
 
     const qint64 t0 = AppMetrics::nowUs();
 
-    QImage img = m_bus ? m_bus->image() : QImage();
-    const qint64 completeMs = m_bus ? m_bus->lastFrameCompleteMs() : 0;
+    // Resolved per request: the active camera can change between two frames.
+    FrameBus *bus = m_resolver ? m_resolver() : nullptr;
+
+    QImage img = bus ? bus->image() : QImage();
+    const qint64 completeMs = bus ? bus->lastFrameCompleteMs() : 0;
     if (img.isNull()) {
         img = QImage(640, 360, QImage::Format_RGB32);
         img.fill(QColor(0x14, 0x18, 0x1d));

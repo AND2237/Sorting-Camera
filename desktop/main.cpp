@@ -1,4 +1,6 @@
 #include "src/AppMetrics.h"
+#include "src/CameraDevice.h"
+#include "src/DeviceRegistry.h"
 #include "src/DeviceStatus.h"
 #include "src/DiscoveryService.h"
 #include "src/FrameBus.h"
@@ -90,15 +92,12 @@ int main(int argc, char *argv[])
     const quint16 streamPort = (quint16)parser.value(streamPortOpt).toUShort();
     const QString outPath = parser.value(outOpt);
 
-    FrameBus frameBus;
-    MjpegClient stream;
-    DeviceStatus deviceStatus;
+    // The registry owns every camera. Only one is shown at a time - section 27
+    // allows a single active stream in the view - but the objects behind the
+    // view are per camera, not per application, so a second camera is a second
+    // entry here rather than a second architecture.
     DiscoveryService discovery;
-    SessionState sessionState;
-    sessionState.observe(&stream, &deviceStatus, &discovery);
-    Recorder recorder;
-    SnapshotWriter snapshotWriter(&frameBus);
-    StreamStats streamStats(&stream, &frameBus);
+    DeviceRegistry registry(&discovery);
     UserPreferences prefs;
 
     const QString pictures = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
@@ -107,40 +106,50 @@ int main(int argc, char *argv[])
             ? UserPreferences::defaultCaptureDirectory(pictures)
             : prefs.captureDirectory();
 
+    // Bench runs are scripted against an explicit --host, so they get a device
+    // with no discovery behind it.
+    CameraDevice *device =
+        registry.acquire(QStringLiteral("bench:%1").arg(host), host, controlPort, streamPort);
+    registry.setActive(device->deviceId());
+    device->status()->startPolling(host, controlPort);
+
+    FrameBus &frameBus = *device->frames();
+    MjpegClient &stream = *device->stream();
+    DeviceStatus &deviceStatus = *device->status();
+
     QQmlApplicationEngine engine;
-    engine.addImageProvider(QStringLiteral("frame"), new FrameImageProvider(&frameBus));
+    engine.addImageProvider(
+        QStringLiteral("frame"),
+        new FrameImageProvider([&registry]() -> FrameBus * {
+            CameraDevice *active = registry.activeDevice();
+            return active ? active->frames() : nullptr;
+        }));
 
-    QObject::connect(&stream, &MjpegClient::frameReady, &frameBus,
-                     [&frameBus, &recorder](const QImage &image, const QByteArray &raw,
-                                            qint64 completeMs) {
-                         // The bus keeps both views of the same frame, so a
-                         // snapshot is always the picture on screen and the
-                         // recorder always gets the untouched network bytes.
-                         frameBus.setFrame(image, raw, completeMs);
-                         if (recorder.isRecording() && !raw.isEmpty()) {
-                             recorder.appendFrame(raw, int(recorder.framesWritten()),
-                                                  QDateTime::currentMSecsSinceEpoch(),
-                                                  image.width(), image.height());
-                         }
-                     });
-    QObject::connect(&stream, &MjpegClient::deviceRecoveryRequested, &deviceStatus,
-                     [&deviceStatus, controlPort](const QString &h, quint16) {
-                         deviceStatus.startPolling(h, controlPort);
-                         deviceStatus.requestCameraRecovery();
-                     },
-                     Qt::QueuedConnection);
+    // Point the QML names at whichever camera is active. Re-declaring a context
+    // property re-evaluates the bindings that read it, so the view follows a
+    // device switch without QML being rewritten to chase a variable.
+    const auto exposeActiveDevice = [&engine, &registry]() {
+        CameraDevice *active = registry.activeDevice();
+        if (!active) {
+            return;
+        }
+        QQmlContext *ctx = engine.rootContext();
+        ctx->setContextProperty(QStringLiteral("frameBus"), active->frames());
+        ctx->setContextProperty(QStringLiteral("stream"), active->stream());
+        ctx->setContextProperty(QStringLiteral("deviceStatus"), active->status());
+        ctx->setContextProperty(QStringLiteral("sessionState"), active->session());
+        ctx->setContextProperty(QStringLiteral("recorder"), active->recorder());
+        ctx->setContextProperty(QStringLiteral("snapshotWriter"), active->snapshots());
+        ctx->setContextProperty(QStringLiteral("streamStats"), active->stats());
+    };
+    QObject::connect(&registry, &DeviceRegistry::activeDeviceChanged, &app,
+                     [&exposeActiveDevice]() { exposeActiveDevice(); });
 
-    engine.rootContext()->setContextProperty(QStringLiteral("frameBus"), &frameBus);
-    engine.rootContext()->setContextProperty(QStringLiteral("stream"), &stream);
-    engine.rootContext()->setContextProperty(QStringLiteral("deviceStatus"), &deviceStatus);
+    engine.rootContext()->setContextProperty(QStringLiteral("registry"), &registry);
     engine.rootContext()->setContextProperty(QStringLiteral("discovery"), &discovery);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionState"), &sessionState);
-    engine.rootContext()->setContextProperty(QStringLiteral("recorder"), &recorder);
-    engine.rootContext()->setContextProperty(QStringLiteral("snapshotWriter"),
-                                             &snapshotWriter);
     engine.rootContext()->setContextProperty(QStringLiteral("captureRoot"), captureRoot);
-    engine.rootContext()->setContextProperty(QStringLiteral("streamStats"), &streamStats);
     engine.rootContext()->setContextProperty(QStringLiteral("prefs"), &prefs);
+    exposeActiveDevice();
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -182,8 +191,6 @@ int main(int argc, char *argv[])
     if (parser.isSet(xclkOpt)) {
         extra["requested_xclk_mhz"] = parser.value(xclkOpt).toInt();
     }
-
-    deviceStatus.startPolling(host, controlPort);
 
     // Configs are applied one at a time, each only after the previous one has
     // finished (configBusy clears). Fixed spacing raced the app's own busy gate

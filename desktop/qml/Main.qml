@@ -123,6 +123,10 @@ ApplicationWindow {
         if (!d || !d.address)
             return
         console.log("[qml] select device", d.deviceId, d.address, d.controlPort, d.streamPort)
+        // The registry owns the pipeline for this camera; selecting a different
+        // camera re-points the QML names at that camera's objects.
+        registry.acquireDevice(d.deviceId, d.address, d.controlPort, d.streamPort)
+        registry.setActiveDevice(d.deviceId)
         hostField.text = d.address
         root.controlPort = d.controlPort
         root.streamPort = d.streamPort
@@ -881,7 +885,6 @@ ApplicationWindow {
                                     model: modelData.items
                                     delegate: ColumnLayout {
                                         required property var modelData
-                                        required property string group
                                         Layout.fillWidth: true
                                         spacing: 0
 

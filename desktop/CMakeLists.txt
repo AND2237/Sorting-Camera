@@ -33,6 +33,10 @@ qt_add_library(scamcore STATIC
     src/SnapshotWriter.h
     src/StreamStats.cpp
     src/StreamStats.h
+    src/CameraDevice.cpp
+    src/CameraDevice.h
+    src/DeviceRegistry.cpp
+    src/DeviceRegistry.h
     src/UserPreferences.cpp
     src/UserPreferences.h
     src/AppMetrics.cpp
