@@ -124,6 +124,7 @@ private slots:
     void bitrateAndFrameAgeReportLiveValues();
     void unreadFramesAreCountedAsOverwritten();
     void readFramesAreNotCountedAsOverwritten();
+    void liveCameraBytesAreStoredVerbatim();
 };
 
 void TestCapture::rawBytesSurviveTheStream()
@@ -325,6 +326,116 @@ void TestCapture::bitrateAndFrameAgeReportLiveValues()
     QTest::qWait(1400);
     stats.sample();
     QCOMPARE(stats.bitrateBps(), 0.0);
+}
+
+// The stub above proves the parser and the writers agree. It cannot prove
+// that the camera's own bytes survive, which is the rule AGENTS.md states
+// outright: a snapshot and a recording hold the exact JPEG that arrived, and
+// are never decode-then-re-encode. This runs the same writers against the real
+// device on the stream port, which is deliberately unauthenticated, so the
+// check needs no credentials and no GUI. Gated like the other live-device
+// tests so a normal ctest run stays hermetic.
+void TestCapture::liveCameraBytesAreStoredVerbatim()
+{
+    const QByteArray host = qgetenv("SCAM_TEST_HOST");
+    if (host.isEmpty()) {
+        QSKIP("set SCAM_TEST_HOST to run the live byte-identity test");
+    }
+    const int portEnv = qEnvironmentVariableIntValue("SCAM_STREAM_PORT");
+    const quint16 streamPort = portEnv > 0 ? quint16(portEnv) : 81;
+
+    FrameBus bus;
+    MjpegClient stream;
+    SnapshotWriter writer(&bus);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QList<QByteArray> received;
+    connect(&stream, &MjpegClient::frameReady, &bus,
+            [&bus, &received](const QImage &img, const QByteArray &raw, qint64 ms) {
+                bus.setFrame(img, raw, ms);
+                if (!raw.isEmpty()) {
+                    received.append(raw);
+                }
+            });
+
+    stream.start(QString::fromLocal8Bit(host), streamPort);
+    QTRY_VERIFY_WITH_TIMEOUT(received.size() >= 5, 20000);
+
+    // What the camera actually put on the wire: a complete JPEG, not a
+    // fragment and not something the desktop reshaped on the way past.
+    for (const QByteArray &raw : received) {
+        QVERIFY(raw.size() > 1024);
+        QCOMPARE(raw.left(2), QByteArray("\xFF\xD8", 2));  // SOI
+        QCOMPARE(raw.right(2), QByteArray("\xFF\xD9", 2)); // EOI
+    }
+    QVERIFY2(!bus.image().isNull(), "the live frame did not decode");
+    const QSize liveSize = bus.image().size();
+    QVERIFY2(liveSize.width() >= 640 && liveSize.height() >= 480,
+             qPrintable(QStringLiteral("unexpected live frame size %1x%2")
+                            .arg(liveSize.width())
+                            .arg(liveSize.height())));
+
+    // Snapshot with the stream stopped, so the frame the writer saved is known
+    // exactly and the comparison cannot race a new arrival.
+    stream.stop();
+    const QByteArray held = bus.rawFrame();
+    QVERIFY(!held.isEmpty());
+    const QString shot = writer.save(dir.path(), QStringLiteral("livedev"));
+    QVERIFY2(!shot.isEmpty(), qPrintable(writer.errorString()));
+
+    QFile shotFile(shot);
+    QVERIFY(shotFile.open(QIODevice::ReadOnly));
+    const QByteArray written = shotFile.readAll();
+    QCOMPARE(written, held);
+    QCOMPARE(sha256(written), sha256(held));
+
+    // And that the saved file is the original rather than a re-encode of it.
+    // Any re-encode, at any quality, produces different bytes; matching the
+    // source hash is what "never re-encoded" actually means on disk.
+    QByteArray reencoded;
+    QBuffer buf(&reencoded);
+    buf.open(QIODevice::WriteOnly);
+    QVERIFY(bus.image().save(&buf, "JPG", 90));
+    QVERIFY2(sha256(reencoded) != sha256(written),
+             "the snapshot is a re-encode of the decoded frame, not the bytes received");
+
+    // The recording path over the same live device.
+    Recorder recorder;
+    QList<QByteArray> recorded;
+    connect(&stream, &MjpegClient::frameReady, &bus,
+            [&bus, &recorder, &recorded](const QImage &img, const QByteArray &raw, qint64 ms) {
+                bus.setFrame(img, raw, ms);
+                if (recorder.isRecording() && !raw.isEmpty()) {
+                    recorder.appendFrame(raw, int(recorder.framesWritten()),
+                                         QDateTime::currentMSecsSinceEpoch(), img.width(),
+                                         img.height());
+                    recorded.append(raw);
+                }
+            });
+
+    QJsonObject meta;
+    meta[QStringLiteral("device_id")] = QStringLiteral("live");
+    QVERIFY2(recorder.start(dir.path(), meta), qPrintable(recorder.errorString()));
+    stream.start(QString::fromLocal8Bit(host), streamPort);
+    QTRY_VERIFY_WITH_TIMEOUT(recorded.size() >= 5, 20000);
+    recorder.stop();
+    stream.stop();
+
+    QVector<Recorder::FrameEntry> entries;
+    QString err;
+    QVERIFY2(Recorder::scan(recorder.path(), &entries, nullptr, &err), qPrintable(err));
+    QCOMPARE(entries.size(), recorded.size());
+
+    QFile rec(recorder.path());
+    QVERIFY(rec.open(QIODevice::ReadOnly));
+    for (int i = 0; i < entries.size(); i++) {
+        QVERIFY(rec.seek(entries.at(i).offset + 4));
+        const QByteArray got = rec.read(entries.at(i).bytes);
+        QCOMPARE(got, recorded.at(i));
+        QVERIFY2(received.contains(got),
+                 "a recorded frame is not among the bytes the camera sent");
+    }
 }
 
 QTEST_GUILESS_MAIN(TestCapture)

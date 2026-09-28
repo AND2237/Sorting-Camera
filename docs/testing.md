@@ -35,7 +35,7 @@ All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
 | `tst_diagnostics` | level/category vocabulary, rate limiting, suppression counted and preserved across a limit change, counter spread, ring-buffer bounds |
 | `tst_notificationcenter` | ordering, info expiry vs sticky warnings, per-key dedup, dismissal, counting |
 | `tst_recorder` | SHA-256 byte-identity of recorded frames, header survival, sidecar flush timing, truncated-tail recovery, double-start refusal, snapshot identity |
-| `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream, snapshot hashes equal the source, recording round-trip equal |
+| `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream, snapshot hashes equal the source, recording round-trip equal. Plus a **live-device** byte-identity test (below) |
 
 Two defects were caught by these suites that no QML error would have explained:
 `QVariantList::append(QVariantList)` flattens the inner list, and a
@@ -49,6 +49,28 @@ Run them all:
 cmake --build desktop\build
 cd desktop\build; ctest --output-on-failure
 ```
+
+## Live-device tests
+
+Three suites talk to real hardware when an environment variable is set, and
+skip with a message naming the variable otherwise, so a normal `ctest` run
+stays hermetic:
+
+| Variable | Suite | What it proves against the device |
+|---|---|---|
+| `SCAM_TEST_HOST` + `SCAM_TEST_PASSWORD` | `tst_authclient` | the real PBKDF2 verifier, login and token path |
+| `SCAM_DISCOVERY_PORT` | `tst_discovery` | real UDP announce parsing and dedupe |
+| `SCAM_TEST_HOST` (+ optional `SCAM_STREAM_PORT`, default 81) | `tst_capture` | **byte identity on the wire** |
+
+`liveCameraBytesAreStoredVerbatim` exists because the stub in `tst_capture`
+cannot prove the rule AGENTS.md states outright — a snapshot and a recording
+hold the exact JPEG that arrived and are never decode-then-re-encode. Against
+the real camera it asserts that every received frame is a complete JPEG
+(SOI…EOI), that the snapshot file is byte-identical to the frame the bus held,
+that re-encoding that frame at quality 90 produces *different* bytes (so the
+file on disk is the original, not a re-encode), and that every frame in a
+recording is byte-identical to one the camera sent. The stream port is
+deliberately unauthenticated, so this check needs no credentials and no GUI.
 
 ## Mandatory test cases (Master Prompt §33)
 
