@@ -602,4 +602,34 @@ taken. There is no fps headroom for those knobs to win, and latency is already
 
 ## Soak tests
 
-(≥1 h runs: memory trend, leak/fragmentation/stall findings.)
+**DEFERRED — FINAL VALIDATION / PHASE 8.** No long-duration stability claim is
+made anywhere in this document. Every result above comes from runs of
+**120 s steady-state after a 10 s warm-up**, plus one 4.9 min partial soak and
+one aborted attempt — none of which can certify long-duration behaviour.
+
+Two runs are on record and neither counts as a soak:
+
+- `phase5-soak-20260927-hd-q12-20min.json` — device-only, **293 s**, no client.
+- `phase6-soak-20260928-hd-q12-ABORTED-145s.json` — client attached, **145 s of
+  a planned 3600 s**, terminated externally while concurrent builds/tests were
+  running on the same machine. The raw record is kept; it is deliberately
+  named ABORTED so it cannot be read as evidence.
+
+The ≥1 h gate in `benchmark-plan.md` remains **open**.
+
+### The final test is not a repeat of this procedure
+
+Phase 8 will be designed around the **actual final architecture** — final
+firmware, final Qt application, final networking, final recording path, final
+UI — not by replaying the current 60-minute streaming procedure. It must
+exercise the behaviours that exist by then and cannot exist yet: resolution
+changes, snapshot, record start/stop, PC Wi-Fi leave/rejoin, client
+kill/reconnect, camera reboot, and every device-transition the §24 state
+machine can enter.
+
+Telemetry required for that test is **preserved, not stripped**: per-sample
+device counters (uptime, free heap, free PSRAM, RSSI, capture failures,
+recovery count, reset reason), application counters (decoded, dropped, decode
+failures, presented fps, thread CPU, peak RSSI age), and the validity report
+that refuses a run when any of them is missing.
+

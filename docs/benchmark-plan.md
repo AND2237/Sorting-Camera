@@ -9,7 +9,7 @@ have published results in `benchmark-results.md`._
 - Never publish numbers that were not measured on this project's hardware/software.
 - Same scene, lighting, distance (1–3 m), AP channel, and link mode (softAP direct link is the ADR-0006 baseline) for A/B comparisons.
 - Record for every run: date/time, firmware version, app version, transport, resolution, JPEG quality, fb_count, grab mode, XCLK, Wi-Fi settings (channel/band/RSSI), PC hardware, OS, Qt version, duration.
-- Minimum run duration: 120 s steady-state after 10 s warm-up (soak runs separate, ≥1 h).
+- Minimum run duration: 120 s steady-state after 10 s warm-up (soak runs separate, ≥1 h, **deferred to Phase 8**).
 - Report median + p95, not just averages; include drop/corruption counters.
 
 ## ESP32 metrics
@@ -58,8 +58,11 @@ HD (XCLK is non-monotonic and resolution-dependent; 27 MHz is still rising at
 SVGA while HD breaks at 24 MHz and above), a three-variant camera task affinity
 A/B (core0 kept, core1 and no-affinity reverted), and the gate arithmetic that
 established the 1280×720 ceiling near 11.2 fps. Wi-Fi/LwIP knobs were dropped
-with the reason recorded rather than measured. Remaining: the 1 h soak, blocked
-on the hardware power path.
+with the reason recorded rather than measured. **The ≥1 h soak is deferred to
+Phase 8 (final validation)** — it will be designed around the finished
+firmware, application, networking, recording and UI architecture rather than
+repeating the Phase 5 streaming procedure. No long-duration stability is
+claimed at this milestone.
 
 ## Acceptance (req. ≥34)
 

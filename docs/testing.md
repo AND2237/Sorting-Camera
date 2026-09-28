@@ -9,6 +9,14 @@ _Status: harnesses added incrementally from Phase 2 onward._
 3. **Integration (manual/semi-auto scripts):** spin app against firmware (or a PC-side MJPEG/TCP/UDP **fake camera** server under `tools/` for CI without hardware) → verify connect, auth, stream, snapshot, record, reconnect.
 4. **Soak (Phase 8):** ≥1 h continuous stream while toggling: resolution changes, snapshot, record start/stop, PC Wi-Fi leave/rejoin (AP disruption), client kill/reconnect, camera reboot. Watch: memory trend, drop counters, stale-frame age, UI responsiveness, thread safety (TSAN on host tests where possible).
 
+   _Status: deferred to Phase 8 as a **final validation** activity, designed
+   around the finished firmware + Qt application + networking + recording + UI
+   architecture rather than a repeat of the Phase 5 streaming procedure.
+   Telemetry needed for it is already in place and is not removed in the
+   meantime. Until it runs, no long-duration stability is claimed — see
+   `benchmark-results.md` → "Soak tests"._
+
+
 ## Mandatory test cases (Master Prompt §33)
 
 - Protocol parsing: valid, truncated, bad magic, wrong version, oversized length, CRC mismatch → frame counted as corrupt, never displayed.
