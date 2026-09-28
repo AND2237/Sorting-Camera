@@ -7,6 +7,7 @@
 #include "src/Recorder.h"
 #include "src/SessionState.h"
 #include "src/SnapshotWriter.h"
+#include "src/StreamStats.h"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -96,6 +97,7 @@ int main(int argc, char *argv[])
     sessionState.observe(&stream, &deviceStatus, &discovery);
     Recorder recorder;
     SnapshotWriter snapshotWriter(&frameBus);
+    StreamStats streamStats(&stream, &frameBus);
 
     const QString captureRoot =
         QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
@@ -133,6 +135,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("snapshotWriter"),
                                              &snapshotWriter);
     engine.rootContext()->setContextProperty(QStringLiteral("captureRoot"), captureRoot);
+    engine.rootContext()->setContextProperty(QStringLiteral("streamStats"), &streamStats);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);

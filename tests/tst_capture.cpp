@@ -2,6 +2,7 @@
 #include "MjpegClient.h"
 #include "Recorder.h"
 #include "SnapshotWriter.h"
+#include "StreamStats.h"
 
 #include <QBuffer>
 #include <QColor>
@@ -43,10 +44,33 @@ public:
 
     quint16 port() const { return m_server.serverPort(); }
 
+    // Pushes more parts onto an already-open connection, so a test can create
+    // traffic inside a measurement window rather than only before it.
+    void sendMore(const QList<QByteArray> &payloads)
+    {
+        if (!m_socket) {
+            return;
+        }
+        m_socket->write(encode(payloads));
+        m_socket->flush();
+    }
+
 private:
+    static QByteArray encode(const QList<QByteArray> &payloads)
+    {
+        QByteArray out;
+        for (const QByteArray &p : payloads) {
+            out += "--FRAME\r\n";
+            out += "Content-Length: " + QByteArray::number(p.size()) + "\r\n\r\n";
+            out += p;
+        }
+        return out;
+    }
+
     void onConnection()
     {
         QTcpSocket *sock = m_server.nextPendingConnection();
+        m_socket = sock;
         connect(sock, &QTcpSocket::readyRead, this, [this, sock]() {
             m_request.append(sock->readAll());
             if (m_sent || !m_request.contains("\r\n\r\n")) {
@@ -57,17 +81,14 @@ private:
             out += "HTTP/1.1 200 OK\r\n";
             out += "Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n";
             out += "Cache-Control: no-cache\r\n\r\n";
-            for (const QByteArray &p : m_payloads) {
-                out += "--FRAME\r\n";
-                out += "Content-Length: " + QByteArray::number(p.size()) + "\r\n\r\n";
-                out += p;
-            }
+            out += encode(m_payloads);
             sock->write(out);
             sock->flush();
         });
     }
 
     QTcpServer m_server;
+    QTcpSocket *m_socket = nullptr;
     QList<QByteArray> m_payloads;
     QByteArray m_request;
     bool m_sent = false;
@@ -100,6 +121,7 @@ private slots:
     void rawBytesSurviveTheStream();
     void snapshotMatchesWhatTheCameraSent();
     void recordingRoundTripsTheStreamedBytes();
+    void bitrateAndFrameAgeReportLiveValues();
 };
 
 void TestCapture::rawBytesSurviveTheStream()
@@ -204,6 +226,61 @@ void TestCapture::recordingRoundTripsTheStreamedBytes()
         const QByteArray got = f.read(entries.at(i).bytes);
         QCOMPARE(sha256(got), sha256(payloads.at(i)));
     }
+}
+
+void TestCapture::bitrateAndFrameAgeReportLiveValues()
+{
+    const QList<QByteArray> first = realJpegs(2);
+    const QList<QByteArray> second = realJpegs(2);
+    QVERIFY(first.size() == 2 && second.size() == 2);
+
+    MjpegStub stub(first);
+    QVERIFY(stub.listen());
+
+    FrameBus bus;
+    MjpegClient stream;
+    StreamStats stats(&stream, &bus);
+
+    QVERIFY(!stats.hasFrame());
+    QCOMPARE(stats.frameAgeMs(), 0);
+
+    connect(&stream, &MjpegClient::frameReady, &bus,
+            [&bus](const QImage &img, const QByteArray &raw, qint64 ms) {
+                bus.setFrame(img, raw, ms);
+            });
+
+    // StreamStats samples on its own 1 s timer, so assert on the peak reading
+    // seen across the window instead of on one manual sample - that makes the
+    // check independent of where the timer happens to be in its phase.
+    double peak = 0.0;
+    connect(&stats, &StreamStats::statsChanged, &stats, [&]() {
+        peak = qMax(peak, stats.bitrateBps());
+    });
+
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(stats.hasFrame(), 8000);
+    QVERIFY(stats.frameAgeMs() >= 0);
+
+    stats.sample();
+    QTest::qWait(300);
+    stub.sendMore(second);
+    QTest::qWait(1700);
+
+    QVERIFY2(peak > 0.0, "expected a non-zero bitrate once bytes arrived in the window");
+
+    double total = 0.0;
+    for (const QByteArray &p : second) {
+        total += p.size();
+    }
+    QVERIFY2(peak >= total / 2.0,
+             qPrintable(QStringLiteral("peak %1 B/s is too low for %2 bytes of new data")
+                            .arg(peak)
+                            .arg(total)));
+
+    stream.stop();
+    QTest::qWait(1400);
+    stats.sample();
+    QCOMPARE(stats.bitrateBps(), 0.0);
 }
 
 QTEST_GUILESS_MAIN(TestCapture)

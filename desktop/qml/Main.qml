@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 
 ApplicationWindow {
     id: root
@@ -14,6 +15,27 @@ ApplicationWindow {
     property int controlPort: 80
     property int streamPort: 81
     property string selectedDeviceId: ""
+    // Display-only zoom (23). Scaling happens in the rendering path; the
+    // frame in FrameBus - and therefore every snapshot and recording - is
+    // untouched.
+    property real zoom: 1.0
+    property real panX: 0
+    property real panY: 0
+
+    function clampZoom(v) { return Math.min(12, Math.max(1, v)) }
+
+    function nudgeZoom(factor) {
+        zoom = clampZoom(zoom * factor)
+        if (zoom === 1.0) {
+            panX = 0
+            panY = 0
+        }
+    }
+
+    function toggleFullScreen() {
+        visibility = (visibility === Window.FullScreen) ? Window.Windowed
+                                                        : Window.FullScreen
+    }
 
     function deviceMeta() {
         const m = {
@@ -73,6 +95,32 @@ ApplicationWindow {
             console.log("[qml] auto-selecting discovered device")
             root.applyDevice(0)
         }
+    }
+
+    Shortcut {
+        sequence: "F11"
+        onActivated: root.toggleFullScreen()
+    }
+    Shortcut {
+        sequence: "Esc"
+        enabled: root.visibility === Window.FullScreen
+        onActivated: root.visibility = Window.Windowed
+    }
+    Shortcut {
+        sequence: "Ctrl+0"
+        onActivated: {
+            root.zoom = 1.0
+            root.panX = 0
+            root.panY = 0
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+Plus"
+        onActivated: root.nudgeZoom(1.25)
+    }
+    Shortcut {
+        sequence: "Ctrl+Minus"
+        onActivated: root.nudgeZoom(0.8)
     }
 
     header: ToolBar {
@@ -210,6 +258,25 @@ ApplicationWindow {
             }
 
             Button {
+                text: "Zoom reset"
+                visible: root.zoom > 1
+                onClicked: {
+                    root.zoom = 1.0
+                    root.panX = 0
+                    root.panY = 0
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: "Back to fit-to-window"
+            }
+
+            Button {
+                text: root.visibility === Window.FullScreen ? "Windowed" : "Fullscreen"
+                onClicked: root.toggleFullScreen()
+                ToolTip.visible: hovered
+                ToolTip.text: "F11"
+            }
+
+            Button {
                 text: "Recover camera"
                 visible: deviceStatus.online && !stream.active
                 onClicked: deviceStatus.requestCameraRecovery()
@@ -251,10 +318,31 @@ ApplicationWindow {
                 font.family: "Consolas"
             }
             Label {
-                text: (stream.bytesReceived / 1048576).toFixed(1) + " MB"
+                visible: streamStats.hasFrame
+                text: streamStats.bitrateMbps.toFixed(2) + " Mbps"
                 color: "#8b949e"
                 font.pixelSize: 12
                 font.family: "Consolas"
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    ToolTip.visible: containsMouse
+                    ToolTip.text: streamStats.bitrateBps.toFixed(0) + " B/s · "
+                                  + (stream.bytesReceived / 1048576).toFixed(1) + " MB received"
+                }
+            }
+            Label {
+                visible: streamStats.hasFrame
+                text: "age " + streamStats.frameAgeMs + " ms"
+                color: streamStats.frameAgeMs > 500 ? "#d29922" : "#8b949e"
+                font.pixelSize: 12
+                font.family: "Consolas"
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    ToolTip.visible: containsMouse
+                    ToolTip.text: "How old the picture on screen is"
+                }
             }
 
             Item { Layout.fillWidth: true }
@@ -365,14 +453,75 @@ ApplicationWindow {
             anchors.margins: 8
             spacing: 8
 
-            Image {
-                id: frameImage
+            Item {
+                id: viewport
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                fillMode: Image.PreserveAspectFit
-                cache: false
-                source: "image://frame/live?v=" + frameBus.version
-                asynchronous: false
+                clip: true
+
+                Image {
+                    id: frameImage
+                    anchors.fill: parent
+                    fillMode: Image.PreserveAspectFit
+                    cache: false
+                    source: "image://frame/live?v=" + frameBus.version
+                    asynchronous: false
+                    transform: [
+                        Scale {
+                            xScale: root.zoom
+                            yScale: root.zoom
+                            origin.x: viewport.width / 2
+                            origin.y: viewport.height / 2
+                        },
+                        Translate {
+                            x: root.panX
+                            y: root.panY
+                        }
+                    ]
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: root.zoom > 1 ? Qt.SizeAllCursor : Qt.CrossCursor
+                    property real lastX: 0
+                    property real lastY: 0
+                    onPressed: (mouse) => {
+                        lastX = mouse.x
+                        lastY = mouse.y
+                    }
+                    onPositionChanged: (mouse) => {
+                        if (pressed && root.zoom > 1) {
+                            root.panX += mouse.x - lastX
+                            root.panY += mouse.y - lastY
+                            lastX = mouse.x
+                            lastY = mouse.y
+                        }
+                    }
+                    onWheel: (wheel) => root.nudgeZoom(wheel.angleDelta.y > 0 ? 1.25 : 0.8)
+                    onDoubleClicked: {
+                        root.zoom = 1.0
+                        root.panX = 0
+                        root.panY = 0
+                    }
+                }
+
+                Label {
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 12
+                    visible: root.zoom > 1
+                    text: root.zoom.toFixed(1) + "x"
+                    color: "#e6edf3"
+                    background: Rectangle {
+                        color: "#99101418"
+                        radius: 4
+                        anchors.fill: parent
+                        anchors.margins: -4
+                    }
+                    font.pixelSize: 12
+                    font.family: "Consolas"
+                }
             }
 
             Rectangle {

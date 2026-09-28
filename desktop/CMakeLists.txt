@@ -31,6 +31,8 @@ qt_add_library(scamcore STATIC
     src/Recorder.h
     src/SnapshotWriter.cpp
     src/SnapshotWriter.h
+    src/StreamStats.cpp
+    src/StreamStats.h
     src/AppMetrics.cpp
     src/AppMetrics.h
 )
