@@ -600,6 +600,154 @@ more) and ESP-IDF's httpd already sets TCP_NODELAY around every chunk send
 taken. There is no fps headroom for those knobs to win, and latency is already
 1-23 ms p95. Re-open only if the link ever becomes the constraint.)
 
+## Phase 6 — HD/q12 re-measured against the scene (2026-09-29)
+
+The project owner reported that the production default had dropped from
+10–11 fps to 4–5 fps. This section records what was measured in response. It
+does **not** reproduce the 4–5 figure, and the difference between the two
+regimes below is the finding.
+
+### Setup — identical for every row in this section
+
+| field | value |
+|---|---|
+| firmware | `v0.1.0-7-ga376882`, unchanged for the whole session |
+| application | 0.2.0, `desktop/build/SortingCamera.exe` |
+| resolution | 1280×720 (`hd`) |
+| JPEG quality | 12 (device floor 6) |
+| XCLK | 18 MHz (`xclk_max_mhz` 20) |
+| frame buffers / grab mode | 3 / `latest` |
+| frame budget / fb location | 262,144 B / `psram` |
+| PC | i3-1215U / Intel AX201, joined the softAP, RSSI −24 … −26 dBm |
+| method | bench mode: warm-up, then a steady window. `frames_overwritten = 0` and `stale_dropped = 0` in every run |
+
+Those 18 MHz / fb3 / latest values are simultaneously the firmware boot
+defaults (`app.h:28-32`) and the High Quality profile
+(`ProfileEngine.cpp:57-65`), so at this operating point the configuration
+cannot drift away from what the UI names.
+
+### Measured — 2026-09-29, evening
+
+| run | window | fps | frame B | recv Mbps | age p50/p95 (ms) | camera `avg_capture_ms` |
+|---|---|---|---|---|---|---|
+| bench, 8 s warm-up | 20 s | **8.04** | 59,100 | 3.80 | 16 / 20 | 0.618 |
+| bench, 2 s warm-up | 40 s | **7.80** | 59,792 | 3.73 | 17 / 22 | 0.283 |
+| bench, 2 s warm-up | 40 s | **8.25** | 59,762 | 3.94 | 17 / 27 | 0.434 |
+| raw `curl` :81, no application running | 45 s | **7.99** | 55,792 | — | — | — |
+
+The `curl` run's 360 frames ranged min 48,558 / p10 54,346 / **p50 56,545** /
+p90 56,825 / max 62,781 B, and each of ten consecutive 10-second segments
+landed between 7.99 and 8.56 fps on the model below. The frame rate was not
+momentarily dipping; it was flat.
+
+Earlier the same day, same configuration, a less detailed scene:
+
+| run | window | fps | frame B |
+|---|---|---|---|
+| raw `curl` :81 | 16.1 s | 11.14 | 27,971 |
+| bench | — | 11.25 | 30,023 |
+| bench | — | 11.26 | 29,520 |
+| bench | — | 11.26 | 28,291 |
+
+and Phase 6's D2 baseline the previous evening
+(`phase6-baseline-20260928-hd-q12-x18.json`) recorded 9.96 / 9.97 / 10.00 fps
+at 28,956 B per frame. Raw artifacts for the three bench runs are
+`phase6-recheck-20260929-hd-q12-x18-warm8-20s.json`,
+`phase6-recheck-20260929-hd-q12-x18-warm2-40s-a.json` and
+`phase6-recheck-20260929-hd-q12-x18-warm2-40s-b.json` in
+`benchmarks/results/`. The 45-second `curl` capture was 20 MB and was not
+retained; its figures come from parsing the `Content-Length` header of each
+MJPEG part.
+
+### Measured — the camera produces the limit, not the application
+
+The bracketed 42-second streaming window between two device status snapshots
+is the decisive measurement. The camera counts its own frames, so this
+compares the sensor against the screen without trusting the app's own counter:
+
+| quantity | value |
+|---|---|
+| camera frames captured | 344 over 42.0 s = **8.19 frames/s** |
+| camera frames delivered | 343 over 42.0 s = **8.17 frames/s** |
+| application frames presented | **8.25 fps** |
+| `frames_overwritten` / `stale_dropped` | 0 / 0 |
+| `capture_failures` / `camera_recoveries` | 0 / 0 |
+| `stream_clients` / `tcp_clients` | 1 / 0 |
+
+Captured, delivered and presented agree to within 1%, so nothing between the
+sensor and the screen is dropping frames and nothing between them is the
+limit. `avg_capture_ms` held at 0.28–0.62 ms throughout, meaning
+`camera_fb_get()` returned a frame that was already waiting: the sensor was
+not blocked on exposure, on the driver, or on a missing buffer — it was simply
+producing each frame slowly. Raw `curl` with no application running at all
+measures the same 7.99 fps, which reaches the same conclusion from the
+opposite direction.
+
+Ruled out by measurement, not by argument: the link (3.80–3.94 Mbps today,
+against the 4.36 Mbps peak already recorded in this document); a second
+client (an ad-hoc 2026-09-28 probe ran two at once and both held 7.40 and
+8.12 fps, 7.16 Mbps combined, with no per-client loss); decode and paint cost
+(`decode_us` p95 19.6–25.9 ms is measured *inside* the 121–128 ms frame
+budget, and opening the settings panel costs 0 fps for +6.7% CPU and +95 MB
+working set); and configuration drift —
+`resolution`, `quality`, `xclk_mhz`, `fb_count` and `grab_mode` were read back
+from the device in every run and never differed from the table above.
+
+### Interpretation — frame size against frame rate (correlation, not a law)
+
+Dividing each run's frame interval by its frame size in KiB separates the two
+regimes cleanly:
+
+| regime | frame size | frame interval | implied ms per KiB |
+|---|---|---|---|
+| smaller frames | 27.3 – 28.8 KiB | 88.8 – 89.8 ms | 3.03 – 3.29 |
+| larger frames | 54.5 – 58.4 KiB | 121.2 – 128.2 ms | 2.08 – 2.30 |
+
+In the large-frame regime the frame interval is linear in compressed size at
+**~2.2 ms per KiB**, reproducing the relation already documented above
+(correlation −0.852, per-run spread 1,878–2,399). In the small-frame regime
+the implied cost per KiB *rises* to ~3.0–3.3 and the interval stops improving:
+at ~29 KB, frame size is no longer what sets the rate, and the largest value
+ever observed at this operating point is **11.26 fps**.
+
+**This is why one configuration yields 11 fps and then 8 fps on the same
+day.** At a fixed JPEG quality number, compressed size tracks how much
+detail and motion the frame contains, and the OV2640 encodes inside the
+sensor, so a larger frame takes longer to produce. Two `curl` runs on
+2026-09-29, one at 27,971 B and one at 55,792 B, differ by 29% in frame rate
+for that reason alone, with nothing reconfigured between them.
+
+### Hypothesis — and what is deliberately not claimed
+
+- **The 4–5 fps report is not measured and was not reproduced.** Every
+  large-frame run above clusters within a few percent of the ~2.2 ms/KiB line,
+  and the lowest figure recorded today is 7.80 fps. Reaching 4–5 fps under
+  that same relation would require frames of roughly 90–110 KiB, about twice
+  today's. **No run in this repository has recorded a frame that large at
+  HD/q12**, so that frame size is a prediction from the model and not
+  evidence. If the figure appears again, the frame byte count in the footer is
+  the one number that settles it.
+- **One cause that would have produced exactly this, now closed.** Before
+  commit `9beced1`, `setConfigQuery()` held a single pending slot and dropped
+  every write that arrived while a request was in flight, so applying a
+  profile transmitted only the first of its five settings. Choosing High
+  Quality could therefore leave the camera at a *lower* JPEG quality number —
+  same resolution, same profile name in the UI, roughly double the frame
+  bytes — which is the shape of the report above. Fixed and covered by
+  `aProfileLeavesAsASingleConfigRequest`.
+- **Not claimed: that 8–11 fps is the ceiling of this sensor.** The ~11.2 fps
+  figure is the largest value ever *observed* at 1280×720, across unrelated
+  configurations (q24 11.17, q12 11.01, harness q24 11.25 / q36 11.18). No run
+  has demonstrated a limit, and a higher rate may need only a smaller frame
+  than any run so far has produced. Every figure above is a measurement of
+  *this* configuration under *these* conditions, not a hardware ceiling.
+- **Still open: why the scene changed.** Nothing in the firmware, the
+  application, or the camera's configuration changed between the 11 fps
+  window and the 8 fps window on 2026-09-29; the camera was simply pointed at
+  whatever was in front of it. The missing evidence is a pair of runs with the
+  scene deliberately held still and then deliberately changed, which is the
+  controlled version of what was observed by accident here.
+
 ## Soak tests
 
 **DEFERRED — FINAL VALIDATION / PHASE 8.** No long-duration stability claim is
