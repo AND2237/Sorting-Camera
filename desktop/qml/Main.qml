@@ -15,6 +15,9 @@ ApplicationWindow {
     property int controlPort: 80
     property int streamPort: 81
     property string selectedDeviceId: ""
+    // What the host field held at startup, so auto-selection only happens
+    // while the user has not typed an address of their own.
+    property string initialHost: prefs.host
     // Display-only zoom (23). Scaling happens in the rendering path; the
     // frame in FrameBus - and therefore every snapshot and recording - is
     // untouched.
@@ -69,6 +72,10 @@ ApplicationWindow {
         root.controlPort = d.controlPort
         root.streamPort = d.streamPort
         root.selectedDeviceId = d.deviceId
+        prefs.deviceId = d.deviceId
+        prefs.host = d.address
+        prefs.controlPort = d.controlPort
+        prefs.streamPort = d.streamPort
     }
 
     function toggleConnection() {
@@ -80,6 +87,9 @@ ApplicationWindow {
             console.log("[qml] connect", hostField.text, root.controlPort, root.streamPort)
             stream.start(hostField.text, root.streamPort)
             deviceStatus.startPolling(hostField.text, root.controlPort)
+            prefs.host = hostField.text
+            prefs.controlPort = root.controlPort
+            prefs.streamPort = root.streamPort
         }
     }
 
@@ -90,10 +100,15 @@ ApplicationWindow {
                 return
             if (stream.active || stream.connecting || stream.reconnecting)
                 return
-            if (hostField.text !== "192.168.4.1")
+            if (hostField.text !== root.initialHost)
                 return
-            console.log("[qml] auto-selecting discovered device")
-            root.applyDevice(0)
+            // Prefer the camera this machine was last talking to: its address
+            // can change, its device id cannot.
+            let idx = prefs.deviceId.length > 0 ? discovery.indexOfDevice(prefs.deviceId) : -1
+            if (idx < 0)
+                idx = 0
+            console.log("[qml] select remembered device, index", idx)
+            root.applyDevice(idx)
         }
     }
 
@@ -192,7 +207,7 @@ ApplicationWindow {
 
             TextField {
                 id: hostField
-                text: "192.168.4.1"
+                text: prefs.host
                 placeholderText: "Camera AP IP (default 192.168.4.1)"
                 color: "#e6edf3"
                 placeholderTextColor: "#6b7684"
@@ -660,7 +675,11 @@ ApplicationWindow {
                             }
                         }
 
-                        onActivated: (index) => deviceStatus.setResolution(resModel.get(index).key)
+                        onActivated: (index) => {
+            const key = resModel.get(index).key
+            deviceStatus.setResolution(key)
+            prefs.framesize = key
+        }
                     }
 
                     RowLayout {
@@ -710,10 +729,13 @@ ApplicationWindow {
                         Timer {
                             id: qualityDebounce
                             interval: 400
-                            onTriggered: {
-                                if (!qualitySlider.pressed)
-                                    deviceStatus.setQuality(Math.round(qualitySlider.value))
-                            }
+            onTriggered: {
+                if (!qualitySlider.pressed) {
+                    const q = Math.round(qualitySlider.value)
+                    deviceStatus.setQuality(q)
+                    prefs.quality = q
+                }
+            }
                         }
                     }
 

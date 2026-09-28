@@ -8,6 +8,7 @@
 #include "src/SessionState.h"
 #include "src/SnapshotWriter.h"
 #include "src/StreamStats.h"
+#include "src/UserPreferences.h"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -98,10 +99,13 @@ int main(int argc, char *argv[])
     Recorder recorder;
     SnapshotWriter snapshotWriter(&frameBus);
     StreamStats streamStats(&stream, &frameBus);
+    UserPreferences prefs;
 
+    const QString pictures = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
     const QString captureRoot =
-        QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
-        + QStringLiteral("/SortingCamera");
+        prefs.captureDirectory().isEmpty()
+            ? UserPreferences::defaultCaptureDirectory(pictures)
+            : prefs.captureDirectory();
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("frame"), new FrameImageProvider(&frameBus));
@@ -136,6 +140,7 @@ int main(int argc, char *argv[])
                                              &snapshotWriter);
     engine.rootContext()->setContextProperty(QStringLiteral("captureRoot"), captureRoot);
     engine.rootContext()->setContextProperty(QStringLiteral("streamStats"), &streamStats);
+    engine.rootContext()->setContextProperty(QStringLiteral("prefs"), &prefs);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
