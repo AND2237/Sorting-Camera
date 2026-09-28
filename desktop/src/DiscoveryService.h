@@ -72,6 +72,7 @@ public:
     Q_INVOKABLE void stopScanning();
     Q_INVOKABLE void queryOnce();
     Q_INVOKABLE int indexOfDevice(const QString &deviceId) const;
+    Q_INVOKABLE QJsonObject deviceAt(int row) const;
 
     bool deviceInfo(const QString &deviceId, DiscoveredDevice *out) const;
     QVector<DiscoveredDevice> devices() const { return m_devices; }

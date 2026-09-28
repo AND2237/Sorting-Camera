@@ -11,15 +11,42 @@ ApplicationWindow {
     color: "#101418"
     title: "Sorting Camera"
 
+    property int controlPort: 80
+    property int streamPort: 81
+
+    function applyDevice(index) {
+        const d = discovery.deviceAt(index)
+        if (!d || !d.address)
+            return
+        console.log("[qml] select device", d.deviceId, d.address, d.controlPort, d.streamPort)
+        hostField.text = d.address
+        root.controlPort = d.controlPort
+        root.streamPort = d.streamPort
+    }
+
     function toggleConnection() {
         if (stream.active || stream.connecting || stream.reconnecting) {
             console.log("[qml] disconnect")
             stream.stop()
             deviceStatus.stopPolling()
         } else {
-            console.log("[qml] connect", hostField.text)
-            stream.start(hostField.text, 81)
-            deviceStatus.startPolling(hostField.text, 80)
+            console.log("[qml] connect", hostField.text, root.controlPort, root.streamPort)
+            stream.start(hostField.text, root.streamPort)
+            deviceStatus.startPolling(hostField.text, root.controlPort)
+        }
+    }
+
+    Connections {
+        target: discovery
+        function onCountChanged() {
+            if (discovery.count === 0)
+                return
+            if (stream.active || stream.connecting || stream.reconnecting)
+                return
+            if (hostField.text !== "192.168.4.1")
+                return
+            console.log("[qml] auto-selecting discovered device")
+            root.applyDevice(0)
         }
     }
 
@@ -44,6 +71,51 @@ ApplicationWindow {
             }
 
             Item { Layout.fillWidth: true }
+
+            ComboBox {
+                id: devicePicker
+                Layout.preferredWidth: 250
+                Layout.preferredHeight: 30
+                model: discovery
+                textRole: "name"
+                displayText: {
+                    if (discovery.count === 0)
+                        return discovery.scanning ? "Searching…" : "No device found"
+                    const d = discovery.deviceAt(currentIndex)
+                    if (!d || !d.address)
+                        return discovery.count + " device(s)"
+                    return d.name + "  (" + d.address + ")"
+                }
+                onActivated: (index) => root.applyDevice(index)
+                enabled: !stream.active && !stream.connecting && !stream.reconnecting
+
+                delegate: ItemDelegate {
+                    required property string name
+                    required property string address
+                    required property string firmware
+                    required property string sensor
+                    required property bool authRequired
+                    width: devicePicker.width
+                    highlighted: devicePicker.highlightedIndex === index
+                    contentItem: Column {
+                        spacing: 1
+                        Label {
+                            text: name
+                            font.pixelSize: 13
+                            color: highlighted ? "#101418" : "#e6edf3"
+                        }
+                        Label {
+                            text: address + "  ·  " + sensor + "  ·  " + firmware
+                                  + (authRequired ? "  ·  sign-in" : "")
+                            font.pixelSize: 11
+                            color: highlighted ? "#30363d" : "#8b949e"
+                        }
+                    }
+                    background: Rectangle {
+                        color: highlighted ? "#3fb950" : (hovered ? "#21262d" : "transparent")
+                    }
+                }
+            }
 
             TextField {
                 id: hostField
@@ -117,6 +189,14 @@ ApplicationWindow {
             }
 
             Item { Layout.fillWidth: true }
+
+            Label {
+                text: discovery.count > 0
+                      ? discovery.count + " device(s)"
+                      : (discovery.scanning ? "searching…" : "no device found")
+                color: discovery.count > 0 ? "#3fb950" : "#8b949e"
+                font.pixelSize: 12
+            }
 
             Label {
                 text: deviceStatus.online ? "device online"

@@ -149,6 +149,32 @@ int DiscoveryService::indexOfDevice(const QString &deviceId) const
     return indexOf(deviceId);
 }
 
+QJsonObject DiscoveryService::deviceAt(int row) const
+{
+    QJsonObject out;
+    if (row < 0 || row >= m_devices.size()) {
+        return out;
+    }
+    const DiscoveredDevice &d = m_devices.at(row);
+    out["deviceId"] = d.deviceId;
+    out["name"] = d.name;
+    out["address"] = d.address;
+    out["firmware"] = d.firmware;
+    out["sensor"] = d.sensor;
+    out["protocolVersion"] = d.protocolVersion;
+    out["controlPort"] = d.controlPort;
+    out["streamPort"] = d.streamPort;
+    out["authRequired"] = d.authRequired;
+    out["lastSeen"] = d.lastSeen.toString(Qt::ISODate);
+    QJsonArray res;
+    for (const QString &r : d.resolutions) {
+        res.append(r);
+    }
+    out["resolutions"] = res;
+    out["controlGroups"] = d.controlGroups;
+    return out;
+}
+
 bool DiscoveryService::deviceInfo(const QString &deviceId, DiscoveredDevice *out) const
 {
     const int row = indexOf(deviceId);

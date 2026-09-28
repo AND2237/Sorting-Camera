@@ -1,5 +1,6 @@
 #include "src/AppMetrics.h"
 #include "src/DeviceStatus.h"
+#include "src/DiscoveryService.h"
 #include "src/FrameBus.h"
 #include "src/FrameImageProvider.h"
 #include "src/MjpegClient.h"
@@ -86,6 +87,7 @@ int main(int argc, char *argv[])
     FrameBus frameBus;
     MjpegClient stream;
     DeviceStatus deviceStatus;
+    DiscoveryService discovery;
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("frame"), new FrameImageProvider(&frameBus));
@@ -104,10 +106,17 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("frameBus"), &frameBus);
     engine.rootContext()->setContextProperty(QStringLiteral("stream"), &stream);
     engine.rootContext()->setContextProperty(QStringLiteral("deviceStatus"), &deviceStatus);
+    engine.rootContext()->setContextProperty(QStringLiteral("discovery"), &discovery);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
     engine.loadFromModule("SortingCamera", "Main");
+
+    // Bench runs are scripted against an explicit --host; discovery would only
+    // compete for UDP 48888 with the harness that drives them.
+    if (!benchMode) {
+        discovery.startScanning();
+    }
 
     if (!benchMode) {
         return app.exec();

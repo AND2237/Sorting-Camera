@@ -23,7 +23,7 @@ Modules (each a small cohesive unit under `firmware/esp32_cam_stream/main/`):
 | `wifi` | softAP start (WPA2, fixed IP, channel/max-clients policy), connected-station RSSI, power-save policy |
 | `transport` | frame delivery. Three server-pull senders, each a task/handler that fetches frames from the camera driver and reports to `metrics`: HTTP MJPEG (stream handler), TCP framed + UDP packetized (`frame_transport.c`, selected/primary per ADR-0007) |
 | `control_api` | authenticated JSON control/status endpoints (HTTP) |
-| `discovery` | mDNS + UDP broadcast announce |
+| `discovery` | UDP broadcast announce on 48888 (no mDNS — see Discovery) |
 | `metrics` | capture/tx FPS, bytes, heap/PSRAM, RSSI counters, reported via status API + serial log (rate-limited) |
 | `app` | wiring, task/core affinity, watchdogs |
 
@@ -131,7 +131,24 @@ Selection = measured quality/FPS/latency + stability veto. Control API runs over
 
 ## Discovery
 
-**Deferred while the fixed-IP softAP baseline stands (ADR-0006)** — the camera is always at `192.168.4.1`. Planned hybrid design for a future multi-camera/station profile: mDNS `_http._tcp` / custom service type (primary) + UDP broadcast probe on fixed port (fallback, works without Bonjour on Windows). Announce: stable device ID, name, fw version, proto version, ports, resolution capabilities.
+**Implemented in Phase 6 as UDP broadcast only.** mDNS was planned as the
+primary and UDP as the fallback; it was not built, because the softAP profile
+(ADR-0006) puts the camera and PC on a link where broadcast already works
+reliably and mDNS would add a Bonjour dependency on Windows for no measured
+gain. The hybrid design stays a candidate only if a station-mode profile ever
+needs to cross subnets.
+
+| | |
+|---|---|
+| Query | PC broadcasts `{"scam":1,"op":"discover"}` to port **48888** every 2 s |
+| Reply | Unicast announce from the camera, rate-limited to one per 250 ms |
+| Announce | `device_id` (MAC-derived, stable across DHCP changes), `device_name`, `ip`, `fw_version`, `proto_version`, `sensor`, `control_port`, `stream_port`, `auth_required`, `resolutions[]`, `controls{}` grouped by function |
+| PC side | `DiscoveryService` is a `QAbstractListModel` on its own thread; dedupes by **device id, never IP**, ages an entry out after 12 s of silence, falls back to the sender address if an announce omits its own IP |
+| UI | Device picker in the toolbar replaces manual IP entry as the primary path; manual entry is kept as a fallback. The first discovered device is auto-selected while unconnected |
+
+The stable device id is what keeps §19 authentication intact across a DHCP
+change: credentials are keyed by device id, so a new IP does not orphan a
+stored password. Manual IP entry remains for a device that cannot announce.
 
 ## Authentication (control plane only)
 
@@ -152,5 +169,5 @@ Net I/O+assembly, decode, record per stream; discovery/control single thread; me
 ## Risks / open questions
 
 - OV2640 system-level FPS ceiling: sensor datasheet UXGA ≤15 fps; peer ESP32-CAM study measured ~1.3 fps UXGA and ~14 fps VGA over HTTP — exact operating envelope TBD by our Phase 4 matrix (never assume).
-- Windows mDNS reliability → hybrid discovery mitigates.
+- Windows mDNS reliability → avoided entirely by using UDP broadcast, which needs no name service.
 - Decode path: QImage baseline; FFmpeg/Multimedia only if measured need.
