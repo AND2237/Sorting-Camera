@@ -33,8 +33,17 @@ $src = (Get-Item (Join-Path $root "desktop\main.cpp")).LastWriteTime
 $built = (Get-Item $exe).LastWriteTime
 if ($built -lt $src) { throw "SortingCamera.exe is older than main.cpp - rebuild first" }
 
+# windeployqt writes informational notes to stderr - a missing dxcompiler.dll is
+# explicitly documented as harmless - and the script-wide ErrorActionPreference of
+# "Stop" turns any stderr line from a native tool into a terminating error.
+# The preference is relaxed for the call only; the exit code is the real signal
+# and is checked on the next line.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 & $windeployqt --release --no-translations --qmldir (Join-Path $root "desktop\qml") (Join-Path $appStage "SortingCamera.exe") | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "windeployqt failed: $LASTEXITCODE" }
+$deployExit = $LASTEXITCODE
+$ErrorActionPreference = $previousPreference
+if ($deployExit -ne 0) { throw "windeployqt failed: $deployExit" }
 
 foreach ($dll in "libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll") {
     $from = Join-Path $mingw $dll

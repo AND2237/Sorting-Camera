@@ -17,6 +17,39 @@ _Status: harnesses added incrementally from Phase 2 onward._
    `benchmark-results.md` → "Soak tests"._
 
 
+## Host unit test suites (desktop)
+
+All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
+`desktop/build`. Twelve suites, all green as of the 0.2.0 release.
+
+| Suite | Covers |
+|---|---|
+| `tst_authclient` | PBKDF2 proof vector against a reference, nonce/password dependence, missing-credential and live-device paths |
+| `tst_credentialstore` | DPAPI round-trip, wrong-password rejection, storage-unavailable fallback |
+| `tst_discovery` | announce parsing, dedupe by device id not address, ageing, subnet broadcast targets, live-device test gated on `SCAM_DISCOVERY_PORT` |
+| `tst_sessionstate` | all eight §24 states, branch ordering, severity mapping — pure, no event loop |
+| `tst_userprefs` | defaults, full round-trip, write de-duplication, survival across instances; QSettings redirected to a scratch dir so it never touches the real credential file |
+| `tst_devicestatus` | capabilities not requested before a status poll, one control per write, unknown control produces **no** request, 409 surfaces the camera's message, device switch drops and re-asks, reset applies supported defaults in one write, concurrent writes serialise |
+| `tst_deviceregistry` | two devices with separate pipelines, one id surviving an address change, announce not stealing the view, unknown id harmless, stale release sparing the active device, port validation |
+| `tst_profileengine` | ladder ordered by quality first, every entry cites a measurement, **floors only lowered by a recorded decision**, automatic follows the rule rather than a hard-coded id, three-window shortfall rule, manual mode never advises |
+| `tst_diagnostics` | level/category vocabulary, rate limiting, suppression counted and preserved across a limit change, counter spread, ring-buffer bounds |
+| `tst_notificationcenter` | ordering, info expiry vs sticky warnings, per-key dedup, dismissal, counting |
+| `tst_recorder` | SHA-256 byte-identity of recorded frames, header survival, sidecar flush timing, truncated-tail recovery, double-start refusal, snapshot identity |
+| `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream, snapshot hashes equal the source, recording round-trip equal |
+
+Two defects were caught by these suites that no QML error would have explained:
+`QVariantList::append(QVariantList)` flattens the inner list, and a
+deduplication lookup that treated "no key" as a key. Both are recorded in
+`docs/decisions/0014-diagnostics-and-notifications.md`.
+
+Run them all:
+
+```powershell
+.\scripts\env.ps1
+cmake --build desktop\build
+cd desktop\build; ctest --output-on-failure
+```
+
 ## Mandatory test cases (Master Prompt §33)
 
 - Protocol parsing: valid, truncated, bad magic, wrong version, oversized length, CRC mismatch → frame counted as corrupt, never displayed.

@@ -6,7 +6,7 @@
 
 #include "esp_camera.h"
 
-#define FW_VERSION       "0.1.0"
+#define FW_VERSION       "0.2.0"
 #define PROTO_VERSION    1
 #define DEVICE_NAME      "sorting-cam-01"
 

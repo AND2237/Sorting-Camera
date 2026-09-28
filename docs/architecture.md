@@ -107,19 +107,62 @@ control and configuration — not part of this phase.
 
 ## Desktop architecture (Qt 6.11, LGPL modules)
 
-| Layer | Types | Thread |
-|---|---|---|
-| UI | QML (Qt Quick, RHI/D3D11 on Windows) | GUI thread only presents |
-| Device mgmt | `DeviceModel`, `DiscoveryService` (mDNS + UDP), `Device` (stable ID ≠ DHCP IP) | control thread |
-| Session | `CameraDevice`, `Connection`, `StreamSession` (one per camera) | net thread per session |
-| Transport | `ITransport` ← `HttpMjpegTransport`, `TcpFramedTransport`, `UdpJpegTransport` | net thread |
-| Pipeline | `FrameAssembler` → `FrameSink` (latest-wins, bounded) | net thread |
-| Decode | `IframeDecoder` (start: QImage) | decode thread |
-| Render | `FrameProvider` (QQuickRhiItem / SceneGraph texture path) | render thread |
-| Record | `Recorder` (original JPEG bytes + index) | record thread |
-| Metrics | `MetricsRegistry` (counters, rolling stats) | lock-free/atomic counters, polled by UI timer |
+### As built
 
-Rules: GUI thread never blocks on network or decode; no QLabel/QPixmap video path; digital zoom/pan in render path only; snapshot/recording always use original JPEG payload.
+The table below is what the code actually contains, not a target. Phase 3
+selected HTTP multipart MJPEG (ADR-0007), so the TCP-framed and UDP
+transports below the baseline are candidates that were measured and rejected,
+not code.
+
+| Layer | Type (as built) | Thread | Notes |
+|---|---|---|---|
+| UI | `desktop/qml/Main.qml` | GUI thread, presentation only | never does network I/O or JPEG decode |
+| Discovery | `DiscoveryService` (UDP :48888) | own QThread | dedupes by device id, not address; 12 s ageing |
+| Registry | `DeviceRegistry` | GUI thread | owns every `CameraDevice`; decides which is active |
+| Session | `CameraDevice` (ADR-0013) | GUI thread, owns the rest | one per camera, knows nothing of any other |
+| Control | `DeviceStatus` → `AuthClient` → `CredentialStore` | own QThread | DPAPI-backed credentials, Bearer + 401 retry |
+| Transport | `MjpegClient` | net thread per camera | chunked multipart parser, latest-wins |
+| Pipeline | `FrameBus` (image **and** raw bytes) | net thread writes, GUI reads | one latest frame, no queue |
+| Decode | `MjpegClient` (in the net thread) | net thread | feed-and-run, 19–36 % of one core measured |
+| Render | `FrameImageProvider` (`image://frame/live`) | render thread | resolves the **active** bus per request |
+| Record | `Recorder` (`.scamrec`, ADR-0011) + `SnapshotWriter` | net thread | exact received JPEG bytes, never re-encoded |
+| Metrics | `AppMetrics` (bench) + `StreamStats` (live) | atomic / 1 s timer | `Diagnostics::Facility` counters for the rest |
+| Profiles | `ProfileEngine` (ADR-0012) | GUI thread | measured ladder + automatic mode |
+| Notices | `NotificationCenter` | GUI thread | shares the `Diagnostics` severity vocabulary |
+| Prefs | `UserPreferences` (QSettings) | GUI thread | §37 layer, separate from credentials |
+
+Rules that hold: the GUI thread never blocks on network or decode; the
+display-path zoom never touches the frame in `FrameBus`; snapshot and recording
+always use the original JPEG payload; the bus is bounded to one latest frame
+with every drop counted.
+
+### Device model (ADR-0013)
+
+`DeviceRegistry` is the only place that knows how many cameras exist. It hands
+out one `CameraDevice` per camera and tracks which is active; it holds no
+transport, no decoder and no view. Devices are keyed by the camera's own device
+id and never by address — a camera that answers on a new address keeps its
+session, credential and recording target. Acquiring is not selecting: an
+announce for a second camera must not pull the view away from the one being
+watched, and `releaseStale()` never collects the active device.
+
+The view is single-camera, which §27 permits. Adding a second simultaneous view
+is future work and is **not** claimed.
+
+### Threading
+
+| Thread | Owns | Reads from others |
+|---|---|---|
+| GUI | `FrameBus` (read), `NotificationCenter`, `ProfileEngine`, `SessionState` | `FrameBus` snapshot, atomic counters |
+| net (per camera) | `MjpegClient` decode, `Recorder` append | socket |
+| control (per camera) | `DeviceStatus`, `AuthClient` | HTTP |
+| discovery | `DiscoveryService` worker | UDP socket |
+| render | — | `FrameBus` via the image provider |
+
+`QHostAddress` is a `Q_GADGET` and cannot cross a queued connection, so the
+discovery worker passes the sender as a `QString` and resolves it on the
+receiving side. Passing it directly delivers nothing and then faults.
+
 
 ## Protocol candidates (Phase 3 decides)
 
@@ -218,10 +261,72 @@ criteria: `decisions/0011-recording-container-format.md`.
 
 ## Threading summary
 
-Net I/O+assembly, decode, record per stream; discovery/control single thread; metrics via atomics polled at 1–2 Hz; GUI/scene-graph threads Qt-owned. Threads created only where workload justifies.
+See the desktop threading table above — it lists the threads that exist and what
+each owns. In short: network I/O, decode and record share one thread per camera;
+the control channel and discovery each have their own; metrics are atomic
+counters plus a 1 s timer; the GUI and scene-graph threads are Qt-owned. Threads
+exist only where the workload justified one — decode is **not** on a separate
+thread, because feed-and-run inside the network thread measured 19–36 % of one
+core and a hand-off cost more than it saved.
+
+## Diagnostics (38, ADR-0014)
+
+`Diagnostics::Facility` is one per process and installs a Qt message handler, so
+ordinary `qDebug()`/`qInfo()` calls are captured at the level Qt assigned and
+with a category taken from the enclosing `Diagnostics::Scope`. Five levels
+(DEBUG, INFO, WARNING, ERROR, CRITICAL) and one category per subsystem that §38
+names.
+
+- **Rate limiting is per level, per window.** CRITICAL is unlimited.
+- **Suppression is counted, never dropped.** The count rides on the next line
+  that gets through, so a log that swallowed 97 retries still answers "how often
+  does this fail" correctly. `setRateLimit()` preserves the pending count when a
+  limit changes at runtime.
+- **High-rate quantities are counters, not lines:** frame bytes, frame age,
+  frames received, drops (as a delta, not a running total). Each keeps
+  min/max/spread, so a steady stream is distinguishable from a stuttering one
+  without logging anything.
+- The diagnostics view is **on demand (F12)**, not always visible.
+
+An unannotated call site lands in `other` rather than nowhere, so it shows up as
+unattributed instead of disappearing.
+
+## Notifications (26)
+
+`NotificationCenter` is a list model per camera, newest first, fed by the session
+state machine, the recorder and the control channel. It shares the
+`Diagnostics` severity vocabulary so a condition cannot be a warning in the log
+and an error on screen.
+
+- **Info expires** (8 s default) — nobody needs to read twice that the camera was
+  found.
+- **Warning and above are sticky** until dismissed — nobody has acknowledged an
+  error until they act on it. The badge counts these.
+- **`postOnce()` dedupes per key.** A flapping link cannot bury the list, and
+  one repeating fault cannot hide another.
+
+## User preferences (37)
+
+`UserPreferences` holds only choices a person made: address, ports, last device
+id, resolution, quality, capture directory. It is deliberately a separate class
+from `CredentialStore` — preferences are plain text a user may edit, credentials
+are DPAPI-protected blobs, and mixing them would put a password one key away
+from a host name. Writes are deduplicated against the stored value and `sync()`ed
+immediately, so a crash cannot lose the address that would otherwise cost a
+manual reconnect.
 
 ## Risks / open questions
 
-- OV2640 system-level FPS ceiling: sensor datasheet UXGA ≤15 fps; peer ESP32-CAM study measured ~1.3 fps UXGA and ~14 fps VGA over HTTP — exact operating envelope TBD by our Phase 4 matrix (never assume).
-- Windows mDNS reliability → avoided entirely by using UDP broadcast, which needs no name service.
+- **The HD frame-rate ceiling is a hardware fact, not a gap.** 1280×720 tops out
+  near 11.2 fps; reaching 15 needs +34 % and the only measured lever (XCLK) is
+  past its safe limit. ADR-0010 scoped HD's floor to ≥7 provisionally. Profiles
+  below 800×600 meet the general ≥15 / preferred ≥20 targets (ADR-0012).
+- **The ≥1 h soak is still open.** All current stability evidence is from runs of
+  120 s, one 4.9 min partial and one aborted attempt. Nothing here certifies
+  long-duration stability, and the final endurance test must be designed around
+  the finished architecture rather than repeating the current procedure.
+- Windows mDNS reliability → avoided entirely by using UDP broadcast, which needs
+  no name service.
 - Decode path: QImage baseline; FFmpeg/Multimedia only if measured need.
+- A second simultaneous camera **view** is not implemented (§27 permits one active
+  stream in the UI; the objects behind it are already per camera).
