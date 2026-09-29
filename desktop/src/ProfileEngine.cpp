@@ -8,9 +8,13 @@ namespace {
 
 // Measured, not assumed. Sources for every row are in
 // docs/benchmark-results.md:
-//   envelope  - Phase 4, fb3 / latest / psram / xclk 18 MHz, 55 s per cell
-//   confirm   - Phase 5 confirm ladder, fb2, 130 s per point
-//   d2        - phase6-baseline-20260928-hd-q12-x18.json, three runs
+//   envelope  - Phase 4 matrix, fb3 / latest / psram / xclk 18 MHz, 55 s per cell
+//   confirm   - Phase 4 matrix confirm stage, fb2, 130 s per point; both live in
+//               benchmarks/results/phase4-20260925-fixed.jsonl
+//   d2        - phase6-baseline-20260928-hd-q12-x18.json, one 120 s run
+// The confirm stage is part of the Phase 4 harness (benchmark-plan "P4-matrix",
+// 11 x 130 s confirms), not Phase 5 - earlier comments here said Phase 5 and
+// every citation inherited the mistake.
 // Pixels are width*height in megapixels and are what "better image" is ranked
 // on; at equal pixels the higher JPEG quality wins, which is the second key.
 const QList<ProfileEngine::Profile> &buildLadder()
@@ -44,16 +48,32 @@ const QList<ProfileEngine::Profile> &buildLadder()
             p.floorFps = 15.0;
             p.meetsFloor = false;
             p.evidence = QStringLiteral(
-                "phase4 envelope uxga/q4 1.04 fps; phase5 confirm uxga/q4 2.16 fps (fb2)");
+                "phase4 envelope uxga/q4 1.04 fps, 343,758 B; phase4 confirm uxga/q4 "
+                "2.16 fps, 241,153 B (fb2) - both far below the 15 fps floor, so the "
+                "profile is offered but labelled under floor and Automatic never picks it");
+            p.citations = {
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("envelope"),
+                 QStringLiteral("1600x1200"), 4, 3, 1.04, 343758.0},
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("confirm"),
+                 QStringLiteral("1600x1200"), 4, 2, 2.16, 241153.0},
+            };
             l.append(p);
         }
 
-        // High Quality. This is the production default ADR-0010 settled on:
-        // 1280x720 q12, and the only ladder entry whose own measurement sits
-        // in the D2 baseline rather than only in the envelope. Its floor is 7,
-        // not 15, because the owner chose image quality over the frame-rate
-        // target at HD and scoping the floor per profile is how that conflict
-        // was resolved.
+        // High Quality. This is the production default ADR-0010 recorded: the
+        // owner chose 1280x720 q12 on 2026-09-27, preferring image quality
+        // first, and ADR-0010 decision 1 keeps it as the default. It is also
+        // the only ladder entry whose second reading comes from a Phase 6 run
+        // rather than from the confirm stage.
+        //
+        // The floor is 7, not 15, because the owner chose image quality over
+        // the frame-rate target at HD and scoping the floor per profile is how
+        // that conflict was resolved. It is *provisional*: ADR-0010 says so in
+        // as many words and states the >=1 h soak will tighten it to a
+        // sustained figure. That soak has not run, so floorProvisional stays
+        // set and the UI must not present 7.0 as settled. Until D1 runs, HD
+        // also does not meet the >=15 fps §34 target - ADR-0010 decision 3
+        // requires publishing that as measured, and we do.
         {
             P p;
             p.id = ProfileEngine::ProfileId::HighQuality;
@@ -65,18 +85,48 @@ const QList<ProfileEngine::Profile> &buildLadder()
             p.grabMode = QStringLiteral("latest");
             p.pixels = 1280.0 * 720.0 / 1e6;
             p.measuredFps = 8.96;
-            p.altMeasuredFps = 9.98; // mean of the three D2 runs 10.00/9.97/9.96
-            p.medianBytes = 58000.0;
+            // One 120 s run reported three ways: capture 10.000, delivery
+            // 9.966, decoded 9.958 fps - mean 9.9748 -> 9.97. Their agreement
+            // is the evidence that the PC keeps up with the camera; it is not
+            // a repeatability measurement, and there was only ever one run.
+            p.altMeasuredFps = 9.97;
+            // Envelope cell for hd/q12, the same cell measuredFps came from.
+            // D2 measured the same configuration at 28,956 B per frame - a
+            // less detailed scene - and the evidence string says so rather
+            // than quietly replacing one with the other.
+            p.medianBytes = 57317.0;
             p.floorFps = 7.0;
             p.meetsFloor = true;
+            p.floorProvisional = true;
             p.evidence = QStringLiteral(
-                "phase4 envelope hd/q12 8.96 fps; phase6 D2 baseline 10.00/9.97/9.96 fps, 58 KB");
+                "phase4 envelope hd/q12 8.96 fps, 57,317 B; phase6 D2 baseline single 120 s run "
+                "9.96/9.97/10.00 fps, 28,956 B (one run measured three ways, not three runs); "
+                "7 fps floor is provisional per ADR-0010 pending the 1 h soak");
+            p.citations = {
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("envelope"),
+                 QStringLiteral("1280x720"), 12, 3, 8.96, 57317.0},
+                {QStringLiteral("phase6-baseline-20260928-hd-q12-x18.json"),
+                 QStringLiteral("d2"), QStringLiteral("hd"), 12, 3, 9.97, 28956.0},
+            };
             l.append(p);
         }
 
         // Balanced. The largest pixel count that clears the general >=15 floor
-        // with margin, and comfortably above the preferred 20. The confirm run
-        // at 18.97 fps is the more conservative reading of the same point.
+        // with margin, and comfortably above the preferred 20.
+        //
+        // This entry carried a borrowed figure. The confirm stage *did* run
+        // svga/q24 - 14.37 fps at 23,077 B over 130 s, below the floor, listed
+        // in docs/benchmark-results.md under "measured, excluded from ladder"
+        // - so the old comment claiming it did not test this point was false.
+        // It is excluded from the ladder by ADR-0008, which is why
+        // altMeasuredFps stays 0: that field means "no second reading was
+        // admitted", not "no second reading exists".
+        //
+        // The two figures that used to be here belonged to vga/q24: 18.97 fps
+        // (described as "the more conservative reading of the same point" -
+        // it is a different resolution) and 14,680 B, which is where the byte
+        // count came from. A published figure has to be one the profile's own
+        // configuration produced.
         {
             P p;
             p.id = ProfileEngine::ProfileId::Balanced;
@@ -88,12 +138,20 @@ const QList<ProfileEngine::Profile> &buildLadder()
             p.grabMode = QStringLiteral("latest");
             p.pixels = 800.0 * 600.0 / 1e6;
             p.measuredFps = 22.50;
-            p.altMeasuredFps = 0.0; // confirm ladder did not test svga/q24
-            p.medianBytes = 14680.0;
+            p.altMeasuredFps = 0.0;
+            p.medianBytes = 16982.0; // envelope cell, the one measuredFps came from
             p.floorFps = 15.0;
             p.meetsFloor = true;
             p.evidence = QStringLiteral(
-                "phase4 envelope svga/q24 22.50 fps; the 130 s confirm ladder tested svga/q36 (16.34) and vga/q24 (18.97) but not this exact point");
+                "phase4 envelope svga/q24 22.50 fps, 16,982 B; phase4 confirm svga/q24 "
+                "14.37 fps, 23,077 B - below the 15 fps floor, excluded from the confirm "
+                "ladder in benchmark-results.md (ADR-0008)");
+            p.citations = {
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("envelope"),
+                 QStringLiteral("800x600"), 24, 3, 22.50, 16982.0},
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("confirm"),
+                 QStringLiteral("800x600"), 24, 2, 14.37, 23077.0},
+            };
             l.append(p);
         }
 
@@ -115,11 +173,18 @@ const QList<ProfileEngine::Profile> &buildLadder()
             p.pixels = 320.0 * 240.0 / 1e6;
             p.measuredFps = 44.95;
             p.altMeasuredFps = 42.00;
-            p.medianBytes = 8086.0;
+            p.medianBytes = 8086.0; // confirm cell for qvga/q12, cited below
             p.floorFps = 20.0;
             p.meetsFloor = true;
             p.evidence = QStringLiteral(
-                "phase4 envelope qvga/q12 44.95 fps; phase5 confirm qvga/q12 42.00 fps, 8.1 KB");
+                "phase4 envelope qvga/q12 44.95 fps, 7,119 B; phase4 confirm qvga/q12 "
+                "42.00 fps, 8,086 B");
+            p.citations = {
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("envelope"),
+                 QStringLiteral("320x240"), 12, 3, 44.95, 7119.0},
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("confirm"),
+                 QStringLiteral("320x240"), 12, 2, 42.00, 8086.0},
+            };
             l.append(p);
         }
 
@@ -141,11 +206,18 @@ const QList<ProfileEngine::Profile> &buildLadder()
             p.pixels = 320.0 * 240.0 / 1e6;
             p.measuredFps = 45.01;
             p.altMeasuredFps = 44.93;
-            p.medianBytes = 4069.0;
+            p.medianBytes = 4069.0; // confirm cell for qvga/q36, cited below
             p.floorFps = 20.0;
             p.meetsFloor = true;
             p.evidence = QStringLiteral(
-                "phase4 envelope qvga/q36 45.01 fps; phase5 confirm qvga/q36 44.93 fps, 4069 B");
+                "phase4 envelope qvga/q36 45.01 fps, 4,066 B; phase4 confirm qvga/q36 "
+                "44.93 fps, 4,069 B");
+            p.citations = {
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("envelope"),
+                 QStringLiteral("320x240"), 36, 3, 45.01, 4066.0},
+                {QStringLiteral("phase4-20260925-fixed.jsonl"), QStringLiteral("confirm"),
+                 QStringLiteral("320x240"), 36, 2, 44.93, 4069.0},
+            };
             l.append(p);
         }
 
@@ -171,24 +243,40 @@ const ProfileEngine::Profile *ProfileEngine::byId(ProfileId id)
     return nullptr;
 }
 
-const ProfileEngine::Profile *ProfileEngine::recommended()
+double ProfileEngine::conservativeFps(const Profile &p)
 {
-    // Project priority is image quality > FPS > latency, so the automatic
-    // choice is the largest pixel count that clears its own floor, taking the
-    // more conservative of the two measurements when both exist. Scanning the
-    // ladder rather than hard-coding an answer is what keeps the rule and the
-    // data separable: if a better HD measurement ever appeared, this would
-    // still be the same rule that picked it.
+    // Two readings exist: take the lower one, because the question is what
+    // this profile can be relied on to deliver, not what it managed once.
+    // Only one exists: that one is the answer. altMeasuredFps == 0 means "no
+    // second reading was admitted", never "a second reading of zero fps" -
+    // treating it as the latter would push Balanced, High FPS and Low Latency
+    // all under their floors on the strength of a missing number.
+    if (p.altMeasuredFps > 0.0 && p.measuredFps > 0.0) {
+        return qMin(p.altMeasuredFps, p.measuredFps);
+    }
+    return p.measuredFps;
+}
+
+const ProfileEngine::Profile *ProfileEngine::recommendedIn(const QList<Profile> &profiles)
+{
+    if (profiles.isEmpty()) {
+        return nullptr;
+    }
     const Profile *best = nullptr;
-    for (const Profile &p : ladder()) {
-        if (p.meetsFloor && p.measuredFps >= p.floorFps) {
+    for (const Profile &p : profiles) {
+        if (conservativeFps(p) >= p.floorFps) {
             if (!best || p.pixels > best->pixels
                 || (p.pixels == best->pixels && p.quality < best->quality)) {
                 best = &p;
             }
         }
     }
-    return best ? best : &ladder().first();
+    return best ? best : &profiles.first();
+}
+
+const ProfileEngine::Profile *ProfileEngine::recommended()
+{
+    return recommendedIn(ladder());
 }
 
 ProfileEngine::ProfileId ProfileEngine::matchConfig(const QString &framesize, int quality, int xclkMhz,
@@ -422,7 +510,20 @@ double ProfileEngine::activeFloorFps() const
 
 bool ProfileEngine::activeMeetsFloor() const
 {
-    return m_activeProfile && m_activeProfile->measuredFps >= m_activeProfile->floorFps;
+    // Judged on the conservative reading, deliberately: this is the flag
+    // Main.qml colours red with and CameraDevice.cpp prints as "UNDER FLOOR",
+    // so letting it consult only the optimistic envelope reading would report
+    // the higher number the moment a second reading lands below it. The
+    // Profile::meetsFloor field stays the envelope-based fact it was.
+    if (!m_activeProfile) {
+        return false;
+    }
+    return conservativeFps(*m_activeProfile) >= m_activeProfile->floorFps;
+}
+
+bool ProfileEngine::activeFloorProvisional() const
+{
+    return m_activeProfile && m_activeProfile->floorProvisional;
 }
 
 QString ProfileEngine::activeEvidence() const

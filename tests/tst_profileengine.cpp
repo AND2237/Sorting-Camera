@@ -5,11 +5,158 @@
 // from the data instead of being hard-coded to a profile id.
 #include "ProfileEngine.h"
 
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QTest>
 
 using Profile = ProfileEngine::Profile;
 using Id = ProfileEngine::ProfileId;
+
+namespace {
+
+using Citation = Profile::Citation;
+
+// Where the committed benchmark artifacts live, as told to the build.
+QString benchDir()
+{
+    return QString::fromUtf8(SCAM_BENCH_DIR);
+}
+
+// The ladder speaks framesize keys; the artifacts speak camera resolutions.
+// The D2 run report already uses keys, so both forms have to be accepted.
+QString keyFrom(const QString &resolutionOrKey)
+{
+    return resolutionOrKey.contains(QLatin1Char('x'))
+        ? ProfileEngine::framesizeKeyFromResolution(resolutionOrKey)
+        : resolutionOrKey;
+}
+
+struct Resolved
+{
+    bool found = false;
+    QString resolution;
+    int quality = 0;
+    int fbCount = 0;
+    double fps = 0.0;
+    double bytes = 0.0;
+    QString error;
+};
+
+// Reads back one citation exactly as the harness wrote it. Two artifact
+// shapes are supported: the cell matrix (one JSON object per line, keyed by
+// stage/resolution/quality/fb_count) and the run report (one object, whose
+// fps is the three-way measurement and whose frame size is bytes over frames).
+Resolved resolve(const Citation &c)
+{
+    Resolved r;
+    const QString path = benchDir() + QLatin1Char('/') + c.artifact;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        r.error = QStringLiteral("cannot open %1").arg(path);
+        return r;
+    }
+
+    if (c.artifact.endsWith(QLatin1String(".jsonl"))) {
+        while (!f.atEnd()) {
+            const QByteArray line = f.readLine();
+            if (line.trimmed().isEmpty()) {
+                continue;
+            }
+            const QJsonObject root = QJsonDocument::fromJson(line).object();
+            if (root.isEmpty()) {
+                continue;
+            }
+            const QJsonObject meta = root.value(QStringLiteral("meta")).toObject();
+            const QJsonObject cfg = root.value(QStringLiteral("config_echo")).toObject();
+            if (meta.value(QStringLiteral("stage")).toString() != c.stage
+                || cfg.value(QStringLiteral("resolution")).toString() != c.resolution
+                || cfg.value(QStringLiteral("quality")).toInt() != c.quality
+                || cfg.value(QStringLiteral("fb_count")).toInt() != c.fbCount) {
+                continue;
+            }
+            const QJsonObject rx = root.value(QStringLiteral("rx")).toObject();
+            r.fps = rx.value(QStringLiteral("fps")).toObject().value(QStringLiteral("mean")).toDouble();
+            r.bytes = rx.value(QStringLiteral("frame_bytes")).toObject()
+                          .value(QStringLiteral("p50")).toDouble();
+            r.resolution = c.resolution;
+            r.quality = c.quality;
+            r.fbCount = c.fbCount;
+            r.found = true;
+            return r;
+        }
+        r.error = QStringLiteral("no %1 cell for %2 q%3 fb%4 in %5")
+                      .arg(c.stage, c.resolution)
+                      .arg(c.quality)
+                      .arg(c.fbCount)
+                      .arg(c.artifact);
+        return r;
+    }
+
+    const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+    const QJsonObject meta = root.value(QStringLiteral("meta")).toObject();
+    const QJsonObject app = root.value(QStringLiteral("app")).toObject();
+    const QJsonObject dev = root.value(QStringLiteral("device_summary")).toObject();
+    if (meta.value(QStringLiteral("requested_framesize")).toString() != c.resolution
+        || app.value(QStringLiteral("requested_quality")).toInt() != c.quality
+        || app.value(QStringLiteral("requested_fb_count")).toInt() != c.fbCount) {
+        r.error = QStringLiteral("%1 does not describe %2 q%3 fb%4")
+                      .arg(c.artifact, c.resolution)
+                      .arg(c.quality)
+                      .arg(c.fbCount);
+        return r;
+    }
+    const double frames = app.value(QStringLiteral("frames_presented")).toDouble();
+    // The same three-way measurement docs/benchmark-results.md quotes as
+    // "9.96 / 9.97 / 10.00 fps", and the same byte arithmetic behind the
+    // "28,956 B per frame" it publishes.
+    r.fps = (dev.value(QStringLiteral("capture_fps")).toDouble()
+             + dev.value(QStringLiteral("delivery_fps")).toDouble()
+             + app.value(QStringLiteral("decoded_fps")).toDouble())
+        / 3.0;
+    r.bytes = frames > 0.0
+        ? app.value(QStringLiteral("bytes_received")).toDouble() / frames
+        : 0.0;
+    r.resolution = c.resolution;
+    r.quality = c.quality;
+    r.fbCount = c.fbCount;
+    r.found = true;
+    return r;
+}
+
+// Digits grouped in threes, the way every byte figure is written in
+// docs/benchmark-results.md and in the evidence strings.
+QString thousands(double v)
+{
+    const QString s = QString::number(qRound64(v));
+    QString out;
+    for (int i = 0; i < s.size(); ++i) {
+        if (i > 0 && (s.size() - i) % 3 == 0) {
+            out += QLatin1Char(',');
+        }
+        out += s.at(i);
+    }
+    return out;
+}
+
+// Published figures carry two decimals, so two numbers are the same published
+// figure exactly when they round to the same hundredth. A tolerance of 0.01 is
+// the wrong test: it admits 9.98 as equal to 9.97, which is a different number
+// in the table the user reads.
+bool sameFps(double a, double b)
+{
+    return qRound(a * 100.0) == qRound(b * 100.0);
+}
+
+// Byte figures are whole bytes in every artifact, so they match exactly.
+bool sameBytes(double a, double b)
+{
+    return qRound64(a) == qRound64(b);
+}
+
+} // namespace
 
 class TestProfileEngine : public QObject
 {
@@ -18,6 +165,12 @@ class TestProfileEngine : public QObject
 private slots:
     void ladderIsOrderedByImageQualityFirst();
     void everyLadderEntryIsAMeasuredOperatingPoint();
+    void everyPublishedFigureExistsInTheArtifactItCites();
+    void noPublishedFigureComesFromAnotherConfiguration();
+    void everyLadderFigureIsCoveredByACitation();
+    void evidenceQuotesTheFiguresItCites();
+    void theConservativeReadingDrivesTheAutomaticChoice();
+    void onlyARecordedDecisionCarriesAReducedFloor();
     void floorsAreOnlyLoweredByARecordedDecision();
     void recommendedIsTheLargestPointClearingItsFloor();
     void matchConfigRecognisesEachProfile();
@@ -71,6 +224,243 @@ void TestProfileEngine::everyLadderEntryIsAMeasuredOperatingPoint()
     }
 }
 
+void TestProfileEngine::everyPublishedFigureExistsInTheArtifactItCites()
+{
+    QVERIFY2(QDir(benchDir()).exists(),
+             qPrintable(QStringLiteral(
+                 "benchmark artifacts not found at %1 - every figure in the ladder cites "
+                 "them, and a ladder that cannot be checked against its own source is a "
+                 "ladder nobody can audit").arg(benchDir())));
+
+    for (const Profile &p : ProfileEngine::ladder()) {
+        QVERIFY2(!p.citations.isEmpty(),
+                 qPrintable(p.name + " publishes figures but cites no artifact"));
+        for (const Citation &c : p.citations) {
+            const Resolved r = resolve(c);
+            QVERIFY2(r.found, qPrintable(p.name + ": " + r.error));
+            QVERIFY2(sameFps(r.fps, c.fps),
+                     qPrintable(QStringLiteral(
+                         "%1 cites %2 %3 q%4 as %5 fps, but %6 records %7")
+                                    .arg(p.name, c.artifact, c.stage, c.resolution)
+                                    .arg(c.fps)
+                                    .arg(QString::number(c.fps, 'f', 2))
+                                    .arg(QString::number(r.fps, 'f', 2))));
+            QVERIFY2(sameBytes(r.bytes, c.bytes),
+                     qPrintable(QStringLiteral(
+                         "%1 cites %2 %3 q%4 as %5 B, but the artifact records %6")
+                                    .arg(p.name, c.artifact, c.stage, c.resolution)
+                                    .arg(thousands(c.bytes))
+                                    .arg(thousands(r.bytes))));
+        }
+    }
+}
+
+void TestProfileEngine::noPublishedFigureComesFromAnotherConfiguration()
+{
+    // The defect this guards: svga/q24 carried vga/q24's byte count, and a
+    // comment on the same profile described vga/q24's confirm run as "the more
+    // conservative reading of the same point". Both are the ladder speaking
+    // about one configuration using another's measurements, so the check is
+    // made against the artifact's own resolution and quality rather than
+    // against whatever the citation claims.
+    for (const Profile &p : ProfileEngine::ladder()) {
+        for (const Citation &c : p.citations) {
+            const Resolved r = resolve(c);
+            QVERIFY2(r.found, qPrintable(p.name + ": " + r.error));
+            QVERIFY2(keyFrom(r.resolution) == p.framesize,
+                     qPrintable(QStringLiteral(
+                         "%1 (%2) publishes a figure measured at %3")
+                                    .arg(p.name, p.framesize, r.resolution)));
+            QCOMPARE(r.quality, p.quality);
+        }
+    }
+
+    // And the specific number that was borrowed, pinned against its own cell.
+    const Profile *balanced = ProfileEngine::byId(Id::Balanced);
+    QVERIFY(balanced);
+    QVERIFY2(balanced->medianBytes != 14680.0,
+             "14,680 B is vga/q24's confirm figure and has no business on an svga profile");
+    QCOMPARE(balanced->medianBytes, 16982.0);
+    QVERIFY2(balanced->evidence.contains(QStringLiteral("16,982")),
+             qPrintable(balanced->evidence));
+    QVERIFY2(!balanced->evidence.contains(QStringLiteral("18.97")),
+             "vga/q24's confirm fps was quoted as if it were svga/q24's");
+
+    // Two entries at different resolutions may not publish the same byte count.
+    // The borrowed value was not merely mislabelled, it made two rungs of the
+    // ladder claim identical frame sizes at four times the pixels, which is the
+    // shape of the error rather than the number itself.
+    const QList<Profile> all = ProfileEngine::ladder();
+    for (int i = 0; i < all.size(); ++i) {
+        if (all[i].medianBytes == 0.0) {
+            continue;
+        }
+        for (int j = i + 1; j < all.size(); ++j) {
+            if (all[j].medianBytes == 0.0
+                || all[j].framesize == all[i].framesize) {
+                continue;
+            }
+            QVERIFY2(all[i].medianBytes != all[j].medianBytes,
+                     qPrintable(QStringLiteral(
+                         "%1 (%2) and %3 (%4) both publish %5 B")
+                                    .arg(all[i].name, all[i].framesize,
+                                         all[j].name, all[j].framesize)
+                                    .arg(thousands(all[i].medianBytes))));
+        }
+    }
+}
+
+void TestProfileEngine::everyLadderFigureIsCoveredByACitation()
+{
+    // A citation nobody publishes is decoration; a published figure with no
+    // citation is a rumour. Both directions are required to hold.
+    for (const Profile &p : ProfileEngine::ladder()) {
+        bool measuredCovered = false;
+        bool altCovered = p.altMeasuredFps == 0.0;
+        bool bytesCovered = p.medianBytes == 0.0;
+        for (const Citation &c : p.citations) {
+            if (sameFps(c.fps, p.measuredFps)) {
+                measuredCovered = true;
+            }
+            if (!altCovered && sameFps(c.fps, p.altMeasuredFps)) {
+                altCovered = true;
+            }
+            if (!bytesCovered && sameBytes(c.bytes, p.medianBytes)) {
+                bytesCovered = true;
+            }
+        }
+        QVERIFY2(measuredCovered,
+                 qPrintable(p.name + "'s measuredFps is not among the figures it cites"));
+        QVERIFY2(altCovered,
+                 qPrintable(p.name + "'s altMeasuredFps is not among the figures it cites"));
+        QVERIFY2(bytesCovered,
+                 qPrintable(p.name + "'s medianBytes is not among the figures it cites"));
+    }
+}
+
+void TestProfileEngine::evidenceQuotesTheFiguresItCites()
+{
+    // The evidence string is what the user actually reads at the bottom of the
+    // profile panel, so it has to carry the numbers the citations resolve to.
+    // This is what catches a correct number sitting behind a false sentence.
+    for (const Profile &p : ProfileEngine::ladder()) {
+        for (const Citation &c : p.citations) {
+            const QString fps = QString::number(c.fps, 'f', 2);
+            QVERIFY2(p.evidence.contains(fps),
+                     qPrintable(QStringLiteral("%1's evidence never mentions %2 fps from %3")
+                                    .arg(p.name, fps, c.stage)));
+            QVERIFY2(p.evidence.contains(thousands(c.bytes)),
+                     qPrintable(QStringLiteral("%1's evidence never mentions %2 B from %3")
+                                    .arg(p.name, thousands(c.bytes), c.stage)));
+        }
+    }
+}
+
+void TestProfileEngine::theConservativeReadingDrivesTheAutomaticChoice()
+{
+    // The contract of conservativeFps itself.
+    for (const Profile &p : ProfileEngine::ladder()) {
+        if (p.altMeasuredFps > 0.0) {
+            QCOMPARE(ProfileEngine::conservativeFps(p),
+                     qMin(p.altMeasuredFps, p.measuredFps));
+            QVERIFY(ProfileEngine::conservativeFps(p) <= p.measuredFps);
+        } else {
+            QCOMPARE(ProfileEngine::conservativeFps(p), p.measuredFps);
+        }
+    }
+
+    // 0 means "no second reading was admitted", never "measured zero". If it
+    // were read as a measurement, every profile without a confirm reading
+    // would sit at 0 fps and fall out of Automatic entirely.
+    const Profile *balanced = ProfileEngine::byId(Id::Balanced);
+    QVERIFY(balanced);
+    QCOMPARE(balanced->altMeasuredFps, 0.0);
+    QCOMPARE(ProfileEngine::conservativeFps(*balanced), balanced->measuredFps);
+
+    // The shipped table cannot separate the conservative rule from the
+    // optimistic one: every admitted second reading clears its floor, so both
+    // rules pick the same profile. So the rule is exercised against a ladder
+    // shaped so the two rules disagree.
+    const Profile *hq = ProfileEngine::byId(Id::HighQuality);
+    QVERIFY(hq);
+
+    QList<Profile> optimistic = ProfileEngine::ladder();
+    for (Profile &p : optimistic) {
+        if (p.id == Id::HighQuality) {
+            p.altMeasuredFps = 6.0; // under HD's 7 fps floor
+        }
+    }
+    const Profile *winner = ProfileEngine::recommendedIn(optimistic);
+    QVERIFY(winner);
+    QVERIFY2(winner->id != Id::HighQuality,
+             qPrintable(QStringLiteral(
+                 "recommended() ignored the conservative reading: HD's admitted "
+                 "second reading is 6.0 fps against a 7 fps floor, yet %1 was chosen")
+                            .arg(winner->name)));
+    QCOMPARE(winner->id, Id::Balanced);
+
+    // The same profile with that reading not admitted is not affected: 0 is a
+    // missing measurement, and a missing measurement must not fail a floor.
+    QList<Profile> unadmitted = ProfileEngine::ladder();
+    for (Profile &p : unadmitted) {
+        if (p.id == Id::HighQuality) {
+            p.altMeasuredFps = 0.0;
+        }
+    }
+    QCOMPARE(ProfileEngine::recommendedIn(unadmitted)->id, Id::HighQuality);
+
+    // And with the shipped table, the answer is unchanged.
+    QCOMPARE(ProfileEngine::recommendedIn(ProfileEngine::ladder())->id, Id::HighQuality);
+
+    // The floor verdict the UI shows has to be drawn from the same rule as the
+    // recommendation, or the panel could say a profile meets its floor while
+    // Automatic declines to pick it. Today's table cannot tell the conservative
+    // rule apart from the optimistic one - every admitted second reading clears
+    // its floor - so this pins the two together anyway rather than waiting for
+    // a measurement that separates them.
+    for (const Profile &p : ProfileEngine::ladder()) {
+        ProfileEngine engine;
+        engine.setConfig(p.framesize, p.quality, p.xclkMhz, p.frameBufferCount, p.grabMode);
+        QCOMPARE(engine.activeMeetsFloor(),
+                 ProfileEngine::conservativeFps(p) >= p.floorFps);
+    }
+}
+
+void TestProfileEngine::onlyARecordedDecisionCarriesAReducedFloor()
+{
+    // ADR-0010 set HD's floor at >=7 fps and called it provisional: the >=1 h
+    // soak has not run, so nothing has replaced it with a sustained figure.
+    // A reduced floor presented as settled is the defect - the number itself
+    // is the owner's decision and is correct.
+    for (const Profile &p : ProfileEngine::ladder()) {
+        if (p.floorProvisional) {
+            QCOMPARE(p.id, Id::HighQuality);
+            QVERIFY(p.floorFps < 15.0);
+            QVERIFY2(p.evidence.contains(QStringLiteral("provisional")),
+                     qPrintable(p.name + " hides a provisional floor from the user"));
+        }
+    }
+
+    // The converse is the actual guard: any floor below the general 15 has to
+    // say it is provisional, or the UI will render 7.0 as a settled target.
+    for (const Profile &p : ProfileEngine::ladder()) {
+        if (p.floorFps < 15.0) {
+            QVERIFY2(p.floorProvisional,
+                     qPrintable(QStringLiteral(
+                         "%1 carries a reduced %2 fps floor that is not marked provisional")
+                                    .arg(p.name)
+                                    .arg(p.floorFps)));
+        }
+    }
+
+    // And the exposed flag a UI would use follows the model.
+    ProfileEngine engine;
+    engine.setConfig(QStringLiteral("hd"), 12, 18, 3, QStringLiteral("latest"));
+    QVERIFY(engine.activeFloorProvisional());
+    engine.setConfig(QStringLiteral("svga"), 24, 18, 3, QStringLiteral("latest"));
+    QVERIFY(!engine.activeFloorProvisional());
+}
+
 void TestProfileEngine::floorsAreOnlyLoweredByARecordedDecision()
 {
     // Section 34's general floor is 15 fps. Only HD was scoped below it, by
@@ -101,9 +491,10 @@ void TestProfileEngine::recommendedIsTheLargestPointClearingItsFloor()
 
     // The rule, applied to the table rather than asserted against a name: no
     // profile that clears its own floor may have more pixels than the
-    // recommendation.
+    // recommendation. Judged the same way recommended() judges it - on the
+    // conservative reading - so this stays a mirror rather than a second rule.
     for (const Profile &p : ProfileEngine::ladder()) {
-        if (p.meetsFloor && p.measuredFps >= p.floorFps) {
+        if (ProfileEngine::conservativeFps(p) >= p.floorFps) {
             QVERIFY2(rec->pixels >= p.pixels,
                      qPrintable(QStringLiteral("recommended %1, but %2 clears its own floor and "
                                                "has more pixels")

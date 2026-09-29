@@ -6,6 +6,12 @@ function(scam_add_test name)
     qt_add_executable(${name} ${name}.cpp)
     set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE OFF)
     target_link_libraries(${name} PRIVATE scamcore Qt6::Test)
+    # The raw artifacts under benchmarks/results/ are the ground truth every
+    # published benchmark figure has to resolve against. Provenance tests read
+    # them at run time rather than trusting a table transcribed by hand, which
+    # is how a figure from one configuration came to be published on another.
+    target_compile_definitions(${name} PRIVATE
+        SCAM_BENCH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../benchmarks/results")
     add_test(NAME ${name} COMMAND ${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 120)
 endfunction()

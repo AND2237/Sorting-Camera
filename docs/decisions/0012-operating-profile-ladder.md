@@ -29,14 +29,24 @@ exist for it, or borrowing a neighbouring point's figure to fill a column.
    A profile with no citation is not a profile; it is a guess with a UI.
 2. **Where two measurements of the same point exist, both are kept.**
    `measuredFps` is the Phase 4 envelope (fb3 / latest / psram / xclk 18 MHz,
-   55 s per cell). `altMeasuredFps` is the Phase 5 130 s confirm run where one
-   exists. They disagree by up to 25 percent on the same point, and that gap
-   *is* the uncertainty.
-3. **Where the confirm ladder did not test a point, `altMeasuredFps` is 0 and
-   the evidence says so.** The confirm ladder covered svga/q36, vga/q24, vga/q36
-   and qvga/q12 / q24 / q36 — it did not cover svga/q24. Borrowing vga/q24's
-   18.97 fps for the svga/q24 profile would have been a fabricated data point,
-   and it was nearly committed.
+   55 s per cell). `altMeasuredFps` is the Phase 4 130 s confirm run where one
+   exists — and, for HD q12, which the confirm ladder never reached, the Phase 6
+   D2 app-path baseline at the same resolution, quality and fb count
+   (`phase6-baseline-20260928-hd-q12-x18.json`: one 120 s run measured three
+   ways, mean 9.97 fps). They disagree by up to 25 percent on the same point,
+   and that gap *is* the uncertainty.
+3. **`altMeasuredFps == 0` means "no second reading was admitted", not "no
+   second reading exists", and the evidence says which of the two applies.**
+   Admission is literal: the reading must come from the same resolution, quality
+   and fb count, because borrowing a neighbouring point is the fabrication this
+   rule exists to prevent. Balanced (svga/q24) is the worked case — the confirm
+   run *did* test it at 14.37 fps / 23,077 B, and `ADR-0008` decision 3 records
+   it under "excluded by measurement" as below the floor, so the reading is
+   cited as evidence but not admitted as `altMeasuredFps`. What no run ever
+   measured was hd/q12, which is why HD's second reading comes from the D2
+   baseline of decision 2 rather than from vga/q24's 18.97 fps. vga/q24's
+   figures — 18.97 fps and 14,680 B — belong to 640×480, and carrying them on
+   the svga/q24 profile was the defect this decision is written against.
 4. **Automatic resolves to the largest pixel count clearing its own floor,
    computed from the table rather than hard-coded to a profile id.** The rule
    and the data stay separable: if a better HD measurement appeared, the same
@@ -92,10 +102,15 @@ exist for it, or borrowing a neighbouring point's figure to fill a column.
 - `docs/benchmark-results.md` — Phase 4 envelope table (all seven resolutions ×
   four qualities), the confirm ladder, the same-point drift note, the QVGA@q4
   frame-buffer incident, the per-resolution quality floors
-- `benchmarks/results/phase6-baseline-20260928-hd-q12-x18.json` — HD q12 at
-  10.00 fps, the only ladder point with a three-run measurement
+- `benchmarks/results/phase6-baseline-20260928-hd-q12-x18.json` — HD q12's
+  second reading: one 120 s app-path run measured three ways over the identical
+  window (capture 10.00, delivery 9.97, decoded 9.96 fps; mean 9.97), with
+  28,956 B mean and 28,033 B p50 frame size over 1,195 frames
 - `docs/decisions/0010-operating-profiles-and-fps-floors.md` — the HD floor and
   the per-profile scoping
 - `tests/tst_profileengine.cpp` — ordering, floors, evidence, matching, the
   three-window rule, and the assertion that a step down is always the adjacent
-  rung
+  rung. It also resolves every citation in `ProfileEngine::buildLadder()` back
+  against `benchmarks/results/` at run time (`SCAM_BENCH_DIR`), so a figure
+  that is not in the artifact it names, or that was measured at a different
+  resolution or quality, fails the build's test suite instead of reaching a UI

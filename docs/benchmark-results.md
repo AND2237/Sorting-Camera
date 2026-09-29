@@ -178,6 +178,21 @@ Mean delivered FPS; ≥15 floor (plan) marked ✓:
 - Boundary point derived by the harness: **svga/q12** (largest pixels meeting the
   ≥15 floor at the highest quality).
 
+Median (p50) frame size in bytes for the same cells. ADR-0012 requires every
+figure the ladder publishes to be recorded here, and `ProfileEngine` cites this
+column alongside the FPS column above; both are read from
+`benchmarks/results/phase4-20260925-fixed.jsonl`:
+
+| Resolution | q4 (highest) | q12 (high) | q24 (balanced) | q36 (performance) |
+|---|---|---|---|---|
+| UXGA 1600×1200 | 343,758 | 129,856 | 71,173 | 56,409 |
+| SXGA 1280×1024 | 218,376 | 80,596 | 46,929 | 38,463 |
+| HD 1280×720 | 151,830 | **57,317** | 34,045 | 27,761 |
+| XGA 1024×768 | 124,485 | 43,828 | 26,746 | 22,780 |
+| SVGA 800×600 | 67,992 | 26,737 | **16,982** | 14,236 |
+| VGA 640×480 | 44,253 | 19,180 | 11,315 | 9,608 |
+| QVGA 320×240 | 15,175 | **7,119** | 4,079 | **4,066** |
+
 ### fb_count × grab × fbloc cross (at svga/q12, 55 s each)
 
 | Config | FPS | p50 bytes |
@@ -209,8 +224,10 @@ Ordered best-quality-first operating points meeting the ≥15 fps floor:
 | 5 | qvga/q24 | 44.61 | 45 | 5095 | 36.62 ms | yes |
 | 6 | qvga/q36 | 44.93 | 45 | 4069 | 40.24 ms | yes |
 
-Below the floor (measured, excluded from ladder): svga/q12 9.95, svga/q24 14.37,
-vga/q12 14.87, uxga/q4 2.16 (fb2), qvga/q4 = dead cell (see incidents).
+Below the floor (measured, excluded from ladder), with the same p50 byte figure
+so every confirm cell carries both numbers: svga/q12 9.95 / 36,379 B, svga/q24
+14.37 / 23,077 B, vga/q12 14.87 / 23,083 B, uxga/q4 2.16 / 241,153 B (all fb2),
+qvga/q4 = dead cell (see incidents).
 
 **Same-point drift (honesty note):** svga/q12/fb2/latest measured 19.65 (envelope,
 55 s), 15.91 (fbgrab, 55 s), 9.95 (confirm, 130 s) across the session — p50 frame
@@ -444,17 +461,31 @@ and could not recover it — the setting is invalid, not transient. **The XCLK
 sweet spot is resolution-dependent**, so a single global clock (as the app sends
 today) is the wrong model; clock has to travel with the resolution profile.
 
-### Consequence: HD/q12 is an experimental profile, not the production default
+### Consequence: HD/q12 is the production default, on a provisional floor
 
 HD/q12 was the shipped default on the strength of being "HD, clean sensor noise,
 18 MHz". Measured on 2026-09-27 it delivers **7.7–8.4 fps**, less than half the
-≥15 fps floor, and raising its clock makes it worse rather than better. It is
-retained as an **experimental profile** (highest resolution, sensor-noise-clean,
-useful for stills and snapshot work) and explicitly **not** as the production
-default. The production default is not yet chosen: the best measured point today
-is SVGA 800×600 q36 at 27 MHz with **33.6 fps** (+50% over 18 MHz), which clears
-the floor with margin, at the cost of the XCLK policy cap and the fact that 27 MHz
-is untested above the cap. Choosing it is the next decision, not this phase.
+≥15 fps floor, and raising its clock makes it worse rather than better.
+
+The owner chose it anyway on 2026-09-27 (ADR-0010, decision 1): image quality
+outranks frame rate in this project's priority order, so the highest-resolution
+point with sensor-noise-clean output is the production default *even though it
+does not clear the general floor*. Its floor is therefore **≥7 fps and
+provisional** — ADR-0010 decision 2 scopes it that way and decision 3 requires
+the measured numbers to be published as they are. The ≥1 h soak of D1 is what
+replaces the provisional ≥7 with a sustained figure; until it runs, 7.0 is an
+owner-decided placeholder rather than a measured requirement, and the desktop
+UI marks it as provisional instead of rendering it as a settled target.
+
+The 7.7–8.4 fps measurement stands unchanged, as does its consequence:
+**§34's acceptance target is not met at the production default**, and ADR-0010
+decision 3 requires that fact — and the hardware reason for it (the camera's
+frame-production rate tops out near 11.2 fps at 1280×720, and XCLK is already
+at its safe limit) — to stay published rather than quietly dropped. The best
+measured point on this gate arithmetic remains SVGA 800×600 q36 at 27 MHz with
+**33.6 fps** (+50% over 18 MHz), which clears the floor with margin, at the cost
+of the XCLK policy cap and the fact that 27 MHz is untested above the cap.
+Whether to switch the default to it is D1's open question, not a settled choice.
 
 ### Gate arithmetic (2026-09-27)
 

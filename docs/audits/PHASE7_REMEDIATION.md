@@ -118,12 +118,108 @@ telemetry), so nothing in the record is invalidated, relabelled or discarded.
 
 ---
 
+## Stage 3 — A2 (CP-2, CP-16, CP-17, CP-25): profile ladder provenance (2026-09-29)
+
+Four findings, all in the operating-profile ladder, all about numbers published to the user.
+
+### CP-2 — Balanced carried another profile's byte count
+
+`p.medianBytes = 14680.0` on the svga/q24 profile. That value occurs in exactly one cell of
+the Phase 4 artifact — **vga/q24, fb2, confirm**. The profile's own configuration measured
+**16,982 B** (envelope, fb3) or 23,077 B (confirm, fb2). Corrected to the envelope cell, the
+same cell `measuredFps` came from. The comment claiming the confirm stage "did not test this
+point" was also false: it did, at 14.37 fps / 23,077 B, and `docs/benchmark-results.md`
+records that cell under *measured, excluded from ladder*, with `ADR-0008` decision 3 listing
+it under *excluded by measurement*. `altMeasuredFps` stays `0.0` per the owner's instruction —
+the field now means "no second reading was **admitted**", and the comment and evidence say so.
+
+### CP-16 — provisional floor presented as settled, contradicted by its own doc
+
+`benchmark-results.md:447-457` was headed *"HD/q12 is an experimental profile, not the
+production default"* and said *"The production default is not yet chosen"* — written
+2026-09-27, superseded the same day by ADR-0010 decision 1. Rewritten to record the owner's
+choice, keep the 7.7–8.4 fps measurement and the unmet §34 target visible (ADR-0010 decision
+3), and state that the ≥7 fps floor is provisional pending the ≥1 h D1 soak.
+
+On the code side, `Profile` gained `floorProvisional` (set only on `High Quality`), the
+evidence string now says *"7 fps floor is provisional per ADR-0010 pending the 1 h soak"*, and
+a new `activeFloorProvisional` Q_PROPERTY gives the UI a flag to use rather than rendering
+7.0 as a settled target.
+
+### CP-17 — one run described as three
+
+`altMeasuredFps = 9.98; // mean of the three D2 runs` — the artifact is **one** 120 s run;
+`capture_fps` 10.000, `delivery_fps` 9.966 and `decoded_fps` 9.958 are three measures of it,
+mean 9.9748 → **9.97**, not 9.98. The evidence string's *"58 KB"* was from the 2026-09-29
+recheck runs; the D2 artifact's own mean is **28,956 B**. Both corrected, and the string now
+says *"one run measured three ways, not three runs"*. `ADR-0012`'s *"the only ladder point
+with a three-run measurement"* corrected the same way.
+
+### CP-25 — the documented conservative rule was never implemented
+
+`recommended()` tested `p.measuredFps >= p.floorFps` and never consulted `altMeasuredFps`,
+contrary to its own comment. `ProfileEngine::conservativeFps()` now implements the rule and
+`recommendedIn()`/`recommended()` use it. `activeMeetsFloor()` — what `Main.qml:1318` colours
+red with and `CameraDevice.cpp:148` prints as `UNDER FLOOR` — was reading the optimistic
+envelope only, which is the user-visible half of the same finding, so it now reads the
+conservative figure too.
+
+### Provenance tests
+
+`tests/CMakeLists.txt` now defines `SCAM_BENCH_DIR`, and `tst_profileengine` gained six slots
+that resolve every citation in `buildLadder()` back against `benchmarks/results/` at run time:
+
+| Test | Guards |
+|---|---|
+| `everyPublishedFigureExistsInTheArtifactItCites` | each cited fps/bytes is really in the file it names |
+| `noPublishedFigureComesFromAnotherConfiguration` | the cited cell's resolution and quality are the profile's own; pins 16,982 and rejects 14,680 |
+| `everyLadderFigureIsCoveredByACitation` | `measuredFps`, `altMeasuredFps`, `medianBytes` each appear in a citation |
+| `evidenceQuotesTheFiguresItCites` | the user-facing evidence string quotes them at published precision |
+| `theConservativeReadingDrivesTheAutomaticChoice` | the rule; forces the optimistic and conservative readings to disagree |
+| `onlyARecordedDecisionCarriesAReducedFloor` | any floor below 15 must be marked provisional, and only HD's is |
+
+Equality is on the **published** precision — two decimals for fps, whole bytes for sizes —
+not a `0.01` tolerance. That distinction was found by mutation: with a `<= 0.01` tolerance,
+`altMeasuredFps = 9.98` against a citation of `9.97` passed. It now fails.
+
+**Mutation evidence** (introduce the defect, rebuild that target, expect non-zero exit,
+revert):
+
+| Mutation | Result |
+|---|---|
+| Balanced `medianBytes` 16982 → 14680 | exit 2, two failures (`noPublishedFigure…`, `everyLadderFigureIsCovered…`) |
+| drop `floorProvisional = true` | exit 1, `onlyARecordedDecisionCarriesAReducedFloor` |
+| `altMeasuredFps` 9.97 → 9.98 | exit 1, `everyLadderFigureIsCoveredByACitation` |
+
+### Documentation
+
+- `docs/benchmark-results.md` — added the p50-byte column for all 28 envelope cells, added
+  byte figures to the four below-floor confirm cells, replaced the stale
+  *"experimental profile, not the production default"* section. Verified programmatically:
+  **all 31 published byte figures and all 29 published fps figures now occur in the file**,
+  which is what `ADR-0012` decision 1 requires of every ladder number.
+- `docs/decisions/0012-operating-profile-ladder.md` — corrected three false statements:
+  the confirm run is **Phase 4**, not Phase 5; it *did* cover svga/q24 (decision 3); and
+  the D2 artifact is one run measured three ways, not "a three-run measurement".
+- `docs/decisions/0010-…` — unchanged. It already recorded the owner's choice and the
+  provisional floor correctly; the benchmark document was the stale side of the conflict.
+
+### Gate
+
+| Check | Result |
+|---|---|
+| build | exit 0 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 12**, 16.40 s, exit 0 |
+| `tst_profileengine` | **Totals: 23 passed, 0 failed** |
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
 |---|---|---|---|---|---|
 | CP-1 | A | desktop | Test suites never registered | closed | Stage 1: `ctest -N` 12, `ctest` 12/12 |
-| CP-2 | A | desktop | `ProfileEngine` borrows another profile's byte count | open | — |
+| CP-2 | A | desktop | `ProfileEngine` borrows another profile's byte count | **closed** | Stage 3: 16982 (own config), 14680 rejected by test; mutation-tested |
 | CP-3 | A | desktop | Recording and frame bus run on the GUI thread | open | — |
 | CP-4 | A | firmware | Sensor controls reset on every `esp_camera_init` | open | — |
 | CP-5 | A | desktop | Recovery counter never resets | open | — |
@@ -137,14 +233,14 @@ telemetry), so nothing in the record is invalidated, relabelled or discarded.
 | CP-13 | C | desktop | Frame interval metrics throttled incorrectly | open | — |
 | CP-14 | C | QML | Slider binding reads `parent.current` | open | — |
 | CP-15 | C | QML | Dismisses by index, not by identity | open | — |
-| CP-16 | B | desktop | 7 fps floor presented as measured | open | — |
-| CP-17 | B | desktop | D2 evidence string overstates the run | open | — |
+| CP-16 | B | desktop | 7 fps floor presented as measured | **closed** | Stage 3: `floorProvisional` + `activeFloorProvisional`; stale doc section replaced |
+| CP-17 | B | desktop | D2 evidence string overstates the run | **closed** | Stage 3: alt 9.97, 28,956 B, "one run measured three ways"; ADR-0012 corrected |
 | CP-18 | B | firmware | NVS restore trusts types with no validation | open | — |
 | CP-19 | A | firmware | Frame mutex held across network send | open | — |
 | CP-21 | C | desktop | Protocol version check absent | open | — |
 | CP-22 | C | desktop | Test settings path not redirected | open | — |
 | CP-23 | C | QML | Decode-failure counter labelled as transport drops | open | — |
-| CP-25 | B | desktop | Conservative reading rule documented but not implemented | open | — |
+| CP-25 | B | desktop | Conservative reading rule documented but not implemented | **closed** | Stage 3: `conservativeFps()` used by `recommended()` and `activeMeetsFloor()`; disagreement forced by test |
 | DX-1 | C | QML | Severity conflated for sign-in failure | open | — |
 | DX-12 | D | desktop | `FrameImageProvider` outside `scamcore` | open | — |
 | DX-17 | D | desktop | `~CameraDevice` blocking-queued across threads | open | — |
@@ -174,5 +270,6 @@ telemetry), so nothing in the record is invalidated, relabelled or discarded.
 |---|---|---|---|
 | Stage 1 test registration | 2026-09-29 | **pass** | fresh `desktop\build`: `ctest -N` = 12, `ctest` = 12/12, exit 0 |
 | Stage 2 PSRAM reproducibility | 2026-09-29 | **pass** | clean generated `sdkconfig` identical before/after the fix; `40M` == `40M` |
+| Stage 3 profile provenance | 2026-09-29 | **pass** | `ctest` 12/12; `tst_profileengine` 23/23; all 60 published figures present in `benchmark-results.md`; 3 mutations caught |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
