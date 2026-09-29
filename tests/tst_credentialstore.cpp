@@ -1,6 +1,7 @@
 #include "CredentialStore.h"
 
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QTest>
 
 class TestCredentialStore : public QObject
@@ -19,8 +20,25 @@ private slots:
 
 void TestCredentialStore::initTestCase()
 {
+    // Every QSettings here is default-constructed, which on Windows is
+    // NativeFormat - HKCU\Software\SortingCameraTest. Until now these tests
+    // wrote real encrypted password blobs into the real per-user registry and
+    // "cleaned up" with remove(), which leaves the empty keys behind and still
+    // touches the user's machine. Redirect the whole test into a scratch
+    // directory before the first QSettings exists (CP-22); DPAPI is
+    // unaffected, it operates on bytes, not on where they are stored.
+    static QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+
     QCoreApplication::setOrganizationName(QStringLiteral("SortingCameraTest"));
     QCoreApplication::setApplicationName(QStringLiteral("SortingCameraTest"));
+
+    QSettings probe;
+    QVERIFY2(probe.fileName().startsWith(dir.path()),
+             qPrintable(QStringLiteral("settings escaped the scratch dir: %1")
+                            .arg(probe.fileName())));
 }
 
 static void purge(const QString &key)
