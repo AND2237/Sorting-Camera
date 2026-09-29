@@ -178,6 +178,18 @@ static int provision(void)
         return ESP_ERR_NOT_FOUND;
     }
 
+    // The example header used to ship this exact string, and the CMake copy
+    // step turns a missing config_secrets.h into a configured one. A build
+    // whose secrets were never edited would therefore report auth.required
+    // while checking against a password published in git; refuse it by name so
+    // a stale local copy cannot silently become the real one (FW-16).
+    if (strcmp(AUTH_PASSWORD, "CHANGE_ME_CONTROL_PASSWORD") == 0) {
+        ESP_LOGW(TAG, "CAMERA_CONTROL_PASSWORD is still the shipped example value: "
+                      "control API is UNAUTHENTICATED - set a real password in "
+                      "config_secrets.h");
+        return ESP_ERR_NOT_FOUND;
+    }
+
     const int64_t started = esp_timer_get_time();
     esp_fill_random(s_salt, sizeof(s_salt));
     const int rc = mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256,
