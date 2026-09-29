@@ -67,6 +67,11 @@ public:
         m_socket->flush();
     }
 
+    // The RFC 2046 close-delimiter the firmware now sends when the stream ends
+    // (FW-9). Off by default so every other test still sees the old shape of
+    // "the body just stops", which is the case it is actually about.
+    bool sendCloseDelimiter = false;
+
     // Pushes more parts onto an already-open connection, so a test can create
     // traffic inside a measurement window rather than only before it.
     void sendMore(const QList<QByteArray> &payloads)
@@ -110,6 +115,9 @@ private:
             out += "Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n";
             out += "Cache-Control: no-cache\r\n\r\n";
             out += encode(m_payloads);
+            if (sendCloseDelimiter) {
+                out += "\r\n--FRAME--\r\n";
+            }
             sock->write(out);
             sock->flush();
         });
@@ -153,6 +161,7 @@ private slots:
     void unreadFramesAreCountedAsOverwritten();
     void readFramesAreNotCountedAsOverwritten();
     void framesAreDeliveredOffTheGuiThread();
+    void aCloseDelimiterEndsTheBodyCleanly();
     void recoveryBudgetRearmsAfterTheStreamIsHealthyAgain();
     void liveCameraBytesAreStoredVerbatim();
 };
@@ -506,6 +515,43 @@ void TestCapture::framesAreDeliveredOffTheGuiThread()
     QVERIFY2(!onGuiThread.load(),
              "frameReady is emitted on the GUI thread, which is where CP-3 "
              "puts the frame bus and the recorder");
+}
+
+// FW-9: the MJPEG stream used to stop between two boundaries, which only
+// worked because MjpegClient keys on the literal "--FRAME" rather than on a
+// parsed delimiter. The firmware now closes the multipart body with the RFC
+// 2046 close-delimiter a conforming reader expects, and this pins the client
+// side of that change: the terminator is not a fifth part, it does not corrupt
+// the parser, and the frame still on screen is still the last real one. The
+// firmware side of FW-9 cannot be exercised without hardware, so what is
+// asserted here is the contract the firmware now relies on.
+void TestCapture::aCloseDelimiterEndsTheBodyCleanly()
+{
+    const QList<QByteArray> payloads = realJpegs(4);
+    QVERIFY(payloads.size() == 4);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+    stub.sendCloseDelimiter = true;
+
+    FrameBus bus;
+    MjpegClient stream;
+    connect(&stream, &MjpegClient::frameReady, &bus,
+            [&bus](const QImage &img, const QByteArray &raw, qint64 ms) {
+                bus.setFrame(img, raw, ms);
+            });
+
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(bus.version() >= payloads.size(), 8000);
+
+    // The close-delimiter is a terminator, not a part: nothing further decodes,
+    // the parser reports no failure (a malformed tail would populate
+    // errorString and start the reconnect ladder), and byte identity holds.
+    QTest::qWait(600);
+    QCOMPARE(bus.version(), payloads.size());
+    QCOMPARE(stream.errorString(), QString());
+    QCOMPARE(sha256(bus.rawFrame()), sha256(payloads.last()));
+    stream.stop();
 }
 
 // CP-5: the recovery budget was incremented and compared but never assigned
