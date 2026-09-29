@@ -518,6 +518,137 @@ not `closed`. Behaviour must be confirmed on hardware in Stage 4 g5:
 
 ---
 
+### g4 — CP-10, CP-14, CP-15, CP-23, DX-1: the QML presentation defects
+
+Five findings, four of them in `desktop/qml/Main.qml`. Only CP-15 and DX-1 have
+a C++ surface that a test can reach; the other three are QML-only and are held
+by `qmllint` and a runtime load instead (see the gate).
+
+#### CP-10 — three status overlays at identical coordinates
+
+`Main.qml` (the three bottom-left labels).
+
+**What was wrong.** The reconnect counter, the camera-recovery counter and the
+stream error were each anchored `left`/`bottom` with `anchors.margins: 14` and
+no offset between them. The conditions are provably co-satisfiable —
+`camera_recoveries` is cumulative for the boot, so after any recovery a later
+stream error printed *underneath* the recovery counter and which one an
+operator could read was pure z-order.
+
+**What changed.** The three are wrapped in a `Column` on the same anchors.
+`Column` skips children whose `visible` is false, so exactly the conditions that
+hold are stacked and the offset from the corner is the same 14 px.
+
+#### CP-14 — sensor sliders lose their status binding on first drag
+
+`Main.qml`, the sensor-control `Slider`.
+
+**What was wrong.** `value: parent.current`. A drag assigns `value`
+imperatively, which destroys any binding on it, so the binding worked exactly
+once; after the first touch the handle kept showing what had been dragged even
+when the camera reported something else, and the 1 Hz poll had nothing left to
+correct. The quality slider had already solved this with an explicit
+`syncFromStatus()` guarded by `!pressed`.
+
+**What changed.** The binding is gone. The delegate's `current` property now
+drives `syncFromStatus()` through `onCurrentChanged` and once at
+`Component.onCompleted`; the `!pressed` guard stops a poll from yanking the
+handle out from under a finger.
+
+#### CP-15 — notifications dismissed by index, which `postOnce` invalidates
+
+`NotificationCenter.{h,cpp}`, `Main.qml`, `tests/tst_notificationcenter.cpp`.
+
+**What was wrong.** `notify.dismiss(notifyCard.index)`. `postOnce()` does
+`beginRemoveRows` + `beginInsertRows(0,0)` when a keyed condition recurs and
+`sweepExpired()` retires a row every 500 ms, so between a delegate being
+created and its × being clicked the captured index may address a different
+card — closing somebody else's notification and leaving the clicked one on
+screen. This is the exact defect `9beced1` fixed on the C++ side, reintroduced
+in QML, because `data()` exposed no key role and QML *could not* use the safe
+API.
+
+**What changed:**
+
+- `ItemIdRole` (`itemId`) answers the item's own `m_nextId` identity, which is
+  unrelated to the row it occupies — in production `m_nextId` has climbed well
+  past `rowCount()`.
+- `dismissById(qint64)` is the only dismissal exposed to QML. **`dismiss(int
+  row)` was deleted**, not merely avoided: keeping an index-based `Q_INVOKABLE`
+  around is how the defect came back the first time, and it has had no
+  production caller since `9beced1`.
+- The QML delegate declares `required property var itemId` and calls
+  `notify.dismissById(notifyCard.itemId)`.
+
+**Test** — `dismissByIdRemovesTheClickedCardNotTheRowUnderneath` advances
+`m_nextId` past the row count first (so identity ≠ position is real), captures
+`alpha`'s id while it sits at row 1, lets `postOnce()` lift it to row 0, and
+then dismisses: the right card goes and `bravo` stays. Out-of-range ids and id
+0 are no-ops. The role test also asserts `roleNames()` advertises `itemId`,
+because a role that is answered but not advertised leaves every delegate's
+required property uninitialised at runtime.
+
+#### CP-23 — the footer's "drop" metric conflated two different counters
+
+`Main.qml`, footer.
+
+**What was wrong.** The label read `stream.framesDropped +
+frameBus.overwrittenCount` under the comment "frames the transport discarded".
+`MjpegClient.cpp:394` increments `m_dropped` **only** in the decode-failure
+branch — it has never counted a transport discard. One number was therefore
+carrying two unrelated things and naming a third.
+
+**What changed.** Split into two footer items, each saying what it counts and
+each with a tooltip: `dec` for frames that arrived but could not be decoded
+(framing/codec), `drop` for frames the bus replaced before the display could
+show them (latest-frame-wins). Nothing is summed, so neither is understated.
+
+#### DX-1 — "sign-in required" was rendered as a permanent red error
+
+`SessionState.{h,cpp}`, `CameraDevice.cpp`, `tests/tst_sessionstate.cpp`.
+
+**What was wrong.** `derive()` sets `state = Error` with `severity = "warn"`
+for `needsSignIn`, and line 85's own comment says *"Actionable by the user, so
+a warning rather than a fault."* `CameraDevice` dispatched on
+`state() == State::Error` and ignored severity, posting
+`Diagnostics::Level::Error`. `isSticky()` treats `>= Warning` as sticky, so an
+ordinary first-run state became a red card the operator had to clear by hand on
+every connect, before having done anything wrong.
+
+**What changed.** `SessionState::notificationLevel(severity)` maps the state
+machine's own vocabulary onto a level — `"warn"` → `Warning`, everything else →
+`Error`, failing closed so a demotion has to be asked for by name. `CameraDevice`
+calls it for both the `Error` and `Degraded` branches (Degraded carries `"warn"`
+in every branch of `derive()`, so its behaviour is unchanged).
+
+**Test** — `notificationLevelCarriesTheSeverityTheStateSet` derives the
+sign-in-required outcome and the rejected-credentials outcome, both
+`State::Error`, and asserts they map to `Warning` and `Error` respectively;
+plus `Degraded` → `Warning`, and unrecognised/empty severities → `Error`.
+
+**Mutation**
+
+| Mutation | Result |
+|---|---|
+| `dismissById` compares the row instead of the id (`i != id`) | **exit 1, 14 passed, 1 failed** — `rowCount()` 2, expected 1 |
+| `roleNames()` stops advertising `itemId` | **exit 1, 14 passed, 1 failed** — the `roleNames().contains` guard |
+| `notificationLevel` always returns `Error` (the pre-fix behaviour) | **exit 1, 20 passed, 1 failed** |
+| all restored | exit 0 |
+
+**Gate**
+
+| Check | Result |
+|---|---|
+| desktop build | exit 0, no errors |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 12**, 61.36 s |
+| `tst_notificationcenter` | 15/15 |
+| `tst_sessionstate` | 21/21 |
+| `qmllint` vs `HEAD` (differential) | 18 diagnostics before, 18 after — the 6 differing lines are pre-existing `Quick.layout-positioning` warnings shifted by our edit; **no new diagnostics** |
+| runtime QML load | `SortingCamera.exe -platform offscreen` stayed up 8 s with no `objectCreationFailed` and no QML errors on stderr |
+| 3 mutations | all caught |
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
@@ -531,21 +662,21 @@ not `closed`. Behaviour must be confirmed on hardware in Stage 4 g5:
 | CP-7 | B | tests | No chunked-transfer test | open | — |
 | CP-8 | B | tests | No reconnect-ladder test | open | — |
 | CP-9 | B | tests | No malformed-frame matrix | open | — |
-| CP-10 | C | QML | Overlapping anchored labels | open | — |
+| CP-10 | C | QML | Overlapping anchored labels | **closed** | Stage 4 g4: three labels wrapped in a `Column`; qmllint differential clean, runtime load clean |
 | CP-11 | C | desktop | `releaseStale` blocks the GUI thread | open | — |
 | CP-12 | C | desktop | Skip ahead passes no format | open | — |
 | CP-13 | C | desktop | Frame interval metrics throttled incorrectly | open | — |
-| CP-14 | C | QML | Slider binding reads `parent.current` | open | — |
-| CP-15 | C | QML | Dismisses by index, not by identity | open | — |
+| CP-14 | C | QML | Slider binding reads `parent.current` | **closed** | Stage 4 g4: `syncFromStatus()` + `onCurrentChanged`, `!pressed` guarded; qmllint differential clean |
+| CP-15 | C | QML | Dismisses by index, not by identity | **closed** | Stage 4 g4: `ItemIdRole` + `dismissById`, `dismiss(int)` deleted; new test, 3 mutations caught |
 | CP-16 | B | desktop | 7 fps floor presented as measured | **closed** | Stage 3: `floorProvisional` + `activeFloorProvisional`; stale doc section replaced |
 | CP-17 | B | desktop | D2 evidence string overstates the run | **closed** | Stage 3: alt 9.97, 28,956 B, "one run measured three ways"; ADR-0012 corrected |
 | CP-18 | B | firmware | NVS restore trusts types with no validation | **fixed** | Stage 4 g3: enum + floor/ceiling checks in `camera_cfg_restore()`; build-verified, hardware pending g5 |
 | CP-19 | A | firmware | Frame mutex held across network send | **fixed** | Stage 4 g1: drain gate in `camera.c` (ADR-0016); `idf.py build` exit 0; hardware validation pending (Stage 4 g5) |
 | CP-21 | C | desktop | Protocol version check absent | open | — |
 | CP-22 | C | desktop | Test settings path not redirected | open | — |
-| CP-23 | C | QML | Decode-failure counter labelled as transport drops | open | — |
+| CP-23 | C | QML | Decode-failure counter labelled as transport drops | **closed** | Stage 4 g4: `dec` and `drop` shown separately with tooltips, no sum |
 | CP-25 | B | desktop | Conservative reading rule documented but not implemented | **closed** | Stage 3: `conservativeFps()` used by `recommended()` and `activeMeetsFloor()`; disagreement forced by test |
-| DX-1 | C | QML | Severity conflated for sign-in failure | open | — |
+| DX-1 | C | QML | Severity conflated for sign-in failure | **closed** | Stage 4 g4: `SessionState::notificationLevel()` consulted by `CameraDevice`; new test, mutation caught |
 | DX-12 | D | desktop | `FrameImageProvider` outside `scamcore` | open | — |
 | DX-17 | D | desktop | `~CameraDevice` blocking-queued across threads | open | — |
 | A0 | A | firmware | PSRAM config unreproducible | **closed** | ADR-0015: clean config == measured config; generated `sdkconfig` diff IDENTICAL |
@@ -580,5 +711,6 @@ not `closed`. Behaviour must be confirmed on hardware in Stage 4 g5:
 | Stage 4 g2 CP-6 401 replay | 2026-09-30 | **pass** | `ctest` 12/12 (4/4 repeat); `tst_devicestatus` 13/13; mutation of the 401 branch caught by both new tests (11/13, exit 2) |
 | Stage 4 g3 CP-5 recovery budget | 2026-09-30 | **pass** | `ctest` 12/12, 62 s; `tst_capture` 10/0/1; 3-episode mutation caught (exit 1, 9/1/1) |
 | Stage 4 g3 CP-18/FW-6 + CP-4/FW-1 | 2026-09-30 | **pass (build only)** | `idf.py build` exit 0, no `camera.c`/`app_main.c` warnings; live hardware validation **not run** (Stage 4 g5) |
+| Stage 4 g4 CP-10/14/15/23/DX-1 | 2026-09-30 | **pass** | `ctest` 12/12 (61 s); `tst_notificationcenter` 15/15; `tst_sessionstate` 21/21; 3 mutations caught; `qmllint` differential 18 → 18 (no new); `SortingCamera -platform offscreen` loaded QML and ran 8 s clean |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
