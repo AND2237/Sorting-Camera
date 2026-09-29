@@ -831,6 +831,177 @@ be silently dropped again.
 
 ---
 
+### g6 — FW-9, FW-11, FW-12, FW-16, FW-17, FW-19, FW-20: firmware truthfulness
+
+Seven firmware findings about things the firmware either failed to say on the
+wire, said wrongly, or did without the policy its neighbours follow. Six are
+code changes; FW-17 is a correction of arithmetic in two places.
+
+**A note on evidence, stated up front.** No host-side harness executes the
+firmware, so six of the seven are **build-verified only** and stay `fixed`,
+never `closed`, until they are confirmed on the camera (Stage 4 g7 hardware
+pass). The one new desktop test is a *contract* test for FW-9 — it pins what the
+client requires of a stream that now ends properly — and is mutation-checked
+below. Nothing in this group is claimed as hardware-verified.
+
+#### FW-9 — the MJPEG body never ended
+
+`firmware/.../http_servers.c` `stream_handler()`.
+
+**What was wrong.** Every part is preceded by `--FRAME\r\n`, and when the loop
+left, the handler only sent `httpd_resp_send_chunk(req, NULL, 0)` — which
+terminates the **chunked transfer**, not the **multipart body**. RFC 2046 wants
+`--FRAME--`. `MjpegClient` keys on the literal `"--FRAME"` and so never noticed;
+a reader that actually parses delimiters would sit waiting for a boundary that
+never arrives.
+
+**What changed.** Before the terminating chunk the handler now sends
+`\r\n--FRAME--\r\n` unconditionally. Every exit from the loop is a decision to
+leave, so a terminator that itself fails changes nothing — the socket goes with
+it.
+
+**Test** — `tst_capture::aCloseDelimiterEndsTheBodyCleanly`: the stub can now
+emit the close-delimiter, and the test asserts all four parts decode, no fifth
+part appears, `errorString()` stays empty (a malformed tail would populate it
+and start the reconnect ladder), and the last frame is still byte-identical.
+This is the *contract* side; the firmware side needs the camera.
+
+#### FW-11 — a floor-quality number presented as the requested quality
+
+`firmware/.../camera.c`, `http_servers.c`.
+
+**What was wrong.** `camera_estimate_frame_bytes(fs, quality)` contained
+`(void)quality;` and returned the maximum measured **at the resolution's
+quality floor**. It was quoted in the below-floor rejection message — "max frame
+`%u` B" as though it described the quality the operator just asked for — and in
+the config response as `est_frame_bytes`, computed with the *current* quality.
+At q36 the real frame is far larger than the floor figure.
+
+**What changed.** Renamed to `camera_measured_max_frame_bytes(fs)` and the
+quality parameter deleted: there is no measured size-vs-quality model (ADR-0009
+decision 2 measured one, found it wrong, and threw it away), so a number
+labelled for a specific quality would be invented, not measured. The rejection
+message now says *"largest frame measured at that floor"*, the serial log says
+*"measured max frame … at quality N"*, and the JSON key is
+`measured_max_frame_bytes` (renamed because no consumer read the old key —
+grep across `desktop`, `tools`, `tests`, `docs` found none).
+
+**Verified** — `idf.py build` exit 0; no remaining reference to the old symbol.
+
+#### FW-12 — sensor writes bypassed both the 409 policy and the camera lock
+
+`firmware/.../http_servers.c`, `camera.c`, `app.h`.
+
+**What was wrong.** `config_handler` refuses to reconfigure while
+`stream_client_count() + frame_transport_client_count() > 0` and serialises
+through `camera_apply_config()`. `sensor_set_handler` did neither: a slider drag
+rewrote SCCB registers mid-capture, concurrently with the camera task's DMA, and
+could land in the window where `camera_recover()` is between
+`esp_camera_deinit()` and `esp_camera_init()`.
+
+**What changed.** The check is now one shared helper, `refuse_while_streaming()`
+— same message, same 409, one place to get it wrong — called by `config_handler`
+for a param change and by `sensor_set_handler` after the body has been read (so
+the connection is drained before it is refused). `camera.c` exports
+`camera_lock()` / `camera_unlock()` around `camera_control_apply()`. The drain
+**gate** is deliberately *not* closed: a register write does not stop frame
+delivery, and closing it would turn every slider nudge into a stream stall.
+
+**Verified by reading, not by running:** `camera_control_apply()` calls only
+`esp_camera_sensor_get()` and its own helpers — it never re-takes `s_cam_mutex`,
+so the lock cannot self-deadlock. The NVS write-per-request half of the finding
+(FW-21) is out of scope for this group and stays open.
+
+#### FW-16 — a password published in git could be auto-provisioned
+
+`firmware/.../CMakeLists.txt`, `config_secrets.example.h`, `auth.c`.
+
+**What was wrong.** The project `CMakeLists.txt` copies
+`config_secrets.example.h` to `config_secrets.h` when the latter is missing, and
+the example shipped `CAMERA_CONTROL_PASSWORD "CHANGE_ME_CONTROL_PASSWORD"` —
+non-empty, so `provision()` succeeded and `s_enabled = true`. A build that was
+never given real secrets would report `auth.required: true` while checking
+against a value anyone can read in the repository. (The audit cites
+`main/CMakeLists.txt`; the copy step is at the project root — line drift.)
+
+**What changed.** The example password is now `""`, which provision() already
+treats as "not provisioned" and logs loudly. `auth.c` *additionally* refuses the
+old literal by name with `ESP_ERR_NOT_FOUND`, so a stale local copy of
+`config_secrets.h` cannot become the real credential silently.
+
+**Checked against this machine:** the local (git-ignored) `config_secrets.h`
+holds a 24-character password that is **not** the placeholder, so the new
+refusal does not disable auth on this working copy.
+
+#### FW-17 — the socket budget was wrong in both places it was written down
+
+`firmware/.../main/Kconfig.projbuild`, `docs/architecture.md`.
+
+**What was wrong.** The Kconfig help budgeted "7 + 5 = 12 … 14 with the
+transport". The source says `max_open_sockets = 6` (control) and `2` (stream),
+and `esp_http_server` costs `max_open_sockets + 3` per instance. Real usage is
+control 9 + stream 5 + discovery UDP 1 = **15 of `CONFIG_LWIP_MAX_SOCKETS=16`**,
+and enabling the transport adds three more — **18 > 16, it does not fit at
+all**. `architecture.md` had the same arithmetic error with `max_open_sockets=4`.
+The socket-exhaustion argument around that table is correct; only the numbers
+were wrong, which is worse than an absent warning.
+
+**What changed.** Both texts now carry the verified arithmetic, discovery is
+listed as a consumer, and the consequence bullets say plainly that the transport
+requires raising `CONFIG_LWIP_MAX_SOCKETS` to at least 19 rather than implying
+there is headroom. Counted directly from source: `discovery.c` opens one UDP
+socket; `frame_transport.c` opens a listener, accepts one client, and opens a UDP
+socket.
+
+#### FW-19 / FW-20 — loss and pressure that existed only as serial lines
+
+`firmware/.../metrics.c`, `http_servers.c`, `frame_transport.c`;
+`docs/protocol.md`, `docs/architecture.md`, `tools/fake_camera.py`.
+
+**What was wrong.** AGENTS.md requires every drop to be counted and never
+hidden. Three things were not: a mid-frame send failure in the MJPEG handler and
+in the TCP transport logged and broke with no counter; `near_budget_frames` was
+a function-local throttle for a `printf`, invisible to the status API; and a
+served snapshot incremented nothing, which is *correct* for the liveness
+watchdog but undocumented, so the gap against `frames_captured` was
+indistinguishable from a bug.
+
+**What changed.** Three mutex-guarded counters — `metrics_record_send_failure`
+/ `metrics_record_near_budget` / `metrics_record_snapshot` — exported as
+`frames_send_failures`, `frames_near_budget`, `snapshots_served` in the status
+JSON and mirrored in the rate-limited log task. The `near_budget_frames` local
+is gone; the global is now the throttle, so the "first and every 100th" warning
+spans the whole run rather than one connection. `docs/protocol.md` gains a
+**Loss counters** table defining each field, including why snapshots stay out of
+`frames_captured`; `architecture.md`'s metrics row matches; `fake_camera.py`
+emits the same three keys (0, 0, and a real snapshot count).
+
+**Mutation / contract check**
+
+| Mutation | Result |
+|---|---|
+| stub emits a fifth part *after* the close-delimiter | **caught** — `tst_capture` exit 1, 10 passed, 1 failed: `aCloseDelimiterEndsTheBodyCleanly`, `bus.version()` actual **5**, expected 4 (`tests/tst_capture.cpp:551`, reported as 552 in the mutated build) |
+| restored | exit 0, 11 passed, 0 failed |
+
+That mutation proves the new assertion can fail. It does **not** prove FW-9
+fixed: the firmware side of FW-9 is not executed by any test in this repository,
+and no mutation of the firmware is available without the camera. Recorded as
+such rather than presented as coverage.
+
+**Gate**
+
+| Check | Result |
+|---|---|
+| `idf.py build` (ESP-IDF 5.5.4, after all seven edits) | **exit 0**, `esp32_cam_stream.bin` 0xf7bc0, 52% of app partition free |
+| desktop build | exit 0 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 13**, 61.98 s (`tst_capture` 47.85 s) |
+| `tst_capture` | 11 passed, 0 failed, 1 skipped (live-device test needs `SCAM_TEST_HOST`) |
+| 1 mutation | caught, then restored to green |
+| stale-symbol grep | no `camera_estimate_frame_bytes` / `est_frame_bytes` outside the frozen audit |
+| hardware | **not run** — FW-9, FW-11, FW-12, FW-16 need the camera; FW-17 and the doc changes do not |
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
@@ -869,15 +1040,15 @@ be silently dropped again.
 | FW-6 | B | firmware | NVS restore unvalidated (alias of CP-18) | **fixed** | Stage 4 g3 (CP-18); build-verified, hardware pending g5 |
 | FW-7 | A | firmware | Camera lock held across send (alias of CP-19) | **fixed** | Stage 4 g1 part 2: same change as CP-19; see ADR-0016 |
 | FW-8 | B | firmware | Watchdog resets camera at 1 Hz | open | — |
-| FW-9 | C | firmware | Missing close delimiter | open | — |
+| FW-9 | C | firmware | Missing close delimiter | **fixed** | Stage 4 g6: `\r\n--FRAME--\r\n` before the terminating chunk; client contract test + mutation; **hardware pending** |
 | FW-10 | B | firmware | Truncated config query returns 200 OK | open | — |
-| FW-11 | C | firmware | Quality-blind frame estimate | open | — |
-| FW-12 | C | firmware | Sensor endpoint lacks lock and debounce | open | — |
+| FW-11 | C | firmware | Quality-blind frame estimate | **fixed** | Stage 4 g6: `camera_measured_max_frame_bytes(fs)`, quality parameter deleted, honest messages, JSON key renamed; build-verified, hardware pending |
+| FW-12 | C | firmware | Sensor endpoint lacks lock and debounce | **fixed** | Stage 4 g6: shared `refuse_while_streaming()` 409 + exported `camera_lock()`/`camera_unlock()`; build-verified, hardware pending. The NVS-per-request half is FW-21, still open |
 | FW-13 | B | firmware | Config accepts GET, spec says POST | open | — |
-| FW-16 | C | firmware | Path cited for secrets check is wrong | open | — |
-| FW-17 | C | firmware | Socket budget in three places, three answers | open | — |
-| FW-19 | D | firmware | Counter definition undocumented | open | — |
-| FW-20 | D | firmware | Documented counter not implemented | open | — |
+| FW-16 | C | firmware | Path cited for secrets check is wrong | **fixed** | Stage 4 g6: example password emptied **and** `provision()` refuses the old literal; the copy step is in the project-root `CMakeLists.txt`, not `main/`; build-verified, hardware pending |
+| FW-17 | C | firmware | Socket budget in three places, three answers | **fixed** | Stage 4 g6: Kconfig help + `architecture.md` corrected to 15 of 16 at baseline, 18 with the transport (it does not fit); docs-only |
+| FW-19 | D | firmware | Counter definition undocumented | **fixed** | Stage 4 g6: `frames_send_failures` / `frames_near_budget` / `snapshots_served` counted and defined in `docs/protocol.md`; build-verified, hardware pending |
+| FW-20 | D | firmware | Documented counter not implemented | **fixed** | Stage 4 g6: all three exported in the status JSON, `fake_camera.py` parity, `architecture.md` metrics row matches; hardware pending |
 
 ---
 
@@ -895,5 +1066,6 @@ be silently dropped again.
 | Stage 4 g3 CP-18/FW-6 + CP-4/FW-1 | 2026-09-30 | **pass (build only)** | `idf.py build` exit 0, no `camera.c`/`app_main.c` warnings; live hardware validation **not run** (Stage 4 g5) |
 | Stage 4 g4 CP-10/14/15/23/DX-1 | 2026-09-30 | **pass** | `ctest` 12/12 (61 s); `tst_notificationcenter` 15/15; `tst_sessionstate` 21/21; 3 mutations caught; `qmllint` differential 18 → 18 (no new); `SortingCamera -platform offscreen` loaded QML and ran 8 s clean |
 | Stage 4 g5 CP-11/12/13/21/22 desktop seams | 2026-09-30 | **pass** | `ctest` **13/13**, 61.53 s (new suite `tst_configwritesequence`, 6/6); `tst_deviceregistry` 13/13, `tst_discovery` 17/0/2, `tst_sessionstate` 22/22, `tst_credentialstore` 8/8 (no longer writes HKCU); 5 mutations all caught |
+| Stage 4 g6 FW-9/11/12/16/17/19/20 firmware truthfulness | 2026-09-30 | **pass (build + desktop only)** | `idf.py build` exit 0 after all seven edits; `ctest` **13/13**, 61.98 s; `tst_capture` 11/0/1; 1 mutation caught then restored green; **FW-9/11/12/16 need the camera, hardware validation not run** |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
