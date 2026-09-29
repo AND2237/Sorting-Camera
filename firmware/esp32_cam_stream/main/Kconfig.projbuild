@@ -4,13 +4,17 @@ menu "Sorting Camera"
         bool "Enable TCP/UDP frame transport"
         default n
         help
-            Starts the raw frame transport (TCP listener on STREAM_TRANSPORT_PORT and
-            a UDP receive socket) in addition to the HTTP baseline. The HTTP
-            baseline (status/snapshot/config on port 80, MJPEG on port 81) is the
-            only path used by the desktop app and the benchmark harness, and the
-            transport permanently consumes two lwIP sockets (7 + 5 = 12 sockets for
-            the two HTTP servers, 14 with the transport enabled). Leave this off
-            unless a raw-transport client is being used; raise
-            CONFIG_LWIP_MAX_SOCKETS if you enable it.
+            Starts the raw frame transport (TCP listener on STREAM_TRANSPORT_PORT,
+            the accepted TCP client, and a UDP receive socket) in addition to the
+            HTTP baseline. The baseline (status/snapshot/config on port 80, MJPEG
+            on port 81, discovery on port 48888) is the only path used by the
+            desktop app and the benchmark harness.
+
+            Socket arithmetic, counting httpd's fixed 3-socket overhead per
+            instance: control httpd 6+3 = 9, MJPEG httpd 2+3 = 5, discovery UDP =
+            1, so the baseline already holds 15 of CONFIG_LWIP_MAX_SOCKETS=16.
+            Enabling the transport adds 3 more (18 > 16) and therefore does NOT
+            fit: leave this off unless a raw-transport client is being used, and
+            raise CONFIG_LWIP_MAX_SOCKETS to at least 19 first.
 
 endmenu

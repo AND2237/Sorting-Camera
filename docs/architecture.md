@@ -24,7 +24,7 @@ Modules (each a small cohesive unit under `firmware/esp32_cam_stream/main/`):
 | `transport` | frame delivery. Three server-pull senders, each a task/handler that fetches frames from the camera driver and reports to `metrics`: HTTP MJPEG (stream handler), TCP framed + UDP packetized (`frame_transport.c`, selected/primary per ADR-0007) |
 | `control_api` | authenticated JSON control/status endpoints (HTTP) |
 | `discovery` | UDP broadcast announce on 48888 (no mDNS — see Discovery) |
-| `metrics` | capture/tx FPS, bytes, heap/PSRAM, RSSI counters, reported via status API + serial log (rate-limited) |
+| `metrics` | capture/tx FPS, bytes, heap/PSRAM, RSSI counters, plus lost/near-budget frames and snapshots served — exported through the status API and mirrored in the rate-limited serial log |
 | `app` | wiring, task/core affinity, watchdogs |
 
 Pipeline: OV2640 JPEG → PSRAM fb → (optional early send during DMA where measurable) → transport. No RGB/YUV conversion on device. No recording/transcoding on device.
@@ -35,15 +35,18 @@ Every lwIP socket the firmware opens comes out of one pool (`CONFIG_LWIP_MAX_SOC
 
 | Consumer | Sockets |
 |---|---|
-| control httpd (port 80, `max_open_sockets=4`) | 7 |
+| control httpd (port 80, `max_open_sockets=6`) | 9 |
 | stream httpd (port 81, `max_open_sockets=2`) | 5 |
-| raw TCP/UDP frame transport (`CONFIG_SORTING_CAM_FRAME_TRANSPORT`, default **off**) | 2 |
-| worst case with transport enabled | 14 |
+| discovery UDP (port 48888) | 1 |
+| **baseline (the desktop and benchmark path)** | **15** |
+| raw frame transport (`CONFIG_SORTING_CAM_FRAME_TRANSPORT`, default **off**): TCP listener + accepted client + UDP | 3 |
+| worst case with transport enabled | **18** |
 | `CONFIG_LWIP_MAX_SOCKETS` | **16** |
 
 Consequences that are now enforced by review, not luck:
 
 - The pool must exceed the worst case with headroom. Undersizing it does not degrade gracefully: `accept()` starts failing with `ENFILE` (errno 23), the listen socket stays readable, and the httpd task busy-spins at 100% CPU while new connections rot in the backlog — clients see the connection closed or stalled, and the extra CPU load shows up as brownout risk on USB power.
+- The baseline already sits at **15 of 16**: one free socket, exactly as intended for a single client. The raw transport **does not fit the pool at all** (18 > 16) — it is not a "raise it a bit" option but a configuration change, which is why it stays default-off.
 - Anything that permanently holds a socket (the raw transport) must be opt-in. It is off by default because no shipped client uses it.
 - Churn matters: rapid connect/abort cycles were what pushed the pool to exhaustion. `CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT` is 5 s (default 20 s) so closed sessions release their PCB quickly, and the control server uses `recv_wait_timeout=2` so idle keep-alive sessions are dropped fast.
 - Verified 2026-09-26 after the fix: 20 rapid connect/abort cycles plus interleaved config changes and status polling produced zero `error in accept` entries, and every session streamed.
