@@ -603,6 +603,7 @@ ApplicationWindow {
             delegate: Rectangle {
                 id: notifyCard
                 required property int index
+                required property var itemId
                 required property int severity
                 required property string category
                 required property string text
@@ -655,7 +656,12 @@ ApplicationWindow {
                     width: 22
                     height: 22
                     text: "×"
-                    onClicked: notify.dismiss(notifyCard.index)
+                    // By identity, not by index: between this delegate being
+                    // created and the operator pressing ×, a postOnce refresh
+                    // or the 500 ms sweep may have shifted the rows, and the
+                    // captured index would then close somebody else's card
+                    // while this one stays on screen (CP-15).
+                    onClicked: notify.dismissById(notifyCard.itemId)
                 }
 
                 // Keeps the card from swallowing wheel events meant for the
@@ -800,14 +806,37 @@ ApplicationWindow {
                 font.family: Theme.fontMonoFamily
             }
             Label {
-                text: "drop " + (stream.framesDropped + frameBus.overwrittenCount)
-                // Two different things are being counted here: frames the
-                // transport discarded, and frames the bus replaced before the
-                // display could show them. Latest-frame-wins is the right
-                // policy, but a drop nobody can see is a drop nobody can fix.
-                color: (stream.framesDropped + frameBus.overwrittenCount) > 0 ? Theme.danger : Theme.textMuted
+                // A frame that arrived but could not be decoded. This is not a
+                // transport loss and it was never one: stream.framesDropped is
+                // incremented only in MjpegClient's decode-failure branch, so
+                // showing it under "drop" alongside the bus counter read as
+                // "frames the transport discarded" and understated both (CP-23).
+                text: "dec " + stream.framesDropped
+                color: stream.framesDropped > 0 ? Theme.danger : Theme.textMuted
                 font.pixelSize: Theme.fontSmall
                 font.family: Theme.fontMonoFamily
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    ToolTip.visible: containsMouse
+                    ToolTip.text: "Frames received but not decoded - a framing or codec fault, not a lost frame"
+                }
+            }
+            Label {
+                // Frames the bus replaced before the display could show them.
+                // Latest-frame-wins is the right policy, but a drop nobody can
+                // see is a drop nobody can fix, so it is counted rather than
+                // hidden - and counted on its own, next to the number it is not.
+                text: "drop " + frameBus.overwrittenCount
+                color: frameBus.overwrittenCount > 0 ? Theme.danger : Theme.textMuted
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    ToolTip.visible: containsMouse
+                    ToolTip.text: "Frames the display never got because a newer one replaced them first"
+                }
             }
                         Label {
                             visible: streamStats.hasFrame
@@ -1473,6 +1502,23 @@ ApplicationWindow {
                                             return v !== undefined ? v : modelData.def
                                         }
 
+                                        // A drag writes Slider.value imperatively, which
+                                        // destroys any binding on it - so the previous
+                                        // `value: parent.current` worked exactly once and
+                                        // then the handle kept showing what had been
+                                        // dragged even when the camera reported something
+                                        // else (CP-14). Push the device's value in by hand,
+                                        // the way the quality slider already does, and
+                                        // never while the slider is being held, so a 1 Hz
+                                        // poll cannot yank it out from under a finger.
+                                        function syncFromStatus() {
+                                            if (!ctrlSlider.pressed
+                                                && Math.round(ctrlSlider.value) !== current)
+                                                ctrlSlider.value = current
+                                        }
+                                        onCurrentChanged: ctrlSlider.syncFromStatus()
+                                        Component.onCompleted: ctrlSlider.syncFromStatus()
+
                                         RowLayout {
                                             Layout.fillWidth: true
                                             Label {
@@ -1499,7 +1545,8 @@ ApplicationWindow {
                                             to: modelData.max
                                             stepSize: 1
                                             snapMode: Slider.SnapAlways
-                                            value: parent.current
+                                            // Deliberately not `value: parent.current` -
+                                            // see syncFromStatus() above.
                                             // Live while streaming: unlike
                                             // resolution and quality, a sensor
                                             // write does not restart the
@@ -1732,41 +1779,47 @@ ApplicationWindow {
             font.pixelSize: Theme.fontDisplay
         }
 
-        Label {
+        // All three of these used to be anchored to this same corner with the
+        // same 14 px margin, one on top of another. Their conditions are
+        // independent - camera_recoveries is cumulative for the boot, so after
+        // any recovery a later stream error printed *underneath* the recovery
+        // counter and which one the operator could read was pure z-order
+        // (CP-10). A Column skips children whose visible is false, so exactly
+        // the conditions that hold are stacked and the offset from the corner
+        // is the same 14 px it always was.
+        Column {
             anchors.left: parent.left
             anchors.bottom: parent.bottom
             anchors.margins: 14
-            visible: sessionState.state === "reconnecting"
-            text: "reconnecting… (" + sessionState.retryAttempt + "/"
-                  + sessionState.maxRetries + ") in "
-                  + sessionState.retryDelayMs + " ms"
-            color: Theme.warning
-            font.pixelSize: Theme.fontSmall
-            font.family: Theme.fontMonoFamily
-        }
+            spacing: 2
 
-        Label {
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            anchors.margins: 14
-            visible: deviceStatus.online
-                 && deviceStatus.status["camera_recoveries"] !== undefined
-                 && deviceStatus.status["camera_recoveries"] > 0
-            text: "camera recoveries: " + deviceStatus.status["camera_recoveries"]
-            color: Theme.warning
-            font.pixelSize: Theme.fontSmall
-            font.family: Theme.fontMonoFamily
-        }
+            Label {
+                visible: sessionState.state === "reconnecting"
+                text: "reconnecting… (" + sessionState.retryAttempt + "/"
+                      + sessionState.maxRetries + ") in "
+                      + sessionState.retryDelayMs + " ms"
+                color: Theme.warning
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
+            }
 
-        Label {
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            anchors.margins: 14
-            visible: stream.errorString.length > 0
-            text: stream.errorString
-            color: Theme.danger
-            font.pixelSize: Theme.fontSmall
-            font.family: Theme.fontMonoFamily
+            Label {
+                visible: deviceStatus.online
+                     && deviceStatus.status["camera_recoveries"] !== undefined
+                     && deviceStatus.status["camera_recoveries"] > 0
+                text: "camera recoveries: " + deviceStatus.status["camera_recoveries"]
+                color: Theme.warning
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
+            }
+
+            Label {
+                visible: stream.errorString.length > 0
+                text: stream.errorString
+                color: Theme.danger
+                font.pixelSize: Theme.fontSmall
+                font.family: Theme.fontMonoFamily
+            }
         }
     }
 }

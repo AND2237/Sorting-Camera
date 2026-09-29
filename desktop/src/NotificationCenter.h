@@ -26,7 +26,18 @@ class NotificationCenter : public QAbstractListModel
     Q_PROPERTY(int unacknowledgedCount READ unacknowledgedCount NOTIFY countsChanged)
 
 public:
-    enum Roles { SeverityRole = Qt::UserRole + 1, CategoryRole, TextRole, AgeMsRole, StickyRole };
+    enum Roles {
+        SeverityRole = Qt::UserRole + 1,
+        CategoryRole,
+        TextRole,
+        AgeMsRole,
+        StickyRole,
+        // A stable identity for the row. Rows move: postOnce() re-prepends an
+        // existing entry and the sweep retires one every 500 ms, so a QML
+        // delegate that captured `index` at creation is pointing at whatever
+        // now occupies that slot by the time the operator clicks it (CP-15).
+        ItemIdRole,
+    };
     Q_ENUM(Roles)
 
     explicit NotificationCenter(QObject *parent = nullptr);
@@ -51,13 +62,19 @@ public:
     void postOnce(const QString &key, Diagnostics::Level level, Diagnostics::Category category,
                   const QString &text);
 
-    Q_INVOKABLE void dismiss(int row);
+    // Remove the one card the caller is actually looking at. This is the only
+    // dismissal a view may use: the row an item occupies is not a property of
+    // the item, and between the click and the call the list may have moved -
+    // postOnce() re-prepends an existing entry and the sweep retires one every
+    // 500 ms. The old row-based dismiss() is gone for that reason; it is the
+    // exact defect 9beced1 fixed in C++ and QML then reintroduced (CP-15).
+    Q_INVOKABLE void dismissById(qint64 id);
     Q_INVOKABLE void dismissAll();
     Q_INVOKABLE void acknowledgeAll();
-    // Retract every message posted under one key. Where dismiss() answers "the
-    // user closed this card", this answers "the condition behind this card is
-    // gone" - the two are not the same event, and only the second one can
-    // happen without anyone watching the screen.
+    // Retract every message posted under one key. Where dismissById() answers
+    // "the user closed this card", this answers "the condition behind this
+    // card is gone" - the two are not the same event, and only the second one
+    // can happen without anyone watching the screen.
     void dismissKey(const QString &key);
     bool hasKey(const QString &key) const;
 

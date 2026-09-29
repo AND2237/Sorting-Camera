@@ -20,7 +20,7 @@ private slots:
     void infoExpiresAndErrorDoesNot();
     void repeatingTheSameKeyDoesNotGrowTheList();
     void repeatingTheSameKeyRefreshesAndMovesToTop();
-    void dismissRemovesOneRow();
+    void dismissByIdRemovesTheClickedCardNotTheRowUnderneath();
     void refreshingARowAnnouncesItsRemoval();
     void dismissKeyRetractsOnlyItsOwnCondition();
     void dismissAllClearsEverything();
@@ -60,6 +60,13 @@ void TestNotificationCenter::rolesCarrySeverityCategoryAndText()
              QStringLiteral("socket closed"));
     QVERIFY(n.data(i, NotificationCenter::AgeMsRole).toInt() >= 0);
     QVERIFY(n.data(i, NotificationCenter::StickyRole).toBool());
+    const qint64 firstId = n.data(i, NotificationCenter::ItemIdRole).toLongLong();
+    QVERIFY(firstId > 0);
+
+    // Identity is per card, not per position: two cards on the same row at
+    // different times must not answer with the same id.
+    n.post(Level::Info, Category::Auth, QStringLiteral("signed in"));
+    QVERIFY(n.data(n.index(0, 0), NotificationCenter::ItemIdRole).toLongLong() != firstId);
 
     // An out-of-range row answers rather than crashing: a QML index can go
     // stale the moment a card is dismissed.
@@ -125,21 +132,58 @@ void TestNotificationCenter::repeatingTheSameKeyRefreshesAndMovesToTop()
     QCOMPARE(n.warningCount(), 1);
 }
 
-void TestNotificationCenter::dismissRemovesOneRow()
+void TestNotificationCenter::dismissByIdRemovesTheClickedCardNotTheRowUnderneath()
 {
     NotificationCenter n;
-    n.post(Level::Warning, Category::Drops, QStringLiteral("one"));
-    n.post(Level::Warning, Category::Drops, QStringLiteral("two"));
 
-    n.dismiss(0);
+    // Ids and rows are unrelated numbers in production: m_nextId has climbed
+    // far past rowCount() by the time anyone clicks a card. A dismissal that
+    // confused the two would delete the wrong card or nothing at all, so make
+    // them differ here for the same reason.
+    for (int i = 0; i < 5; i++) {
+        n.post(Level::Info, Category::Other, QStringLiteral("scratch %1").arg(i));
+    }
+    n.dismissAll();
+    QCOMPARE(n.rowCount(), 0);
+
+    n.postOnce(QStringLiteral("a"), Level::Warning, Category::Connection, QStringLiteral("alpha"));
+    n.postOnce(QStringLiteral("b"), Level::Warning, Category::Connection, QStringLiteral("bravo"));
+
+    // The role has to be advertised as well as answered, or the QML delegate's
+    // required property is never initialised and no card builds at all.
+    QVERIFY(n.roleNames().values().contains(QByteArrayLiteral("itemId")));
+
+    // "alpha" is the second row. Read its identity while it sits there, which
+    // is exactly what a delegate does when it is created.
+    const int alphaRow = 1;
+    const qint64 alphaId =
+        n.data(n.index(alphaRow, 0), NotificationCenter::ItemIdRole).toLongLong();
+    // Identity must not be the position, or the rest of this proves nothing.
+    QVERIFY(alphaId != alphaRow);
+    QCOMPARE(n.data(n.index(alphaRow, 0), NotificationCenter::TextRole).toString(),
+             QStringLiteral("alpha"));
+
+    // The condition behind "alpha" happens again, so postOnce() lifts it back
+    // to the top and "bravo" moves down to row 1. The card the operator means
+    // is the same card; only its address changed.
+    n.postOnce(QStringLiteral("a"), Level::Warning, Category::Connection, QStringLiteral("alpha"));
+    QCOMPARE(n.data(n.index(0, 0), NotificationCenter::TextRole).toString(),
+             QStringLiteral("alpha"));
+
+    // Dismissing by the captured identity takes "alpha" and leaves "bravo".
+    // Taking the captured row (1) instead would have closed "bravo" and left
+    // the card the × sits on - which is the whole of CP-15, and the reason the
+    // row-based dismiss() was removed rather than merely avoided in QML.
+    n.dismissById(alphaId);
     QCOMPARE(n.rowCount(), 1);
     QCOMPARE(n.data(n.index(0, 0), NotificationCenter::TextRole).toString(),
-             QStringLiteral("one"));
+             QStringLiteral("bravo"));
 
-    // Out-of-range dismissals are ignored rather than fatal, because the row
-    // index a card holds can be stale by the time it is clicked.
-    n.dismiss(99);
-    n.dismiss(-1);
+    // An id that is no longer in the list is ignored rather than fatal: ids
+    // outlive cards, and m_nextId starts at 1 so 0 is never a real card.
+    n.dismissById(alphaId);
+    n.dismissById(0);
+    n.dismissById(-1);
     QCOMPARE(n.rowCount(), 1);
 }
 

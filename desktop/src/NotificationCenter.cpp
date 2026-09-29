@@ -34,6 +34,8 @@ QVariant NotificationCenter::data(const QModelIndex &index, int role) const
         return QDateTime::currentMSecsSinceEpoch() - item.createdMs;
     case StickyRole:
         return isSticky(item.level);
+    case ItemIdRole:
+        return qlonglong(item.id);
     default:
         return {};
     }
@@ -47,6 +49,7 @@ QHash<int, QByteArray> NotificationCenter::roleNames() const
         {TextRole, "text"},
         {AgeMsRole, "ageMs"},
         {StickyRole, "sticky"},
+        {ItemIdRole, "itemId"},
     };
 }
 
@@ -109,10 +112,10 @@ void NotificationCenter::postOnce(const QString &key, Diagnostics::Level level,
         // The removal has to be announced to the views. Taking the item out
         // first and only then calling beginInsertRows() shifts every row after
         // it without telling anybody, so the delegates keep holding the row
-        // index they were created with and the next dismiss() removes whatever
-        // now occupies that slot instead of the card that was clicked. The
-        // message then appears stuck to the screen, which is exactly what
-        // happened.
+        // index they were created with and a row-based dismissal then removes
+        // whatever now occupies that slot instead of the card that was
+        // clicked. The message then appears stuck to the screen, which is
+        // exactly what happened.
         beginRemoveRows(QModelIndex(), existing, existing);
         Item moved = m_items.takeAt(existing);
         endRemoveRows();
@@ -142,15 +145,22 @@ void NotificationCenter::postOnce(const QString &key, Diagnostics::Level level,
     emit posted(level, category, text);
 }
 
-void NotificationCenter::dismiss(int row)
+void NotificationCenter::dismissById(qint64 id)
 {
-    if (row < 0 || row >= m_items.size()) {
+    // Identity, not position. The card that was clicked may have moved rows
+    // between the click and this call - postOnce() re-prepends an existing
+    // entry, the sweep retires one every 500 ms - and a stale row removes
+    // whichever card happens to sit there now (CP-15).
+    for (int i = 0; i < m_items.size(); ++i) {
+        if (m_items.at(i).id != id) {
+            continue;
+        }
+        beginRemoveRows(QModelIndex(), i, i);
+        m_items.remove(i);
+        endRemoveRows();
+        emit countsChanged();
         return;
     }
-    beginRemoveRows(QModelIndex(), row, row);
-    m_items.remove(row);
-    endRemoveRows();
-    emit countsChanged();
 }
 
 void NotificationCenter::dismissAll()
