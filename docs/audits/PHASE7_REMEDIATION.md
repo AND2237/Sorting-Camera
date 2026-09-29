@@ -647,6 +647,188 @@ plus `Degraded` → `Warning`, and unrecognised/empty severities → `Error`.
 | runtime QML load | `SortingCamera.exe -platform offscreen` stayed up 8 s with no `objectCreationFailed` and no QML errors on stderr |
 | 3 mutations | all caught |
 
+### g5 — CP-11, CP-12, CP-13, CP-21, CP-22: seams nothing used
+
+Five severity-C desktop findings about machinery that existed but was never
+exercised, exercised wrongly, or exercised against the wrong target. All five
+are software-only; none needs the camera.
+
+**Tracker correction made here.** The `Finding status` rows for CP-11, CP-12
+and CP-13 carried summaries that do not match the audit or the source —
+"`releaseStale` blocks the GUI thread", "Skip ahead passes no format",
+"Frame interval metrics throttled incorrectly". The rows are rewritten below to
+what the finding actually says. (The CP-7/CP-8 rows have the same problem and
+are corrected in g8.)
+
+#### CP-11 — `releaseStale()` had no production caller
+
+`desktop/src/DeviceRegistry.{h,cpp}`, `tests/tst_deviceregistry.cpp`.
+
+**What was wrong.** The registry destroys idle pipelines by age, and the two
+behaviours that matter — the active device is never collected, an unknown
+`setActive` is a no-op — are implemented and tested. But `releaseStale()` was
+called only from `tst_deviceregistry`. A camera is keyed by its own device id,
+so a camera announcing with rotating ids made `acquire()` build one whole
+pipeline per id — an `MjpegClient` QThread, a `DeviceStatus` QThread, a
+`NotificationCenter` sweep timer — and nothing in the product ever reclaimed
+any of them. The list was monotonic.
+
+**What changed.** `acquire()` now sweeps before it constructs a device for a
+new id, which is the only event that grows the registry. The TTL is a member
+(`kStaleTtlMs`, 60 s) with `setStaleTtlMs()`, so the sweep can be exercised
+without waiting out a minute of wall clock; production never touches it.
+
+**Test** — `acquiringANewIdReclaimsTheOnesNobodySelected` sets a zero TTL,
+acquires `rotating-1` then `rotating-2` and asserts the first is gone and the
+count is still 1; then activates `rotating-2`, acquires `rotating-3`, and
+asserts the active one survived. That last part is the rule that makes the
+sweep safe: reclaiming the camera on screen would tear down the picture.
+
+#### CP-12 — a gap in the config chain truncated everything after it
+
+`desktop/main.cpp`, new `desktop/src/ConfigWriteSequence.h`,
+`tests/tst_configwritesequence.cpp`.
+
+**What was wrong.** A bench run applies its command-line settings one at a
+time, each after the previous write's `configBusy` clears. `applyNextConfig()`
+switched on a slot index and each case read `if (parser.isSet(opt)) { … }
+return false;`. Slot 0 is `--framesize`. A run asking for `--quality` with no
+`--framesize` therefore returned false from the first call, the caller read
+that as "nothing left", scheduled the stream — and **never wrote the quality at
+all**, along with every later option. The run's result file still recorded the
+settings that were requested.
+
+**What changed.** The settings asked for become an explicit list before
+anything walks it (`ConfigWriteSequence`: slots 0 framesize, 1 quality, 2 xclk,
+3 frame-buffer count, 4 grab mode). `configCount` is gone — it is
+`configSeq.total()` — and completion is `hasNext()` rather than "how many index
+steps were taken", which is what made a gap indistinguishable from the end.
+
+**Tests** — `tst_configwritesequence`, 4 slots:
+
+- `walksEveryRequestedSetting` — all five, in order, then `-1`.
+- `aGapDoesNotTruncateTheSequence` — `{1,2}` (the reported defect), a lone
+  middle slot `{2}`, and a lone leading slot `{0}`.
+- `anEmptyRunHasNothingToDo` — no options at all still schedules the stream.
+- `takeNextStopsAtTheEnd` — asking past the end must not wrap, repeat or
+  corrupt the count, because the busy handler re-enters this path every time a
+  write finishes.
+
+#### CP-13 — frame stats re-ran the session state machine once per frame
+
+`desktop/src/SessionState.{h,cpp}`, `tests/tst_sessionstate.cpp`.
+
+**What was wrong.** `observe()` hooked `MjpegClient::statsChanged`, which
+`MjpegClient.cpp` emits on every `readyRead()` — once per incoming frame. No
+`SessionInput` field is derived from a frame counter, so each of those calls
+ran `recompute()`: fifteen cross-object property reads plus a full `derive()`
+building `QString::arg()` detail strings, all discarded by the
+"outcome unchanged" early-out. At 20 fps that is 20 wasted recomputes a second
+for the life of the stream, more on a busy link; the audit put it at roughly
+600/s. `retryDelayMs()` is derived from `retryAttempt`, which is already hooked,
+so nothing else was riding along.
+
+**What changed.** The hook is gone, with the reason written where the next
+person will read it. `SessionState` gained `recomputeCount()`, because the cost
+being removed was the *recompute*, and an outcome spy could not see it: with
+the hook present the outcome never changed either, so a `changed()` spy alone
+would have passed before and after.
+
+**Test** — `frameStatsNeverChangeTheSessionOutcome` observes real
+`MjpegClient`/`DeviceStatus`/`DiscoveryService` objects, fires `statsChanged`
+50 times, and asserts **both** that `changed()` did not fire and that
+`recomputeCount()` did not move; then `startScanning()` and asserts both did.
+The second half is what keeps the first half honest — it proves the wiring is
+live and the counter is real, so "nothing happened" cannot be a dead test.
+
+#### CP-21 — an announcement is never checked against the protocol version
+
+`desktop/src/DiscoveryService.{h,cpp}`, `tests/tst_discovery.cpp`.
+
+**What was wrong.** `ingest()` read `proto_version` into
+`DiscoveredDevice::protocolVersion` and then did nothing with it. A camera on
+another protocol major version was listed, selectable, and driven over control
+endpoints, frame framing and field names it does not implement. `docs/protocol.md`
+§"Versioning & compatibility" promises the opposite: *"Desktop rejects
+major-version mismatch with a clear UI error."*
+
+**What changed.**
+
+- `DiscoveryService::kProtoVersion = 1` and `isCompatible(int)` are the single
+  statement of what this build speaks (firmware `PROTO_VERSION` is 1).
+- The gate lives in **`ingest()`**, not `parseAnnounce()`. The parser stays a
+  pure reader of what a payload says — that is what
+  `defaultsAreAppliedWhenFieldsAreAbsent` depends on — and the compatibility
+  rule sits where a device would otherwise enter the model.
+- Refusal sets `statusText` naming the camera and **both** versions, emits
+  `statusTextChanged`, warns once per distinct message, and returns before
+  `indexOf()`, so nothing is inserted and `deviceFound` is not emitted. The
+  message survives because the "N camera(s) found" overwrite only happens while
+  the status still reads `"scanning"`, and `startScanning()` resets it.
+- An announcement with **no** `proto_version` parses to 0 and is refused too.
+  Unknown is not the same as compatible, and `docs/protocol.md` requires the
+  version in every custom header.
+
+**Test** — `rejectsAnAnnounceFromAnotherProtocolVersion`: a v1 camera is listed
+and `deviceFound` fires once; the same payload at `proto_version: 2` leaves the
+count at 1, is absent from `indexOfDevice`, and `statusText` names the device
+plus `version 2` and `version 1`; a third announce at `proto_version: 0` is
+refused the same way; `isCompatible(1)/(2)/(0)` are pinned; and `parseAnnounce`
+still reports `protocolVersion == 2` for that payload, pinning the
+parse/reject split.
+
+**One existing test payload was made realistic** — `fallbackToSenderAddress`
+built `{"scam":1,"op":"announce","device_id":"noip"}` by hand and so stated no
+protocol version. It now carries `"proto_version":1`. Its subject (falling back
+to the UDP sender address) is untouched; it is a better fixture either way.
+
+#### CP-22 — the credential test wrote encrypted passwords to the real registry
+
+`tests/tst_credentialstore.cpp`.
+
+**What was wrong.** `initTestCase` set only the organisation and application
+name. Every `QSettings` in `CredentialStore` is default-constructed, which on
+Windows is `NativeFormat` — `HKCU\Software\SortingCameraTest`. So a routine
+`ctest` wrote real DPAPI-encrypted password blobs into the developer's real
+per-user registry and "cleaned up" with `remove()`, which leaves the empty keys
+behind.
+
+**What changed.** The same pattern `tst_userprefs` already uses: a `static
+QTemporaryDir` and `QSettings::setDefaultFormat(IniFormat)` +
+`setPath(UserScope, dir.path())`, issued in `initTestCase` **before the first
+`QSettings` exists anywhere in the process**. DPAPI is unaffected — it operates
+on bytes, not on where the bytes are kept — so `storedValueIsNotPlaintext` still
+proves what it proved.
+
+**Test** — `initTestCase` also probes a default-constructed `QSettings` and
+asserts `fileName()` is inside the scratch directory, so the redirection cannot
+be silently dropped again.
+
+**Mutation**
+
+| Mutation | Result |
+|---|---|
+| CP-11: delete the `releaseStale(m_staleTtlMs)` call from `acquire()` | **caught** — `tst_deviceregistry` exit 1, 12 passed, 1 failed (`rotating-1` still present) |
+| CP-21: `isCompatible()` always returns `true` | **caught** — `tst_discovery` exit 1, 16 passed, 1 failed |
+| CP-22: delete the `setDefaultFormat`/`setPath` redirection | **caught** — `tst_credentialstore` exit 1; *"settings escaped the scratch dir: \HKEY_CURRENT_USER\Software\SortingCameraTest\SortingCameraTest"* — the mutation proves the defect was real, not theoretical |
+| CP-12: `hasNext()` only advances while the slots are dense (`m_requested.at(m_applied) == m_applied`) — i.e. restore "an unset slot stops the walk" | **caught** — `tst_configwritesequence` exit 2, 4 passed, 2 failed: `aGapDoesNotTruncateTheSequence` fails on `seq.hasNext()` |
+| CP-13: re-add `hook(m_stream, &MjpegClient::statsChanged)` | **caught** — `tst_sessionstate` exit 1, 21 passed, 1 failed on `recomputeCount()` |
+| all restored | exit 0 |
+
+**Gate**
+
+| Check | Result |
+|---|---|
+| desktop build | exit 0, no errors |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 13**, 61.53 s (a 13th suite, `tst_configwritesequence`, was added) |
+| `tst_deviceregistry` | 13/13 |
+| `tst_discovery` | 17 passed, 0 failed, 2 skipped (the two live-socket tests need `SCAM_DISCOVERY_PORT`) |
+| `tst_sessionstate` | 22/22 |
+| `tst_credentialstore` | 8/8, and no longer touches HKCU |
+| `tst_configwritesequence` | 6/6 |
+| 5 mutations | all caught |
+| hardware | not required by any finding in this group |
+
 ---
 
 ## Finding status
@@ -663,17 +845,17 @@ plus `Degraded` → `Warning`, and unrecognised/empty severities → `Error`.
 | CP-8 | B | tests | No reconnect-ladder test | open | — |
 | CP-9 | B | tests | No malformed-frame matrix | open | — |
 | CP-10 | C | QML | Overlapping anchored labels | **closed** | Stage 4 g4: three labels wrapped in a `Column`; qmllint differential clean, runtime load clean |
-| CP-11 | C | desktop | `releaseStale` blocks the GUI thread | open | — |
-| CP-12 | C | desktop | Skip ahead passes no format | open | — |
-| CP-13 | C | desktop | Frame interval metrics throttled incorrectly | open | — |
+| CP-11 | C | desktop | `releaseStale()` has no production caller | **closed** | Stage 4 g5: sweep on new-id `acquire()` + `setStaleTtlMs`; new test; mutation-caught |
+| CP-12 | C | desktop | Config chain stops at the first unset option | **closed** | Stage 4 g5: `ConfigWriteSequence` + new suite; 4 tests; mutation-caught (exit 2) |
+| CP-13 | C | desktop | Frame stats hook re-runs `recompute()` per frame | **closed** | Stage 4 g5: hook removed + `recomputeCount()`; new test; mutation-caught |
 | CP-14 | C | QML | Slider binding reads `parent.current` | **closed** | Stage 4 g4: `syncFromStatus()` + `onCurrentChanged`, `!pressed` guarded; qmllint differential clean |
 | CP-15 | C | QML | Dismisses by index, not by identity | **closed** | Stage 4 g4: `ItemIdRole` + `dismissById`, `dismiss(int)` deleted; new test, 3 mutations caught |
 | CP-16 | B | desktop | 7 fps floor presented as measured | **closed** | Stage 3: `floorProvisional` + `activeFloorProvisional`; stale doc section replaced |
 | CP-17 | B | desktop | D2 evidence string overstates the run | **closed** | Stage 3: alt 9.97, 28,956 B, "one run measured three ways"; ADR-0012 corrected |
 | CP-18 | B | firmware | NVS restore trusts types with no validation | **fixed** | Stage 4 g3: enum + floor/ceiling checks in `camera_cfg_restore()`; build-verified, hardware pending g5 |
 | CP-19 | A | firmware | Frame mutex held across network send | **fixed** | Stage 4 g1: drain gate in `camera.c` (ADR-0016); `idf.py build` exit 0; hardware validation pending (Stage 4 g5) |
-| CP-21 | C | desktop | Protocol version check absent | open | — |
-| CP-22 | C | desktop | Test settings path not redirected | open | — |
+| CP-21 | C | desktop | Protocol version check absent | **closed** | Stage 4 g5: `kProtoVersion` gate in `ingest()` + `statusText` naming both; new test; mutation-caught |
+| CP-22 | C | desktop | Test settings path not redirected | **closed** | Stage 4 g5: scratch-dir `QSettings` in `initTestCase` + path probe; mutation-caught |
 | CP-23 | C | QML | Decode-failure counter labelled as transport drops | **closed** | Stage 4 g4: `dec` and `drop` shown separately with tooltips, no sum |
 | CP-25 | B | desktop | Conservative reading rule documented but not implemented | **closed** | Stage 3: `conservativeFps()` used by `recommended()` and `activeMeetsFloor()`; disagreement forced by test |
 | DX-1 | C | QML | Severity conflated for sign-in failure | **closed** | Stage 4 g4: `SessionState::notificationLevel()` consulted by `CameraDevice`; new test, mutation caught |
@@ -712,5 +894,6 @@ plus `Degraded` → `Warning`, and unrecognised/empty severities → `Error`.
 | Stage 4 g3 CP-5 recovery budget | 2026-09-30 | **pass** | `ctest` 12/12, 62 s; `tst_capture` 10/0/1; 3-episode mutation caught (exit 1, 9/1/1) |
 | Stage 4 g3 CP-18/FW-6 + CP-4/FW-1 | 2026-09-30 | **pass (build only)** | `idf.py build` exit 0, no `camera.c`/`app_main.c` warnings; live hardware validation **not run** (Stage 4 g5) |
 | Stage 4 g4 CP-10/14/15/23/DX-1 | 2026-09-30 | **pass** | `ctest` 12/12 (61 s); `tst_notificationcenter` 15/15; `tst_sessionstate` 21/21; 3 mutations caught; `qmllint` differential 18 → 18 (no new); `SortingCamera -platform offscreen` loaded QML and ran 8 s clean |
+| Stage 4 g5 CP-11/12/13/21/22 desktop seams | 2026-09-30 | **pass** | `ctest` **13/13**, 61.53 s (new suite `tst_configwritesequence`, 6/6); `tst_deviceregistry` 13/13, `tst_discovery` 17/0/2, `tst_sessionstate` 22/22, `tst_credentialstore` 8/8 (no longer writes HKCU); 5 mutations all caught |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
