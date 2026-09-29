@@ -35,6 +35,7 @@ qt_add_library(scamcore STATIC
     src/StreamStats.h
     src/CameraDevice.cpp
     src/CameraDevice.h
+    src/ConfigWriteSequence.h
     src/Diagnostics.cpp
     src/Diagnostics.h
     src/NotificationCenter.cpp

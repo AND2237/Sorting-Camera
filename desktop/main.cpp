@@ -1,5 +1,6 @@
 #include "src/AppMetrics.h"
 #include "src/CameraDevice.h"
+#include "src/ConfigWriteSequence.h"
 #include "src/DeviceRegistry.h"
 #include "src/DeviceStatus.h"
 #include "src/Diagnostics.h"
@@ -232,24 +233,36 @@ int main(int argc, char *argv[])
     // finished (configBusy clears). Fixed spacing raced the app's own busy gate
     // and silently dropped a request during the XCLK sweep, which left the
     // device on the previous clock while the run claimed a new one.
-    int configSlot = 0;
+    //
+    // The settings this run asked for become an explicit list before anything
+    // walks it. Walking five indexed slots instead stopped at the first setting
+    // that was not asked for, so a gap read as "nothing left to do" and the
+    // stream was scheduled with every later option never written (CP-12).
+    QVector<int> requestedSlots;
+    if (parser.isSet(fsOpt)) {
+        requestedSlots << 0;
+    }
+    if (parser.isSet(qOpt)) {
+        requestedSlots << 1;
+    }
+    if (parser.isSet(xclkOpt)) {
+        requestedSlots << 2;
+    }
+    if (parser.isSet(fbOpt)) {
+        requestedSlots << 3;
+    }
+    if (parser.isSet(grabOpt)) {
+        requestedSlots << 4;
+    }
+    ConfigWriteSequence configSeq(requestedSlots);
     int streamScheduled = 0;
-    const auto configCount = [&]() {
-        int n = 0;
-        if (parser.isSet(fsOpt)) ++n;
-        if (parser.isSet(qOpt)) ++n;
-        if (parser.isSet(xclkOpt)) ++n;
-        if (parser.isSet(fbOpt)) ++n;
-        if (parser.isSet(grabOpt)) ++n;
-        return n;
-    }();
     const auto applyNextConfig = [&]() -> bool {
-        switch (configSlot) {
-        case 0: if (parser.isSet(fsOpt)) { deviceStatus.setResolution(parser.value(fsOpt)); ++configSlot; return true; } return false;
-        case 1: if (parser.isSet(qOpt)) { deviceStatus.setQuality(parser.value(qOpt).toInt()); ++configSlot; return true; } return false;
-        case 2: if (parser.isSet(xclkOpt)) { deviceStatus.setXclk(parser.value(xclkOpt).toInt()); ++configSlot; return true; } return false;
-        case 3: if (parser.isSet(fbOpt)) { deviceStatus.setFrameBufferCount(parser.value(fbOpt).toInt()); ++configSlot; return true; } return false;
-        case 4: if (parser.isSet(grabOpt)) { deviceStatus.setGrabMode(parser.value(grabOpt)); ++configSlot; return true; } return false;
+        switch (configSeq.takeNext()) {
+        case 0: deviceStatus.setResolution(parser.value(fsOpt)); return true;
+        case 1: deviceStatus.setQuality(parser.value(qOpt).toInt()); return true;
+        case 2: deviceStatus.setXclk(parser.value(xclkOpt).toInt()); return true;
+        case 3: deviceStatus.setFrameBufferCount(parser.value(fbOpt).toInt()); return true;
+        case 4: deviceStatus.setGrabMode(parser.value(grabOpt)); return true;
         default: return false;
         }
     };
@@ -265,7 +278,7 @@ int main(int argc, char *argv[])
         if (deviceStatus.configBusy()) {
             return;
         }
-        if (configSlot < configCount) {
+        if (configSeq.hasNext()) {
             QTimer::singleShot(250, &app, [&]() {
                 if (!applyNextConfig()) {
                     scheduleStream();
@@ -280,7 +293,7 @@ int main(int argc, char *argv[])
             scheduleStream();
         }
     });
-    QTimer::singleShot(1200 + 2500 * (configCount + 2), &app, scheduleStream);
+    QTimer::singleShot(1200 + 2500 * (configSeq.total() + 2), &app, scheduleStream);
 
     QTimer warmupTimer;
     warmupTimer.setSingleShot(true);
