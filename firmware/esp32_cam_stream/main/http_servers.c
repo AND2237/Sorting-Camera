@@ -141,114 +141,10 @@ static bool refuse_while_streaming(httpd_req_t *req, const char *what)
     return true;
 }
 
-static esp_err_t config_handler(httpd_req_t *req)
+// The configuration as it now stands. GET returns it to read; POST returns it
+// to confirm what the write landed as, so the two handlers cannot drift apart.
+static esp_err_t config_state_reply(httpd_req_t *req)
 {
-    if (!auth_authorized(req)) {
-        return ESP_FAIL;
-    }
-    int64_t t_config = esp_timer_get_time();
-
-    char query[192];
-    char val[16];
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        const bool has_param =
-            httpd_query_key_value(query, "xclk", val, sizeof(val)) == ESP_OK ||
-            httpd_query_key_value(query, "framesize", val, sizeof(val)) == ESP_OK ||
-            httpd_query_key_value(query, "quality", val, sizeof(val)) == ESP_OK ||
-            httpd_query_key_value(query, "fb_count", val, sizeof(val)) == ESP_OK ||
-            httpd_query_key_value(query, "grab", val, sizeof(val)) == ESP_OK ||
-            httpd_query_key_value(query, "fbloc", val, sizeof(val)) == ESP_OK;
-        if (has_param && refuse_while_streaming(req, "config change")) {
-            return ESP_FAIL;
-        }
-        framesize_t fs = camera_current_framesize();
-        int quality = camera_current_quality();
-        int xclk = camera_current_xclk_mhz();
-        int fb = camera_current_fb_count();
-        camera_grab_mode_t grab = camera_current_grab_mode();
-        camera_fb_location_t loc = camera_current_fb_location();
-        bool any = false;
-
-        if (httpd_query_key_value(query, "xclk", val, sizeof(val)) == ESP_OK) {
-            xclk = atoi(val);
-            if (xclk < 6 || xclk > 27) {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad xclk (6-27 MHz)");
-                return ESP_FAIL;
-            }
-            any = true;
-        }
-        if (httpd_query_key_value(query, "framesize", val, sizeof(val)) == ESP_OK) {
-            if (!parse_framesize(val, &fs)) {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                    "bad framesize (qqvga|qvga|vga|svga|xga|hd|sxga|uxga)");
-                return ESP_FAIL;
-            }
-            any = true;
-        }
-        if (httpd_query_key_value(query, "quality", val, sizeof(val)) == ESP_OK) {
-            quality = atoi(val);
-            if (quality < 0 || quality > 63) {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad quality (0-63)");
-                return ESP_FAIL;
-            }
-            any = true;
-        }
-        if (httpd_query_key_value(query, "fb_count", val, sizeof(val)) == ESP_OK) {
-            fb = atoi(val);
-            if (fb < 1 || fb > 3) {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad fb_count (1-3)");
-                return ESP_FAIL;
-            }
-            any = true;
-        }
-        if (httpd_query_key_value(query, "grab", val, sizeof(val)) == ESP_OK) {
-            if (strcmp(val, "latest") == 0) {
-                grab = CAMERA_GRAB_LATEST;
-            } else if (strcmp(val, "cont") == 0) {
-                grab = CAMERA_GRAB_WHEN_EMPTY;
-            } else {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad grab (latest|cont)");
-                return ESP_FAIL;
-            }
-            any = true;
-        }
-        if (httpd_query_key_value(query, "fbloc", val, sizeof(val)) == ESP_OK) {
-            if (strcmp(val, "psram") == 0) {
-                loc = CAMERA_FB_IN_PSRAM;
-            } else if (strcmp(val, "dram") == 0) {
-                loc = CAMERA_FB_IN_DRAM;
-            } else {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad fbloc (psram|dram)");
-                return ESP_FAIL;
-            }
-            any = true;
-        }
-        if (any) {
-            esp_err_t aerr = camera_apply_config(fs, quality, xclk, fb, grab, loc);
-            if (aerr != ESP_OK) {
-                char msg[128];
-                if (aerr == ESP_ERR_INVALID_SIZE) {
-                    snprintf(msg, sizeof(msg),
-                             "quality %d is below the measured safe floor %d for %s "
-                             "(largest frame measured at that floor is %u B, budget %u B)",
-                             quality, camera_quality_floor(fs), framesize_name(fs),
-                             (unsigned)camera_measured_max_frame_bytes(fs),
-                             (unsigned)camera_frame_budget());
-                } else if (aerr == ESP_ERR_INVALID_ARG && xclk > camera_xclk_max_mhz(fs)) {
-                    snprintf(msg, sizeof(msg),
-                             "xclk %d MHz is above the measured ceiling %d MHz for %s "
-                             "(higher clocks produce no frames at this resolution)",
-                             xclk, camera_xclk_max_mhz(fs), framesize_name(fs));
-                } else {
-                    snprintf(msg, sizeof(msg), "camera apply failed: %s",
-                             esp_err_to_name(aerr));
-                }
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, msg);
-                return ESP_FAIL;
-            }
-        }
-    }
-
     cJSON *root = cJSON_CreateObject();
     if (!root) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
@@ -277,15 +173,234 @@ static esp_err_t config_handler(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
         return ESP_FAIL;
     }
-
-    ESP_LOGI(TAG, "config applied in %lld ms",
-             (long long)((esp_timer_get_time() - t_config) / 1000));
-
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     esp_err_t err = httpd_resp_send(req, payload, HTTPD_RESP_USE_STRLEN);
     cJSON_free(payload);
     return err;
+}
+
+/*
+ * Read-only. Config writes moved to POST (FW-13), so a query string on GET is
+ * either a write attempt or a truncated one - and both used to fall through to
+ * a 200 that said "applied" about a camera nobody had touched (FW-10). There is
+ * no third case worth answering with anything but 400.
+ */
+static esp_err_t config_get_handler(httpd_req_t *req)
+{
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
+    char query[192];
+    const esp_err_t qerr = httpd_req_get_url_query_str(req, query, sizeof(query));
+    if (qerr == ESP_ERR_HTTPD_RESULT_TRUNC) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "config query too long");
+        return ESP_FAIL;
+    }
+    if (qerr == ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "GET /api/v1/config is read-only; send writes as "
+                            "POST /api/v1/config with a JSON body");
+        return ESP_FAIL;
+    }
+    return config_state_reply(req);
+}
+
+static void config_reject(httpd_req_t *req, const char *msg)
+{
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, msg);
+}
+
+static esp_err_t config_post_handler(httpd_req_t *req)
+{
+    if (!auth_authorized(req)) {
+        return ESP_FAIL;
+    }
+    const int64_t t_config = esp_timer_get_time();
+
+    /*
+     * The content type is part of the contract, not decoration (ADR-0017).
+     * A browser can issue a *simple* POST - text/plain, no preflight - that
+     * executes before any CORS rule gets a chance to refuse it, and this
+     * device answers every preflight with 405 because it has no OPTIONS
+     * handler. Requiring application/json therefore makes every cross-origin
+     * write unsendable, which keeping the wildcard Origin header alone would
+     * not.
+     */
+    char ctype[64] = {0};
+    if (httpd_req_get_hdr_value_str(req, "Content-Type", ctype, sizeof(ctype)) != ESP_OK
+        || strstr(ctype, "application/json") == NULL) {
+        httpd_resp_set_status(req, "415 Unsupported Media Type");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "config writes require Content-Type: application/json",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    const int total = req->content_len;
+    if (total <= 0 || total > 512) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be 1-512 bytes of JSON");
+        return ESP_FAIL;
+    }
+    char body[513];
+    int received = 0;
+    while (received < total) {
+        const int chunk = httpd_req_recv(req, body + received, total - received);
+        if (chunk <= 0) {
+            if (chunk == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "incomplete body");
+            return ESP_FAIL;
+        }
+        received += chunk;
+    }
+    body[received] = '\0';
+
+    // Checked only once the body is drained: answering before it is read
+    // leaves the rest of the request sitting in the socket. A write never
+    // carries state in its URL, so there is nothing here to honour - only
+    // something to decline out loud.
+    char query[192];
+    const esp_err_t qerr = httpd_req_get_url_query_str(req, query, sizeof(query));
+    if (qerr == ESP_ERR_HTTPD_RESULT_TRUNC) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "config query too long");
+        return ESP_FAIL;
+    }
+    if (qerr == ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "config writes carry no query string; put every "
+                            "setting in the JSON body");
+        return ESP_FAIL;
+    }
+
+    cJSON *params = cJSON_Parse(body);
+    if (!params || !cJSON_IsObject(params)) {
+        cJSON_Delete(params);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be a JSON object");
+        return ESP_FAIL;
+    }
+
+    framesize_t fs = camera_current_framesize();
+    int quality = camera_current_quality();
+    int xclk = camera_current_xclk_mhz();
+    int fb = camera_current_fb_count();
+    camera_grab_mode_t grab = camera_current_grab_mode();
+    camera_fb_location_t loc = camera_current_fb_location();
+    bool any = false;
+
+    const cJSON *item = NULL;
+    char msg[160];
+    cJSON_ArrayForEach(item, params)
+    {
+        const char *key = item->string ? item->string : "";
+        if (strcmp(key, "framesize") == 0) {
+            if (!cJSON_IsString(item) || !parse_framesize(item->valuestring, &fs)) {
+                config_reject(req, "bad framesize (qqvga|qvga|vga|svga|xga|hd|sxga|uxga)");
+                goto done;
+            }
+        } else if (strcmp(key, "quality") == 0) {
+            if (!cJSON_IsNumber(item)) {
+                config_reject(req, "quality must be a number (0-63)");
+                goto done;
+            }
+            quality = item->valueint;
+            if (quality < 0 || quality > 63) {
+                config_reject(req, "bad quality (0-63)");
+                goto done;
+            }
+        } else if (strcmp(key, "xclk") == 0) {
+            if (!cJSON_IsNumber(item)) {
+                config_reject(req, "xclk must be a number (6-27 MHz)");
+                goto done;
+            }
+            xclk = item->valueint;
+            if (xclk < 6 || xclk > 27) {
+                config_reject(req, "bad xclk (6-27 MHz)");
+                goto done;
+            }
+        } else if (strcmp(key, "fb_count") == 0) {
+            if (!cJSON_IsNumber(item)) {
+                config_reject(req, "fb_count must be a number (1-3)");
+                goto done;
+            }
+            fb = item->valueint;
+            if (fb < 1 || fb > 3) {
+                config_reject(req, "bad fb_count (1-3)");
+                goto done;
+            }
+        } else if (strcmp(key, "grab") == 0) {
+            if (!cJSON_IsString(item)) {
+                config_reject(req, "bad grab (latest|cont)");
+                goto done;
+            }
+            if (strcmp(item->valuestring, "latest") == 0) {
+                grab = CAMERA_GRAB_LATEST;
+            } else if (strcmp(item->valuestring, "cont") == 0) {
+                grab = CAMERA_GRAB_WHEN_EMPTY;
+            } else {
+                config_reject(req, "bad grab (latest|cont)");
+                goto done;
+            }
+        } else if (strcmp(key, "fbloc") == 0) {
+            if (!cJSON_IsString(item)) {
+                config_reject(req, "bad fbloc (psram|dram)");
+                goto done;
+            }
+            if (strcmp(item->valuestring, "psram") == 0) {
+                loc = CAMERA_FB_IN_PSRAM;
+            } else if (strcmp(item->valuestring, "dram") == 0) {
+                loc = CAMERA_FB_IN_DRAM;
+            } else {
+                config_reject(req, "bad fbloc (psram|dram)");
+                goto done;
+            }
+        } else {
+            // The old query parser dropped what it did not know, which is how a
+            // typo became a setting that "worked". A body is explicit; so is a
+            // rejection.
+            snprintf(msg, sizeof(msg), "unknown config key: %s", key);
+            config_reject(req, msg);
+            goto done;
+        }
+        any = true;
+    }
+
+    if (any && refuse_while_streaming(req, "config change")) {
+        goto done;
+    }
+
+    if (any) {
+        esp_err_t aerr = camera_apply_config(fs, quality, xclk, fb, grab, loc);
+        if (aerr != ESP_OK) {
+            if (aerr == ESP_ERR_INVALID_SIZE) {
+                snprintf(msg, sizeof(msg),
+                         "quality %d is below the measured safe floor %d for %s "
+                         "(largest frame measured at that floor is %u B, budget %u B)",
+                         quality, camera_quality_floor(fs), framesize_name(fs),
+                         (unsigned)camera_measured_max_frame_bytes(fs),
+                         (unsigned)camera_frame_budget());
+            } else if (aerr == ESP_ERR_INVALID_ARG && xclk > camera_xclk_max_mhz(fs)) {
+                snprintf(msg, sizeof(msg),
+                         "xclk %d MHz is above the measured ceiling %d MHz for %s "
+                         "(higher clocks produce no frames at this resolution)",
+                         xclk, camera_xclk_max_mhz(fs), framesize_name(fs));
+            } else {
+                snprintf(msg, sizeof(msg), "camera apply failed: %s", esp_err_to_name(aerr));
+            }
+            config_reject(req, msg);
+            goto done;
+        }
+        ESP_LOGI(TAG, "config applied in %lld ms",
+                 (long long)((esp_timer_get_time() - t_config) / 1000));
+    }
+
+    cJSON_Delete(params);
+    return config_state_reply(req);
+
+done:
+    cJSON_Delete(params);
+    return ESP_FAIL;
 }
 
 static esp_err_t snapshot_handler(httpd_req_t *req)
@@ -698,10 +813,18 @@ esp_err_t start_control_server(void)
         .method = HTTP_GET,
         .handler = snapshot_handler,
     };
-    const httpd_uri_t config = {
+    const httpd_uri_t config_get = {
         .uri = "/api/v1/config",
         .method = HTTP_GET,
-        .handler = config_handler,
+        .handler = config_get_handler,
+    };
+    // Same URI, different method: esp_http_server dispatches on URI *and*
+    // method, and a GET carrying a write is refused by the handler rather
+    // than being matched to this one (ADR-0017).
+    const httpd_uri_t config_post = {
+        .uri = "/api/v1/config",
+        .method = HTTP_POST,
+        .handler = config_post_handler,
     };
     const httpd_uri_t capabilities = {
         .uri = "/api/v1/capabilities",
@@ -735,7 +858,8 @@ esp_err_t start_control_server(void)
     };
     httpd_register_uri_handler(s_control_server, &status);
     httpd_register_uri_handler(s_control_server, &snapshot);
-    httpd_register_uri_handler(s_control_server, &config);
+    httpd_register_uri_handler(s_control_server, &config_get);
+    httpd_register_uri_handler(s_control_server, &config_post);
     httpd_register_uri_handler(s_control_server, &capabilities);
     httpd_register_uri_handler(s_control_server, &sensor_get);
     httpd_register_uri_handler(s_control_server, &sensor_set);
