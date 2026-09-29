@@ -113,6 +113,7 @@ class State:
         self.attempts = 0
         self.started = time.time()
         self.stream_clients = 0
+        self.snapshots = 0
         self.verifier = None
         if args.password:
             self.verifier = hashlib.pbkdf2_hmac(
@@ -249,6 +250,8 @@ def make_handler(state, kind):
                 return self.send_json(200, dict(state.sensor))
             if path == "/api/v1/snapshot":
                 frame = state.frames[0]
+                with state.lock:
+                    state.snapshots += 1
                 self.send_response(200)
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(frame)))
@@ -318,6 +321,11 @@ def make_handler(state, kind):
                     "frames_captured": int((time.time() - state.started) * 10),
                     "frames_delivered": int((time.time() - state.started) * 10),
                     "capture_failures": 0,
+                    # The fake never drops a frame, so these stay 0 - they are
+                    # present so the shape matches the firmware's status JSON.
+                    "frames_send_failures": 0,
+                    "frames_near_budget": 0,
+                    "snapshots_served": state.snapshots,
                     "avg_capture_ms": 0.4,
                     "last_frame_bytes": len(state.frames[0]),
                     "stream_clients": state.stream_clients,
