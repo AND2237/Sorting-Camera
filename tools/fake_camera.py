@@ -404,19 +404,43 @@ def make_handler(state, kind):
                 snapshot = dict(state.sensor)
             return self.send_json(200, snapshot)
 
+        CONFIG_KEYS = ("framesize", "quality", "xclk", "fb_count", "grab", "fbloc")
+
         def config_get(self):
-            return self.config_apply()
+            # Read-only since FW-13, and a query string on a GET is either a
+            # write attempt or a truncated one. Both used to be answered with a
+            # 200 describing a camera nobody had touched (FW-10), so the fake
+            # refuses exactly the way the firmware now does - a benchmark that
+            # only talks to the fake must not discover the change first.
+            if "?" in self.path:
+                return self.send_text(
+                    400, "GET /api/v1/config is read-only; send writes as "
+                         "POST /api/v1/config with a JSON body")
+            return self.send_json(200, dict(state.config))
 
         def config_apply(self):
+            # The content type is the CSRF contract, not decoration (ADR-0017),
+            # and it is checked before anything is read - which is the order the
+            # firmware uses, so a test cannot pass here and fail there.
+            if "application/json" not in self.headers.get("Content-Type", ""):
+                return self.send_text(
+                    415, "config writes require Content-Type: application/json")
+            payload = self.read_json()
+            if not isinstance(payload, dict):
+                return self.send_text(400, "body must be a JSON object")
+            # Read first, then refuse, so the request is fully consumed before
+            # the connection is answered (the firmware does the same).
+            if "?" in self.path:
+                return self.send_text(
+                    400, "config writes carry no query string; put every "
+                         "setting in the JSON body")
+            unknown = [k for k in payload if k not in self.CONFIG_KEYS]
+            if unknown:
+                return self.send_text(400, "unknown config key: %s" % unknown[0])
             if "config409" in state.args.fault and state.stream_clients > 0:
                 return self.send_text(409, "stream active: disconnect before config change")
             if "slowconfig" in state.args.fault:
                 time.sleep(state.args.slow_seconds)
-            payload = {}
-            for pair in self.path.split("?")[1].split("&") if "?" in self.path else []:
-                if "=" in pair:
-                    key, value = pair.split("=", 1)
-                    payload[key] = value
             with state.lock:
                 if "framesize" in payload:
                     keys = [r["key"] for r in RESOLUTIONS]

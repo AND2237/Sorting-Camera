@@ -11,7 +11,6 @@ import json
 import subprocess
 import sys
 import time
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -19,8 +18,8 @@ HERE = Path(__file__).resolve().parent
 BENCH = HERE / "transport_bench.py"
 
 CONFIGS = {
-    "A": {"framesize": "vga", "quality": "12"},
-    "B": {"framesize": "hd", "quality": "12"},
+    "A": {"framesize": "vga", "quality": 12},
+    "B": {"framesize": "hd", "quality": 12},
 }
 
 
@@ -30,8 +29,15 @@ def get_status(host, timeout=4):
 
 
 def set_config(host, params, timeout=4):
-    qs = urllib.parse.urlencode(params)
-    with urllib.request.urlopen(f"http://{host}:80/api/v1/config?{qs}", timeout=timeout) as r:
+    # POST with a JSON body since FW-13: the camera refuses a write that
+    # arrives as a query string, and a quality of 12 has to reach it as the
+    # number 12 rather than the string "12".
+    request = urllib.request.Request(
+        f"http://{host}:80/api/v1/config",
+        data=json.dumps(params).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
 

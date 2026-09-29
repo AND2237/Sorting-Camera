@@ -19,7 +19,6 @@ import sys
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -136,17 +135,22 @@ def wait_device(host, timeout=60.0):
 
 
 def apply_config(host, cell):
-    q = urllib.parse.urlencode({
-        "framesize": cell["resolution"],
-        "quality": cell["quality"],
-        "fb_count": cell["fb_count"],
-        "grab": cell["grab"],
-        "fbloc": cell["fbloc"],
-        "xclk": cell["xclk_mhz"],
-    })
-    url = f"http://{host}:80/api/v1/config?{q}"
+    # POST with a JSON body since FW-13: /api/v1/config no longer accepts a
+    # write in the query string, and every value here keeps its JSON type.
+    request = urllib.request.Request(
+        f"http://{host}:80/api/v1/config",
+        data=json.dumps({
+            "framesize": cell["resolution"],
+            "quality": cell["quality"],
+            "fb_count": cell["fb_count"],
+            "grab": cell["grab"],
+            "fbloc": cell["fbloc"],
+            "xclk": cell["xclk_mhz"],
+        }).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST")
     try:
-        with urllib.request.urlopen(url, timeout=40) as r:
+        with urllib.request.urlopen(request, timeout=40) as r:
             body = r.read().decode()
     except urllib.error.HTTPError as e:
         return False, f"HTTP {e.code}: {e.read().decode(errors='replace')[:200]}", None
@@ -375,13 +379,16 @@ def recover_dead_camera(host):
         print("[recover] camera healthy, no repair needed", flush=True)
         return True
     print("[recover] requesting camera self-repair via config ...", flush=True)
-    q = urllib.parse.urlencode({"framesize": "hd", "quality": 12,
-                                "fb_count": 3, "grab": "latest",
-                                "fbloc": "psram", "xclk": 18})
+    request = urllib.request.Request(
+        f"http://{host}/api/v1/config",
+        data=json.dumps({"framesize": "hd", "quality": 12,
+                         "fb_count": 3, "grab": "latest",
+                         "fbloc": "psram", "xclk": 18}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST")
     for attempt in range(3):
         try:
-            urllib.request.urlopen(
-                f"http://{host}/api/v1/config?{q}", timeout=40).read()
+            urllib.request.urlopen(request, timeout=40).read()
             if snapshot_ok(host):
                 print(f"[recover] self-repair ok (attempt {attempt + 1})",
                       flush=True)
