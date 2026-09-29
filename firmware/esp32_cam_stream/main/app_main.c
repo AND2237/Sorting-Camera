@@ -1,6 +1,5 @@
 #include "app.h"
 #include "auth.h"
-#include "camera_control.h"
 #include "discovery.h"
 
 #include <string.h>
@@ -110,7 +109,8 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    camera_control_init();
+    // Sensor controls are restored by camera_driver_init() on every path that
+    // brings the driver up (boot, recovery, a config apply) - see CP-4 / FW-1.
 
     if (auth_init() != ESP_OK) {
         ESP_LOGW(TAG, "control API running WITHOUT authentication");

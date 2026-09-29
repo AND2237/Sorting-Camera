@@ -1,4 +1,5 @@
 #include "app.h"
+#include "camera_control.h"
 
 #include <string.h>
 
@@ -242,6 +243,14 @@ static esp_err_t camera_driver_init(void)
 
     sensor_t *sensor = esp_camera_sensor_get();
     if (sensor) {
+        // esp_camera_init always starts the sensor at these. They are the
+        // baseline, not the answer: CP-4 / FW-1 found that they were the only
+        // thing that ever ran after a camera_recover(), because
+        // camera_control_init() used to be called once at boot - so a
+        // brightness or contrast a user had dialled in silently snapped back
+        // to zero on every recovery and every framesize/xclk change, with no
+        // log line to explain the picture. Defaults first, then what the user
+        // actually chose, on every path that brings the driver up.
         sensor->set_brightness(sensor, 0);
         sensor->set_contrast(sensor, 0);
         sensor->set_saturation(sensor, 0);
@@ -251,6 +260,7 @@ static esp_err_t camera_driver_init(void)
         sensor->set_gain_ctrl(sensor, 1);
         sensor->set_hmirror(sensor, 0);
         sensor->set_vflip(sensor, 0);
+        camera_control_init();
     }
     return ESP_OK;
 }
@@ -351,6 +361,35 @@ static void camera_cfg_restore(void)
         rec.quality > 63 || rec.fb_count < 1 || rec.fb_count > 3 ||
         rec.xclk_mhz < 6 || rec.xclk_mhz > 27) {
         ESP_LOGW(TAG, "stored config out of range, using defaults");
+        return;
+    }
+    // CP-18: these two are enum tags, not ranges, so a range check cannot
+    // catch them and the byte went straight into esp_camera_config_t. The HTTP
+    // path has always validated them (camera_apply_config); restore was the
+    // one door left open, and it is the door a future schema migration or a
+    // hand-edited partition would come through.
+    if ((rec.grab_mode != CAMERA_GRAB_LATEST &&
+         rec.grab_mode != CAMERA_GRAB_WHEN_EMPTY) ||
+        (rec.fb_location != CAMERA_FB_IN_PSRAM &&
+         rec.fb_location != CAMERA_FB_IN_DRAM)) {
+        ESP_LOGW(TAG, "stored config has an unknown grab mode or fb location, using defaults");
+        return;
+    }
+    // FW-6: the measured ceilings are enforced on the HTTP path but were not
+    // on restore, so a stored HD@24 MHz - which Phase 5 measured as producing
+    // no frames at all - would come back to life on boot and reopen the FB-OVF
+    // class ADR-0009 closed. Reject rather than clamp, because that is what
+    // camera_apply_config does with the same inputs: the caller is told the
+    // operating point is refused instead of silently running a different one.
+    const framesize_t stored_fs = (framesize_t)rec.framesize;
+    if (rec.quality < camera_quality_floor(stored_fs)) {
+        ESP_LOGW(TAG, "stored quality %d below the measured floor %d for fs=%d, using defaults",
+                 rec.quality, camera_quality_floor(stored_fs), (int)stored_fs);
+        return;
+    }
+    if (rec.xclk_mhz > camera_xclk_max_mhz(stored_fs)) {
+        ESP_LOGW(TAG, "stored xclk %d above the measured ceiling %d for fs=%d, using defaults",
+                 rec.xclk_mhz, camera_xclk_max_mhz(stored_fs), (int)stored_fs);
         return;
     }
     s_framesize = (framesize_t)rec.framesize;
