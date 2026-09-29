@@ -410,6 +410,114 @@ three lines:
 
 ---
 
+### g3 — CP-5, CP-18/FW-6, CP-4/FW-1
+
+Three findings, two areas.
+
+#### CP-5 (desktop): the recovery budget never re-armed
+
+`desktop/src/MjpegClient.cpp`, `tests/tst_capture.cpp`.
+
+**What was wrong.** `m_recoveriesTriggered` counts up against `kMaxRetries`
+with no reset anywhere in `frameReady` / `start()` / `stop()`, while
+`setRecoveryHint(QString())` already cleared the hint at all three. The counter
+and the hint therefore disagreed about whether the camera had been recovered
+from: after two `deviceRecoveryRequested()` emissions the device was never
+asked to re-initialise again for the life of the process. The audit's
+trigger — a camera that ran cleanly for an hour and then wedged — gets no
+self-repair at all.
+
+**What changed:** `m_recoveriesTriggered = 0;` added at exactly the three sites
+where `setRecoveryHint(QString())` already resets, so budget and hint move
+together.
+
+**Test** — `recoveryBudgetRearmsAfterTheStreamIsHealthyAgain` drives a
+**three-episode** cycle: two `no response from camera` failures (the only
+error feeding the budget) → recovery; then the stub answers so frames arrive
+and the streak is asserted back to `0`; then a `missing or invalid
+Content-Length` failure, which is deliberately *not* a first-byte timeout so it
+restarting the streak does the re-arming; repeat to a third episode.
+`MjpegStub` gained `silent` (accept the connection, answer nothing → drives the
+6 s first-byte watchdog) and `sendBrokenPart()` (writes a non-numeric
+`Content-Length`). Three episodes are required because the budget is 2 — a
+two-episode test passes under the defect.
+
+**Mutation** — removing only the `frameReady` lambda's reset, leaving
+`start()`/`stop()`:
+
+| Check | Result |
+|---|---|
+| build | exit 0 |
+| `tst_capture` (2 episodes) | **exit 0 — not caught** (why the test was rewritten to 3) |
+| `tst_capture` (3 episodes) | **exit 1, 9 passed, 1 failed, 1 skipped**, 177583 ms — `recoveries == episode` returned FALSE on episode 3 |
+| restored | exit 0, 10 passed, 0 failed, 1 skipped, 47478 ms |
+
+#### CP-18 / FW-6 (firmware): NVS restore trusted the bytes
+
+`firmware/esp32_cam_stream/main/camera.c` → `camera_cfg_restore()`.
+
+**What was wrong.** `grab_mode` and `fb_location` are enum tags cast straight
+out of the record with no range check at all (`rec.grab_mode` passes the
+`> 63`/`< 6` style guards because those test other fields), and the stored
+`quality` / `xclk_mhz` were compared only against their absolute bounds —
+never against the *measured* per-resolution ceilings that
+`camera_quality_floor()` and `camera_xclk_max_mhz()` enforce on the HTTP path
+(`camera_apply_config`, `camera.c:567` / `:575`). Restore was the door around
+ADR-0009: a stored HD@24 MHz, which Phase 5 measured as producing **no frames
+at all**, came back to life on every boot.
+
+**What changed:**
+
+- enum validation for both fields before they are cast — unknown tag →
+  "using defaults", the same behaviour as the existing range guards.
+- `camera_quality_floor(stored_fs)` and `camera_xclk_max_mhz(stored_fs)` are
+  applied on restore, not duplicated as literals — the numbers change when
+  Phase 5 re-measures and the restore path must follow.
+- **Reject, not clamp**, matching what `camera_apply_config` does with the
+  same inputs: the operating point is refused rather than silently replaced by
+  a different one.
+
+#### CP-4 / FW-1 (firmware): controls lost on every re-init
+
+`firmware/esp32_cam_stream/main/camera.c`, `main/app_main.c`.
+
+**What was wrong.** `camera_driver_init()` wrote nine sensor controls to
+hard-coded values on every successful `esp_camera_init()`, and
+`camera_control_init()` — the thing that reads NVS and restores what the user
+chose — ran exactly once, at `app_main.c:113`. Every later path that re-inits
+the driver (the stall watchdog's `camera_recover()`, any framesize / xclk /
+fb_count change through `camera_apply_config`) therefore handed the viewer back
+brightness 0 and contrast 0 with no log line to explain the picture.
+
+**What changed.** The restore moved *into* `camera_driver_init()`, after the
+baseline defaults and only on success, so all three callers — boot, recovery,
+config apply — end at the same place. The now-duplicate call at
+`app_main.c:113` was removed; it was reachable only after a successful
+`camera_init()` (the failure path `esp_restart()`s), so boot behaviour is
+unchanged. Both control sets are NVS/SCCB work already performed under
+`s_cam_mutex` in `camera_apply_config`, so doing it inside the drain gate adds
+no new lock scope.
+
+**Firmware gate** — no host-side harness exists for these three (CP-18/FW-6,
+CP-4/FW-1), so they are **build-verified only** and are recorded as `fixed`,
+not `closed`. Behaviour must be confirmed on hardware in Stage 4 g5:
+
+| Check | Result |
+|---|---|
+| `idf.py build` | exit 0, no `camera.c` warnings, no `app_main.c` warnings |
+
+#### Gate
+
+| Check | Result |
+|---|---|
+| `idf.py build` | exit 0 |
+| desktop build | exit 0 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 12**, 62.15 s |
+| CP-5 mutation | caught (exit 1) |
+| CP-18/FW-6, CP-4/FW-1 | build-verified; hardware validation **not run** (Stage 4 g5) |
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
@@ -417,8 +525,8 @@ three lines:
 | CP-1 | A | desktop | Test suites never registered | closed | Stage 1: `ctest -N` 12, `ctest` 12/12 |
 | CP-2 | A | desktop | `ProfileEngine` borrows another profile's byte count | **closed** | Stage 3: 16982 (own config), 14680 rejected by test; mutation-tested |
 | CP-3 | A | desktop | Recording and frame bus run on the GUI thread | **closed** | Stage 4 g1: Direct frame hop + `DirectConnection` delivery + synchronised `Recorder`; mutation-caught |
-| CP-4 | A | firmware | Sensor controls reset on every `esp_camera_init` | open | — |
-| CP-5 | A | desktop | Recovery counter never resets | open | — |
+| CP-4 | A | firmware | Sensor controls reset on every `esp_camera_init` | **fixed** | Stage 4 g3: restore moved into `camera_driver_init()`, boot call removed; build-verified, hardware pending g5 |
+| CP-5 | A | desktop | Recovery counter never resets | **closed** | Stage 4 g3: re-arm at the 3 `setRecoveryHint` sites; 3-episode test; mutation-caught (exit 1) |
 | CP-6 | A | desktop | 401 on a config write silently drops the change | **closed** | Stage 4 g2: one bounded replay after `AuthClient::settled()`; 2 new tests; mutation-caught (11/13, exit 2) |
 | CP-7 | B | tests | No chunked-transfer test | open | — |
 | CP-8 | B | tests | No reconnect-ladder test | open | — |
@@ -431,7 +539,7 @@ three lines:
 | CP-15 | C | QML | Dismisses by index, not by identity | open | — |
 | CP-16 | B | desktop | 7 fps floor presented as measured | **closed** | Stage 3: `floorProvisional` + `activeFloorProvisional`; stale doc section replaced |
 | CP-17 | B | desktop | D2 evidence string overstates the run | **closed** | Stage 3: alt 9.97, 28,956 B, "one run measured three ways"; ADR-0012 corrected |
-| CP-18 | B | firmware | NVS restore trusts types with no validation | open | — |
+| CP-18 | B | firmware | NVS restore trusts types with no validation | **fixed** | Stage 4 g3: enum + floor/ceiling checks in `camera_cfg_restore()`; build-verified, hardware pending g5 |
 | CP-19 | A | firmware | Frame mutex held across network send | **fixed** | Stage 4 g1: drain gate in `camera.c` (ADR-0016); `idf.py build` exit 0; hardware validation pending (Stage 4 g5) |
 | CP-21 | C | desktop | Protocol version check absent | open | — |
 | CP-22 | C | desktop | Test settings path not redirected | open | — |
@@ -441,11 +549,11 @@ three lines:
 | DX-12 | D | desktop | `FrameImageProvider` outside `scamcore` | open | — |
 | DX-17 | D | desktop | `~CameraDevice` blocking-queued across threads | open | — |
 | A0 | A | firmware | PSRAM config unreproducible | **closed** | ADR-0015: clean config == measured config; generated `sdkconfig` diff IDENTICAL |
-| FW-1 | A | firmware | Control reset on re-init (alias of CP-4) | open | — |
+| FW-1 | A | firmware | Control reset on re-init (alias of CP-4) | **fixed** | Stage 4 g3 (CP-4); build-verified, hardware pending g5 |
 | FW-2 | C | firmware | Discovery accepts oversized query | open | — |
 | FW-3 | A | firmware | PSRAM config divergence | **closed** | No divergence exists — see ADR-0015; `80M` was silently discarded, `40M` measured and produced |
 | FW-4 | B | firmware | Unbounded recovery on stream failure | open | — |
-| FW-6 | B | firmware | NVS restore unvalidated (alias of CP-18) | open | — |
+| FW-6 | B | firmware | NVS restore unvalidated (alias of CP-18) | **fixed** | Stage 4 g3 (CP-18); build-verified, hardware pending g5 |
 | FW-7 | A | firmware | Camera lock held across send (alias of CP-19) | **fixed** | Stage 4 g1 part 2: same change as CP-19; see ADR-0016 |
 | FW-8 | B | firmware | Watchdog resets camera at 1 Hz | open | — |
 | FW-9 | C | firmware | Missing close delimiter | open | — |
@@ -470,5 +578,7 @@ three lines:
 | Stage 4 g1 CP-3 thread placement | 2026-09-29 | **pass** | `ctest` 12/12 (4/4 repeat); `tst_capture` 9/9+1 skipped; `tst_recorder` 10/10; thread-placement mutation caught 15/15 |
 | Stage 4 g1 CP-19 / FW-7 camera drain gate | 2026-09-30 | **pass (build + desktop only)** | `idf.py build` exit 0, no `camera.c` warnings; `ctest` 12/12; live hardware validation **not run** (Stage 4 g5) |
 | Stage 4 g2 CP-6 401 replay | 2026-09-30 | **pass** | `ctest` 12/12 (4/4 repeat); `tst_devicestatus` 13/13; mutation of the 401 branch caught by both new tests (11/13, exit 2) |
+| Stage 4 g3 CP-5 recovery budget | 2026-09-30 | **pass** | `ctest` 12/12, 62 s; `tst_capture` 10/0/1; 3-episode mutation caught (exit 1, 9/1/1) |
+| Stage 4 g3 CP-18/FW-6 + CP-4/FW-1 | 2026-09-30 | **pass (build only)** | `idf.py build` exit 0, no `camera.c`/`app_main.c` warnings; live hardware validation **not run** (Stage 4 g5) |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
