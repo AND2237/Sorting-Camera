@@ -48,6 +48,7 @@ private slots:
     void degradedOnRejectedSetting();
     void reconnectingExposesBackoff();
     void signInRequiredIsAWarningNotAFault();
+    void notificationLevelCarriesTheSeverityTheStateSet();
     void rejectedCredentialsAreAnError();
     void exhaustedRetriesAreAnError();
     void exhaustedRetriesOutrankAuthenticated();
@@ -186,6 +187,45 @@ void TestSessionState::signInRequiredIsAWarningNotAFault()
     QCOMPARE(out.state, int(State::Error));
     QCOMPARE(out.severity, QStringLiteral("warn"));
     QVERIFY(out.detail.contains(QStringLiteral("requires a sign-in")));
+}
+
+void TestSessionState::notificationLevelCarriesTheSeverityTheStateSet()
+{
+    // Two outcomes are both SessionState::Error. One is a fault, one is an
+    // ordinary first-run condition the operator can act on, and derive() has
+    // already said which is which. A consumer that dispatched on state() alone
+    // threw that judgement away and made "the camera requires a sign-in" a
+    // permanent red card that had to be cleared by hand on every connect
+    // (DX-1).
+    SessionInput signIn;
+    signIn.polling = true;
+    signIn.authRequired = true;
+    const auto needSignIn = SessionState::derive(signIn);
+    QCOMPARE(needSignIn.state, int(State::Error));
+    QCOMPARE(SessionState::notificationLevel(needSignIn.severity), Diagnostics::Level::Warning);
+
+    SessionInput refused;
+    refused.polling = true;
+    refused.authRequired = true;
+    refused.authError = QStringLiteral("wrong password");
+    const auto fault = SessionState::derive(refused);
+    QCOMPARE(fault.state, int(State::Error));
+    QCOMPARE(SessionState::notificationLevel(fault.severity), Diagnostics::Level::Error);
+
+    // Degraded carries severity "warn" in every branch of derive(); the mapping
+    // must keep it a warning rather than promoting it to a fault.
+    SessionInput stalling = live();
+    stalling.noResponseStreak = 3;
+    const auto degraded = SessionState::derive(stalling);
+    QCOMPARE(degraded.state, int(State::Degraded));
+    QCOMPARE(SessionState::notificationLevel(degraded.severity), Diagnostics::Level::Warning);
+
+    // Failing closed: only an explicit "warn" demotes, so an unrecognised or
+    // absent severity never silently downgrades a real fault.
+    QCOMPARE(SessionState::notificationLevel(QStringLiteral("err")), Diagnostics::Level::Error);
+    QCOMPARE(SessionState::notificationLevel(QStringLiteral("ok")), Diagnostics::Level::Error);
+    QCOMPARE(SessionState::notificationLevel(QStringLiteral("idle")), Diagnostics::Level::Error);
+    QCOMPARE(SessionState::notificationLevel(QString()), Diagnostics::Level::Error);
 }
 
 void TestSessionState::rejectedCredentialsAreAnError()

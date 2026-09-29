@@ -27,6 +27,17 @@ const char *SessionState::stateLabel(State s)
     return kStateLabels[s];
 }
 
+Diagnostics::Level SessionState::notificationLevel(const QString &severity)
+{
+    if (severity == QStringLiteral("warn")) {
+        return Diagnostics::Level::Warning;
+    }
+    // "err" and anything not recognised. Only an explicit warning is allowed to
+    // demote a fault; the Error and Degraded branches of derive() emit nothing
+    // else, and a mapping that failed open would quietly downgrade a real one.
+    return Diagnostics::Level::Error;
+}
+
 // The order of these branches is the contract: a later condition may never
 // mask an earlier one. Exhausted retries outrank a reachable control plane,
 // and a reachable plane outranks discovery, because those are exactly the

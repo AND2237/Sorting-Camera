@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Diagnostics.h"
+
 #include <QObject>
 #include <QString>
 
@@ -92,6 +94,14 @@ public:
     static SessionOutcome derive(const SessionInput &in);
     static const char *stateName(State s);
     static const char *stateLabel(State s);
+    // How bad does a severity look on screen? The state machine owns the
+    // "ok"/"warn"/"err" vocabulary and derive() already sets it per branch -
+    // "the camera requires a sign-in" is deliberately a warning because it is
+    // actionable, not a fault. A consumer that dispatched on state() alone
+    // mapped every SessionState::Error to a red, sticky, hand-dismissed card
+    // and threw that judgement away (DX-1). Only an explicit "warn" downgrades;
+    // anything else stays an error, so a downgrade has to be asked for by name.
+    static Diagnostics::Level notificationLevel(const QString &severity);
 
 signals:
     void changed();

@@ -40,15 +40,24 @@ CameraDevice::CameraDevice(const QString &deviceId, const QString &address, quin
     // not need a card for every poll that succeeded.
     connect(m_session, &SessionState::changed, this, [this]() {
         Diagnostics::Scope scope(Diagnostics::Category::Connection);
+        // The level comes from the state machine, not from the state. Taking
+        // state() alone mapped every SessionState::Error onto a red card, which
+        // is right for a fault and wrong for the branch that says "the camera
+        // requires a sign-in" - derive() marked that one a warning precisely
+        // because it is actionable rather than broken, and an ordinary first-run
+        // state became a permanent error the operator had to clear by hand on
+        // every connect (DX-1).
         switch (m_session->state()) {
         case SessionState::State::Error:
             m_notifications->postOnce(QStringLiteral("session-error"),
-                                      Diagnostics::Level::Error, Diagnostics::Category::Connection,
+                                      SessionState::notificationLevel(m_session->severity()),
+                                      Diagnostics::Category::Connection,
                                       m_session->detail());
             break;
         case SessionState::State::Degraded:
             m_notifications->postOnce(QStringLiteral("session-degraded"),
-                                      Diagnostics::Level::Warning, Diagnostics::Category::Connection,
+                                      SessionState::notificationLevel(m_session->severity()),
+                                      Diagnostics::Category::Connection,
                                       m_session->detail());
             break;
         case SessionState::State::Authenticated:
