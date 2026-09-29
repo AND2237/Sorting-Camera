@@ -87,7 +87,13 @@ qt_add_qml_module(SortingCamera
             qml/Main.qml
     )
 
+# include(CTest) is what creates the BUILD_TESTING option (default ON) and, when it is
+# on, calls enable_testing(). It must run unconditionally at the top level. Previously
+# it was missing entirely, so the guard below tested a variable nobody defined: CMake
+# read it as false, add_subdirectory never ran, and all twelve suites were silently
+# never registered while the build still reported success.
+include(CTest)
+
 if(BUILD_TESTING)
-    enable_testing()
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../tests ${CMAKE_CURRENT_BINARY_DIR}/tests)
 endif()
