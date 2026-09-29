@@ -272,11 +272,69 @@ that disagrees with the container. The locking itself is established by construc
 | `MjpegClient.cpp` worker→client hop `Qt::DirectConnection` → default Auto | exit 1, `framesAreDeliveredOffTheGuiThread`, 15/15 runs; reverted, 6/6 green |
 | every `m_mutex` lock in `Recorder.cpp` → uncontended mutex | exit 0, 20/20 — **not caught**, see above |
 
+### g1 (part 2) — CP-19 / FW-7: the camera lock was held across the network send
+
+Firmware. Full write-up: `docs/decisions/0016-camera-frame-buffer-drain-gate.md`.
+
+**What was wrong.** `camera_fb_get()` took `s_cam_mutex` and did not release it;
+`camera_fb_return()` released it, so a frame buffer's whole lifetime pinned the
+camera lock. Four sites therefore held it across network I/O: `snapshot_handler`
+(`http_servers.c:278-292`), `stream_handler` (`http_servers.c:323-371`),
+`tcp_task` (`frame_transport.c:141-162`), `udp_task` (`frame_transport.c:247-288`).
+Everything else queued behind one client's socket — including `camera_recover()`,
+the path that exists to un-wedge the camera.
+
+**What changed** (`firmware/esp32_cam_stream/main/camera.c`):
+
+- Added `s_gate_closed`, `s_gets_in_flight`, `s_fb_held` (all under `s_cam_mutex`),
+  `camera_gate_close()` / `camera_gate_open()`, `CAM_TEARDOWN_TIMEOUT_MS` 7000,
+  `CAM_GATE_POLL_MS` 10.
+- `camera_gate_close()` takes the mutex, sets the gate, and **releases the mutex on
+  every poll iteration** until both counters are 0 — so consumers are never queued
+  behind the teardown and the teardown is never queued behind them.
+- `camera_fb_get()` releases the mutex around the driver call (which blocks up to
+  `FB_GET_TIMEOUT` = 4000 ms) under `s_gets_in_flight`. If the gate closed while it
+  was inside, it gives the frame back and loops instead of returning NULL —
+  because `STREAM_CAPTURE_FAIL_LIMIT` is 1, a NULL here would send the stream
+  handler into recovery and then close the client.
+- `camera_fb_return()` takes the lock it previously assumed, and decrements
+  `s_fb_held`.
+- `camera_recover()` and `camera_apply_config()` close the gate before touching the
+  driver and open it on **every** path out (success, rollback, and the close-failure
+  path leaves it untouched and returns `ESP_ERR_INVALID_STATE`).
+- Removed `s_recovering`: redundant under the gate, and harmful — an early return
+  during another task's drain-poll would make `app_main.c:66,78` `esp_restart()`.
+
+**Checked against source, not assumed:**
+
+| Claim | Source |
+|---|---|
+| the lock is held across a send at 4 sites | `http_servers.c:278-292,323-371`; `frame_transport.c:141-162,247-288` |
+| `esp_camera_fb_get()` blocks inside the driver | vendored `esp_camera.c:387-389`, `FB_GET_TIMEOUT` = 4000 ms |
+| `esp_camera_deinit()` frees the buffers | vendored `esp_camera.c:373` → `cam_hal.c:635-673` |
+| `esp_camera_fb_return()` becomes unsafe after deinit | `esp_camera.c:404` early-returns on NULL `s_state`, set *after* the free |
+| 5 s send timeout on HTTP | `esp_http_server.h:68` `send_wait_timeout = 5`, applied at `httpd_main.c:91` |
+| 5 s send timeout on TCP/UDP | `frame_transport.c:131-132`, `TX_TIMEOUT_S` `:23` |
+
+**Gate (build + desktop regression)**
+
+| Check | Result |
+|---|---|
+| `idf.py build` (ESP-IDF v5.5.4) | exit 0, no warnings in `camera.c`, `esp32_cam_stream.bin` 0xf7710 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 12** |
+
+**Status `fixed`, not `closed`.** There is no firmware test harness, so the only
+evidence available off-hardware is a clean build and an unchanged desktop suite.
+The behaviour has **not** been observed on the camera: flash and live validation is
+Stage 4 g5. Do not close this row before that.
+
+**Not addressed by CP-19 (observation):** the `only_quality` fast path in
+`camera_apply_config()` calls `sensor->set_quality()` with no lock and no gate — a
+pre-existing race against a concurrent teardown, unchanged by this work.
+
 ### Still open in g1
 
-| ID | Why |
-|---|---|
-| CP-19 / FW-7 | firmware holds the frame mutex across the network send — next in this group |
+None — g1 (CP-3 and CP-19 / FW-7) is code-complete.
 
 ### Gate
 
@@ -312,7 +370,7 @@ that disagrees with the container. The locking itself is established by construc
 | CP-16 | B | desktop | 7 fps floor presented as measured | **closed** | Stage 3: `floorProvisional` + `activeFloorProvisional`; stale doc section replaced |
 | CP-17 | B | desktop | D2 evidence string overstates the run | **closed** | Stage 3: alt 9.97, 28,956 B, "one run measured three ways"; ADR-0012 corrected |
 | CP-18 | B | firmware | NVS restore trusts types with no validation | open | — |
-| CP-19 | A | firmware | Frame mutex held across network send | open | — |
+| CP-19 | A | firmware | Frame mutex held across network send | **fixed** | Stage 4 g1: drain gate in `camera.c` (ADR-0016); `idf.py build` exit 0; hardware validation pending (Stage 4 g5) |
 | CP-21 | C | desktop | Protocol version check absent | open | — |
 | CP-22 | C | desktop | Test settings path not redirected | open | — |
 | CP-23 | C | QML | Decode-failure counter labelled as transport drops | open | — |
@@ -326,7 +384,7 @@ that disagrees with the container. The locking itself is established by construc
 | FW-3 | A | firmware | PSRAM config divergence | **closed** | No divergence exists — see ADR-0015; `80M` was silently discarded, `40M` measured and produced |
 | FW-4 | B | firmware | Unbounded recovery on stream failure | open | — |
 | FW-6 | B | firmware | NVS restore unvalidated (alias of CP-18) | open | — |
-| FW-7 | A | firmware | Camera lock held across send (alias of CP-19) | open | — |
+| FW-7 | A | firmware | Camera lock held across send (alias of CP-19) | **fixed** | Stage 4 g1 part 2: same change as CP-19; see ADR-0016 |
 | FW-8 | B | firmware | Watchdog resets camera at 1 Hz | open | — |
 | FW-9 | C | firmware | Missing close delimiter | open | — |
 | FW-10 | B | firmware | Truncated config query returns 200 OK | open | — |
@@ -348,5 +406,6 @@ that disagrees with the container. The locking itself is established by construc
 | Stage 2 PSRAM reproducibility | 2026-09-29 | **pass** | clean generated `sdkconfig` identical before/after the fix; `40M` == `40M` |
 | Stage 3 profile provenance | 2026-09-29 | **pass** | `ctest` 12/12; `tst_profileengine` 23/23; all 60 published figures present in `benchmark-results.md`; 3 mutations caught |
 | Stage 4 g1 CP-3 thread placement | 2026-09-29 | **pass** | `ctest` 12/12 (4/4 repeat); `tst_capture` 9/9+1 skipped; `tst_recorder` 10/10; thread-placement mutation caught 15/15 |
+| Stage 4 g1 CP-19 / FW-7 camera drain gate | 2026-09-30 | **pass (build + desktop only)** | `idf.py build` exit 0, no `camera.c` warnings; `ctest` 12/12; live hardware validation **not run** (Stage 4 g5) |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |

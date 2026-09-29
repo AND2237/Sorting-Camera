@@ -81,11 +81,30 @@ static void camera_i2c_bus_recovery(void)
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// How long a teardown may wait for frame buffers to come back before it gives
+// up. A consumer holds a buffer for at most its socket send timeout - 5 s on
+// every path (TX_TIMEOUT_S in frame_transport.c, httpd's default
+// send_wait_timeout on the HTTP servers) - and esp_camera_fb_get() may sit
+// inside the driver for up to 4 s. Both run concurrently, so this is a little
+// more than the send timeout alone rather than the sum.
+#define CAM_TEARDOWN_TIMEOUT_MS 7000
+// The gate is polled rather than signalled, because FreeRTOS semaphores have
+// no broadcast: several consumers can be waiting for it at once and a binary
+// semaphore would wake exactly one of them.
+#define CAM_GATE_POLL_MS 10
+
 static SemaphoreHandle_t s_cam_mutex;
 static bool s_driver_up;
-static bool s_recovering;
 static uint32_t s_recovery_count;
 static camera_fb_t *s_last_fb;
+// Guarded by s_cam_mutex. s_gate_closed is set while the driver is being torn
+// down or rebuilt: no frame buffer leaves the driver and no esp_camera_fb_get()
+// call sits inside it until the gate is open again. The two counters are what
+// let a teardown wait for work it cannot simply block - s_gets_in_flight for a
+// call already inside the driver, s_fb_held for buffers out with consumers.
+static bool s_gate_closed;
+static int s_gets_in_flight;
+static int s_fb_held;
 static int s_fb_count = CAM_DEFAULT_FB_COUNT;
 static int s_quality = CAM_DEFAULT_JPEG_QUALITY;
 static int s_xclk_mhz = CAM_DEFAULT_XCLK_HZ / 1000000;
@@ -357,17 +376,68 @@ bool camera_init(void)
     return camera_try_init() == ESP_OK;
 }
 
+static bool camera_gate_expired(TickType_t deadline)
+{
+    return (int32_t)(xTaskGetTickCount() - deadline) >= 0;
+}
+
+// Called with s_cam_mutex held. Waits for any teardown already running to
+// finish, closes the gate so no frame buffer can leave the driver, then waits
+// for the ones already out - plus any esp_camera_fb_get() still inside the
+// driver - to come back. That wait is the point: esp_camera_deinit() frees the
+// frame buffers, so a teardown that did not wait would free memory a client is
+// mid-send on. Returns false only if the wait times out, and in that case the
+// gate is left open and the caller must not touch the driver.
+static bool camera_gate_close(void)
+{
+    const TickType_t deadline =
+        xTaskGetTickCount() + pdMS_TO_TICKS(CAM_TEARDOWN_TIMEOUT_MS);
+
+    while (s_gate_closed) {
+        if (camera_gate_expired(deadline)) {
+            ESP_LOGE(TAG, "camera teardown: another teardown still running after %d ms",
+                     CAM_TEARDOWN_TIMEOUT_MS);
+            return false;
+        }
+        xSemaphoreGive(s_cam_mutex);
+        vTaskDelay(pdMS_TO_TICKS(CAM_GATE_POLL_MS));
+        xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+    }
+    s_gate_closed = true;
+
+    while (s_gets_in_flight > 0 || s_fb_held > 0) {
+        if (camera_gate_expired(deadline)) {
+            ESP_LOGE(TAG, "camera teardown: %d get in flight, %d frame buffer(s) held "
+                          "after %d ms - a client socket is not draining",
+                     s_gets_in_flight, s_fb_held, CAM_TEARDOWN_TIMEOUT_MS);
+            s_gate_closed = false;
+            return false;
+        }
+        xSemaphoreGive(s_cam_mutex);
+        vTaskDelay(pdMS_TO_TICKS(CAM_GATE_POLL_MS));
+        xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+    }
+    return true;
+}
+
+// Called with s_cam_mutex held, only after a camera_gate_close() that returned
+// true, and on every path out of the teardown - including the paths that fail
+// after the gate has been taken.
+static void camera_gate_open(void)
+{
+    s_gate_closed = false;
+}
+
 esp_err_t camera_recover(void)
 {
     if (!s_cam_mutex) {
         return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
-    if (s_recovering) {
+    if (!camera_gate_close()) {
         xSemaphoreGive(s_cam_mutex);
         return ESP_ERR_INVALID_STATE;
     }
-    s_recovering = true;
     if (s_driver_up) {
         esp_camera_deinit();
         s_last_fb = NULL;
@@ -380,7 +450,7 @@ esp_err_t camera_recover(void)
     } else {
         ESP_LOGE(TAG, "camera recovery failed: %s", esp_err_to_name(err));
     }
-    s_recovering = false;
+    camera_gate_open();
     xSemaphoreGive(s_cam_mutex);
     return err;
 }
@@ -400,14 +470,47 @@ camera_fb_t *camera_fb_get(void)
     if (!s_cam_mutex) {
         return NULL;
     }
-    xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (fb) {
-        s_last_fb = fb;
-    } else {
+
+    for (;;) {
+        xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+        while (s_gate_closed) {
+            // A teardown is running. Wait outside the lock so the task doing
+            // it is never queued behind this one - which is the whole point
+            // of CP-19, and what the mutex-held-across-a-send design could
+            // not do.
+            xSemaphoreGive(s_cam_mutex);
+            vTaskDelay(pdMS_TO_TICKS(CAM_GATE_POLL_MS));
+            xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+        }
+        s_gets_in_flight++;
         xSemaphoreGive(s_cam_mutex);
+
+        // Up to four seconds inside the driver with no camera lock held.
+        // s_gets_in_flight is what stops a teardown from starting meanwhile.
+        camera_fb_t *fb = esp_camera_fb_get();
+
+        xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+        if (fb && !s_gate_closed) {
+            s_fb_held++;
+            s_last_fb = fb;
+            s_gets_in_flight--;
+            xSemaphoreGive(s_cam_mutex);
+            return fb;
+        }
+        if (fb) {
+            // The teardown began while this frame was being captured. Give it
+            // straight back and go round, so the caller sees a wait rather
+            // than a failed capture - STREAM_CAPTURE_FAIL_LIMIT is 1, so a
+            // NULL here would send the stream handler into recovery.
+            esp_camera_fb_return(fb);
+        }
+        s_gets_in_flight--;
+        xSemaphoreGive(s_cam_mutex);
+
+        if (!fb) {
+            return NULL; // the camera genuinely produced nothing
+        }
     }
-    return fb;
 }
 
 void camera_fb_return(camera_fb_t *fb)
@@ -415,10 +518,14 @@ void camera_fb_return(camera_fb_t *fb)
     if (!s_cam_mutex) {
         return;
     }
+    xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
     if (fb) {
         esp_camera_fb_return(fb);
         if (fb == s_last_fb) {
             s_last_fb = NULL;
+        }
+        if (s_fb_held > 0) {
+            s_fb_held--;
         }
     }
     xSemaphoreGive(s_cam_mutex);
@@ -494,6 +601,14 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
     }
 
     xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+    // Wait for consumers to give their frames back before deinit frees them.
+    // Without this the wait is implicit - the mutex is held across a frame's
+    // whole lifetime, so a slow client stalls every other camera user instead
+    // of only this teardown (CP-19).
+    if (!camera_gate_close()) {
+        xSemaphoreGive(s_cam_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
 
     s_framesize = fs;
     s_quality = quality;
@@ -516,6 +631,7 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
                  (unsigned)camera_estimate_frame_bytes(fs, quality),
                  (unsigned)CAM_FRAME_BUDGET_BYTES);
         camera_cfg_save();
+        camera_gate_open();
         xSemaphoreGive(s_cam_mutex);
         return ESP_OK;
     }
@@ -530,6 +646,7 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
     ESP_LOGE(TAG, "camera apply failed (%s), rollback %s",
              esp_err_to_name(err),
              rerr == ESP_OK ? "ok" : esp_err_to_name(rerr));
+    camera_gate_open();
     xSemaphoreGive(s_cam_mutex);
     return err;
 }

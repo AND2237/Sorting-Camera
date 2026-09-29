@@ -61,7 +61,19 @@ Three independent recovery layers, because a wedged OV2640 is otherwise a brick 
 Design constraints this imposes:
 
 - **The stream handler must never block indefinitely.** It runs inside the single-threaded stream httpd task, so anything that waits there stops *all* new stream connections. Capture failures therefore recover immediately instead of retrying 50 times (which cost ~225 s and, in the field, looked exactly like "the camera stopped working").
-- The camera mutex is held across a frame's whole lifetime (`camera_fb_get` takes it, `camera_fb_return` releases it) so a config apply cannot `esp_camera_deinit()` underneath a frame in flight. Every caller must return every frame or the whole camera wedges.
+- **The camera lock is a drain gate, not a hold-for-life mutex.** A frame buffer may
+  leave the driver and be held by a caller, but `s_gets_in_flight` / `s_fb_held`
+  (`camera.c`) are counted under `s_cam_mutex`, and a teardown takes that mutex,
+  sets `s_gate_closed`, and polls until both are zero before it calls
+  `esp_camera_deinit()` — which frees the buffers. Consumers take their buffer with
+  the lock released (so a slow client delays only the teardown, never any other
+  camera user) and wait with the lock released if the gate is closed; they give it
+  back under the lock. The drain is bounded by `CAM_TEARDOWN_TIMEOUT_MS` (7 s, a
+  little over the 5 s socket send timeout every path has); on timeout the gate is
+  reopened, the driver is left alone, and the teardown reports
+  `ESP_ERR_INVALID_STATE`. Every caller must return every frame or the drain never
+  completes, and **a caller must never hold a frame buffer while it asks for a
+  teardown** — it would wait for itself. See ADR-0016.
 - The operating point (framesize, quality, fb_count, grab mode, fb location, xclk) is persisted in NVS (`camcfg`/`v1`, CRC-checked) and restored before the first driver init, so a watchdog reboot returns to the user's chosen settings instead of silently reverting to the compiled defaults.
 
 ## Operating profiles and their frame-rate floors
