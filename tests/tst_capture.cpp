@@ -16,6 +16,9 @@
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QThread>
+
+#include <atomic>
 
 namespace {
 
@@ -124,6 +127,7 @@ private slots:
     void bitrateAndFrameAgeReportLiveValues();
     void unreadFramesAreCountedAsOverwritten();
     void readFramesAreNotCountedAsOverwritten();
+    void framesAreDeliveredOffTheGuiThread();
     void liveCameraBytesAreStoredVerbatim();
 };
 
@@ -436,6 +440,46 @@ void TestCapture::liveCameraBytesAreStoredVerbatim()
         QVERIFY2(received.contains(got),
                  "a recorded frame is not among the bytes the camera sent");
     }
+}
+
+// CP-3: the worker-to-client hop used to be delivered by an Auto connection,
+// which queued to MjpegClient's GUI affinity, so frameReady was emitted from
+// the GUI thread and every consumer of it - FrameBus and Recorder included -
+// was driven from there too. The delivery thread is observable, so this
+// asserts it directly rather than inferring it from locking. The connection
+// is deliberately Direct: that makes the lambda run where the signal is
+// emitted, which is the thread under test.
+void TestCapture::framesAreDeliveredOffTheGuiThread()
+{
+    const QList<QByteArray> payloads = realJpegs(3);
+    QVERIFY(payloads.size() == 3);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+
+    QThread *const guiThread = QThread::currentThread();
+    std::atomic<bool> delivered{false};
+    std::atomic<bool> onGuiThread{true};
+
+    MjpegClient stream;
+    // Qt refuses a nullptr context, so the sender is used as one. With
+    // DirectConnection the context object's affinity is irrelevant - the
+    // lambda runs in the thread that emits the signal, which is the thread
+    // under test.
+    connect(&stream, &MjpegClient::frameReady, &stream,
+            [&](const QImage &, const QByteArray &, qint64) {
+                onGuiThread.store(QThread::currentThread() == guiThread);
+                delivered.store(true);
+            },
+            Qt::DirectConnection);
+
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(delivered.load(), 8000);
+    stream.stop();
+
+    QVERIFY2(!onGuiThread.load(),
+             "frameReady is emitted on the GUI thread, which is where CP-3 "
+             "puts the frame bus and the recorder");
 }
 
 QTEST_GUILESS_MAIN(TestCapture)

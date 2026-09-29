@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMutex>
 #include <QObject>
 #include <QString>
 #include <QVector>
@@ -22,6 +23,15 @@ class QFile;
 // The index lives in a sidecar .json and is a convenience, not a dependency:
 // the container alone is sufficient to rebuild it, which is what makes the
 // file recoverable after the application is killed mid-write.
+//
+// Threading: the frame path runs on the net thread (architecture.md:124-128
+// puts both FrameBus and Recorder there) while start()/stop() and the QML
+// property reads run on the GUI thread, so every piece of state below is
+// guarded. Two locks with one fixed nesting: writeIndex() takes m_indexMutex
+// and then m_mutex, and no other code takes them in the reverse order, so
+// they cannot deadlock. Signals are always emitted after both are released,
+// because a slot is free to read a property back and would otherwise
+// re-enter the lock it is being emitted under.
 class Recorder : public QObject
 {
     Q_OBJECT
@@ -72,9 +82,26 @@ signals:
     void errorStringChanged();
 
 private:
-    void setError(const QString &err);
-    void writeIndex();
-    void closeFile();
+    // Assigns m_error without emitting: every caller emits errorStringChanged()
+    // itself, after releasing m_mutex, because the slot is free to read the
+    // property back and would otherwise re-enter the lock it is under.
+    void setErrorLocked(const QString &err);
+
+    // Snapshots the frame table and its file paths, then serialises the
+    // sidecar. Must be called with m_mutex NOT held: it takes m_indexMutex
+    // first and m_mutex second, and that order is what guarantees the last
+    // sidecar written is also the most complete. The expensive part runs
+    // without m_mutex held, so the frame path is never blocked behind disk
+    // I/O. Returns false and fills *err when the sidecar could not be
+    // written; the caller records that after both locks are released.
+    bool writeIndex(QString *err);
+    void closeFileLocked();
+
+    mutable QMutex m_mutex;
+    // Serialises the sidecar write itself, which is the only part that runs
+    // without m_mutex held. Taken before m_mutex inside writeIndex() and
+    // never the other way round, so the two cannot deadlock.
+    mutable QMutex m_indexMutex;
 
     QFile *m_file = nullptr;
     QString m_path;

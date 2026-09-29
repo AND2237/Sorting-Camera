@@ -41,57 +41,74 @@ Recorder::Recorder(QObject *parent) : QObject(parent) {}
 
 Recorder::~Recorder()
 {
-    closeFile();
+    QMutexLocker lock(&m_mutex);
+    closeFileLocked();
 }
 
 bool Recorder::isRecording() const
 {
+    QMutexLocker lock(&m_mutex);
     return m_file && m_file->isOpen();
 }
 
 QString Recorder::path() const
 {
+    QMutexLocker lock(&m_mutex);
     return m_path;
 }
 
 QString Recorder::indexPath() const
 {
+    QMutexLocker lock(&m_mutex);
     return m_indexPath;
 }
 
 qint64 Recorder::framesWritten() const
 {
+    QMutexLocker lock(&m_mutex);
     return m_frames.size();
 }
 
 qint64 Recorder::bytesWritten() const
 {
+    QMutexLocker lock(&m_mutex);
     return m_bytesWritten;
 }
 
 QString Recorder::errorString() const
 {
+    QMutexLocker lock(&m_mutex);
     return m_error;
 }
 
-void Recorder::setError(const QString &err)
+void Recorder::setErrorLocked(const QString &err)
 {
-    if (m_error != err) {
-        m_error = err;
-        emit errorStringChanged();
-    }
+    m_error = err;
 }
 
 bool Recorder::start(const QString &directory, const QJsonObject &meta)
 {
-    if (isRecording()) {
-        setError(QStringLiteral("already recording"));
+    QString err;
+    {
+        QMutexLocker lock(&m_mutex);
+        if (m_file && m_file->isOpen()) {
+            setErrorLocked(QStringLiteral("already recording"));
+            err = m_error;
+        }
+    }
+    if (!err.isEmpty()) {
+        emit errorStringChanged();
         return false;
     }
 
     QDir dir(directory);
     if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
-        setError(QStringLiteral("cannot create directory %1").arg(directory));
+        const QString msg = QStringLiteral("cannot create directory %1").arg(directory);
+        {
+            QMutexLocker lock(&m_mutex);
+            setErrorLocked(msg);
+        }
+        emit errorStringChanged();
         return false;
     }
 
@@ -101,8 +118,14 @@ bool Recorder::start(const QString &directory, const QJsonObject &meta)
 
     QFile *file = new QFile(base, this);
     if (!file->open(QIODevice::WriteOnly | QIODevice::Unbuffered)) {
-        setError(QStringLiteral("cannot open %1: %2").arg(base, file->errorString()));
+        const QString msg =
+            QStringLiteral("cannot open %1: %2").arg(base, file->errorString());
         delete file;
+        {
+            QMutexLocker lock(&m_mutex);
+            setErrorLocked(msg);
+        }
+        emit errorStringChanged();
         return false;
     }
 
@@ -123,19 +146,28 @@ bool Recorder::start(const QString &directory, const QJsonObject &meta)
     head.append(headerBytes);
 
     if (file->write(head) != head.size()) {
-        setError(QStringLiteral("cannot write header to %1: %2").arg(base, file->errorString()));
+        const QString msg = QStringLiteral("cannot write header to %1: %2")
+                                .arg(base, file->errorString());
         delete file;
+        {
+            QMutexLocker lock(&m_mutex);
+            setErrorLocked(msg);
+        }
+        emit errorStringChanged();
         return false;
     }
 
-    m_file = file;
-    m_path = base;
-    m_indexPath = base + QStringLiteral(".json");
-    m_meta = header;
-    m_frames.clear();
-    m_framesSinceIndex = 0;
-    m_bytesWritten = head.size();
-    setError(QString());
+    {
+        QMutexLocker lock(&m_mutex);
+        m_file = file;
+        m_path = base;
+        m_indexPath = base + QStringLiteral(".json");
+        m_meta = header;
+        m_frames.clear();
+        m_framesSinceIndex = 0;
+        m_bytesWritten = head.size();
+        m_error.clear();
+    }
     emit recordingChanged();
     emit progressChanged();
     return true;
@@ -144,46 +176,104 @@ bool Recorder::start(const QString &directory, const QJsonObject &meta)
 void Recorder::appendFrame(const QByteArray &jpeg, int seq, qint64 timestampMs, int width,
                            int height)
 {
-    if (!isRecording() || jpeg.isEmpty()) {
+    if (jpeg.isEmpty()) {
         return;
     }
 
-    const quint32 len = quint32(jpeg.size());
-    char lenBytes[4] = {char(len & 0xFF), char((len >> 8) & 0xFF), char((len >> 16) & 0xFF),
-                        char((len >> 24) & 0xFF)};
-    if (m_file->write(lenBytes, 4) != 4 || m_file->write(jpeg) != jpeg.size()) {
-        setError(QStringLiteral("write failed: %1").arg(m_file->errorString()));
-        closeFile();
-        return;
+    bool flushIndex = false;
+    bool errorChanged = false;
+    bool didRecord = false;
+    bool didProgress = false;
+    {
+        QMutexLocker lock(&m_mutex);
+        if (!m_file || !m_file->isOpen()) {
+            return;
+        }
+
+        const quint32 len = quint32(jpeg.size());
+        char lenBytes[4] = {char(len & 0xFF), char((len >> 8) & 0xFF),
+                            char((len >> 16) & 0xFF), char((len >> 24) & 0xFF)};
+        if (m_file->write(lenBytes, 4) != 4 || m_file->write(jpeg) != jpeg.size()) {
+            setErrorLocked(QStringLiteral("write failed: %1").arg(m_file->errorString()));
+            closeFileLocked();
+            errorChanged = true;
+            didRecord = true;
+        } else {
+            FrameEntry e;
+            e.offset = m_bytesWritten;
+            e.seq = seq;
+            e.timestampMs = timestampMs;
+            e.bytes = qint64(len);
+            e.width = width;
+            e.height = height;
+            m_frames.append(e);
+            m_bytesWritten += 4 + jpeg.size();
+            didProgress = true;
+
+            if (++m_framesSinceIndex >= kIndexEveryFrames) {
+                m_framesSinceIndex = 0;
+                flushIndex = true;
+            }
+        }
     }
 
-    FrameEntry e;
-    e.offset = m_bytesWritten;
-    e.seq = seq;
-    e.timestampMs = timestampMs;
-    e.bytes = qint64(len);
-    e.width = width;
-    e.height = height;
-    m_frames.append(e);
-    m_bytesWritten += 4 + jpeg.size();
+    // Outside the lock: a sidecar flush is the one part of recording that does
+    // real work proportional to the length of the take, and the frame path
+    // must not wait behind it.
+    if (flushIndex) {
+        QString err;
+        if (!writeIndex(&err)) {
+            QMutexLocker lock(&m_mutex);
+            setErrorLocked(err);
+            errorChanged = true;
+        }
+    }
 
-    emit progressChanged();
-
-    if (++m_framesSinceIndex >= kIndexEveryFrames) {
-        m_framesSinceIndex = 0;
-        writeIndex();
+    if (errorChanged) {
+        emit errorStringChanged();
+    }
+    if (didRecord) {
+        emit recordingChanged();
+    }
+    if (didProgress) {
+        emit progressChanged();
     }
 }
 
-void Recorder::writeIndex()
+bool Recorder::writeIndex(QString *err)
 {
-    if (m_indexPath.isEmpty()) {
-        return;
+    // m_indexMutex is the outer lock and m_mutex the inner one here - the
+    // reverse of nowhere: nothing ever takes m_mutex first and m_indexMutex
+    // after, so the pair cannot deadlock. Taking them in this order is what
+    // makes the final sidecar agree with the container. stop() has already
+    // closed the file by the time it calls this, so the snapshot below is
+    // taken after the last append either way round two flushes interleave:
+    // the one that acquires m_indexMutex later always sees the closed file
+    // and therefore the complete frame table.
+    QMutexLocker indexLock(&m_indexMutex);
+
+    QVector<FrameEntry> snapshot;
+    QString indexPath;
+    QString filePath;
+    QJsonObject meta;
+    {
+        QMutexLocker lock(&m_mutex);
+        if (m_indexPath.isEmpty()) {
+            return true;
+        }
+        // Implicitly shared, so this is a reference count and not a copy: the
+        // frame path keeps appending while the index is serialised. The next
+        // append detaches once, an O(N) memcpy that replaces the O(N) JSON
+        // build this used to hold the frame lock through.
+        snapshot = m_frames;
+        indexPath = m_indexPath;
+        filePath = m_path;
+        meta = m_meta;
     }
 
-    QJsonObject root = m_meta;
+    QJsonObject root = meta;
     QJsonArray frames;
-    for (const FrameEntry &e : m_frames) {
+    for (const FrameEntry &e : snapshot) {
         QJsonObject f;
         f[QStringLiteral("offset")] = double(e.offset);
         f[QStringLiteral("seq")] = e.seq;
@@ -194,30 +284,54 @@ void Recorder::writeIndex()
         frames.append(f);
     }
     root[QStringLiteral("frames")] = frames;
-    root[QStringLiteral("file")] = QFileInfo(m_path).fileName();
+    root[QStringLiteral("file")] = QFileInfo(filePath).fileName();
 
-    QSaveFile out(m_indexPath);
+    QSaveFile out(indexPath);
     if (!out.open(QIODevice::WriteOnly)) {
-        setError(QStringLiteral("cannot write index: %1").arg(out.errorString()));
-        return;
+        if (err) {
+            *err = QStringLiteral("cannot write index: %1").arg(out.errorString());
+        }
+        return false;
     }
     out.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
     if (!out.commit()) {
-        setError(QStringLiteral("cannot commit index: %1").arg(out.errorString()));
+        if (err) {
+            *err = QStringLiteral("cannot commit index: %1").arg(out.errorString());
+        }
+        return false;
     }
+    return true;
 }
 
 void Recorder::stop()
 {
-    if (!isRecording()) {
-        return;
+    {
+        QMutexLocker lock(&m_mutex);
+        if (!m_file || !m_file->isOpen()) {
+            return;
+        }
+        // Close first so no frame can be appended after the snapshot the index
+        // is built from. appendFrame() takes the same lock, so a frame already
+        // in flight either lands before the close and is indexed, or sees no
+        // file and returns.
+        closeFileLocked();
     }
-    writeIndex();
-    closeFile();
+
+    QString err;
+    const bool indexed = writeIndex(&err);
+    if (!indexed) {
+        QMutexLocker lock(&m_mutex);
+        setErrorLocked(err);
+    }
+
     emit recordingChanged();
+    emit progressChanged();
+    if (!indexed) {
+        emit errorStringChanged();
+    }
 }
 
-void Recorder::closeFile()
+void Recorder::closeFileLocked()
 {
     if (!m_file) {
         return;

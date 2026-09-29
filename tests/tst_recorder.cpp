@@ -5,14 +5,19 @@
 #include <QBuffer>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QTest>
+
+#include <thread>
 
 namespace {
 
@@ -37,6 +42,27 @@ QByteArray sha256(const QByteArray &data)
     return QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
 }
 
+// A std::thread destroyed while still joinable terminates the process, which
+// would bury a QVERIFY failure behind "terminate called without an exception".
+struct JoinAll
+{
+    QVector<std::thread *> ts;
+    void join()
+    {
+        for (std::thread *t : ts) {
+            if (t->joinable()) {
+                t->join();
+            }
+            delete t;
+        }
+        ts.clear();
+    }
+    ~JoinAll()
+    {
+        join();
+    }
+};
+
 } // namespace
 
 class TestRecorder : public QObject
@@ -51,6 +77,7 @@ private slots:
     void refusingToStartTwice();
     void snapshotIsByteExact();
     void snapshotRefusesWithoutAFrame();
+    void stopRacingTheFramePathKeepsContainerAndIndexInAgreement();
 };
 
 void TestRecorder::roundTripIsByteExact()
@@ -260,6 +287,132 @@ void TestRecorder::snapshotRefusesWithoutAFrame()
     QVERIFY(path.isEmpty());
     QVERIFY(!writer.errorString().isEmpty());
     QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("snap"))));
+}
+
+// CP-3 puts recording on the network thread while start()/stop() and the QML
+// property reads stay on the GUI thread, so the Recorder is fed from a thread
+// it does not own. This checks the two things a reader of the result can
+// actually verify: that the two-lock design does not deadlock (the deadline
+// below is what fails if it does), and that after stop() races a live frame
+// path the container and the sidecar still describe exactly the same frames.
+// It does not prove the absence of data races - that needs a thread sanitizer,
+// which the MinGW toolchain does not provide - so the locking itself is
+// established by construction in Recorder.h, not by this test.
+void TestRecorder::stopRacingTheFramePathKeepsContainerAndIndexInAgreement()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    // Enough frames that the four writers below are overlapping inside
+    // appendFrame() for most of the run. This is deliberately unpaced: with a
+    // sleep between frames the writers are almost never in the critical
+    // section at the same moment, and a test that never overlaps anything
+    // passes against unlocked code too.
+    const int writers = 4;
+    const int perWriter = 200;
+    const int total = writers * perWriter;
+    QList<QByteArray> payloads;
+    payloads.reserve(total);
+    for (int i = 0; i < total; i++) {
+        payloads.append(fakeJpeg(96 + i * 3, quint8(i)));
+    }
+
+    Recorder rec;
+    QJsonObject meta;
+    QVERIFY2(rec.start(dir.path(), meta), qPrintable(rec.errorString()));
+
+    QVector<std::thread *> threads;
+    for (int w = 0; w < writers; w++) {
+        threads.append(new std::thread([&, w]() {
+            for (int i = 0; i < perWriter; i++) {
+                const int n = w * perWriter + i;
+                rec.appendFrame(payloads.at(n), n, 7000 + n, 640, 480);
+            }
+        }));
+    }
+    // A failed QVERIFY below returns from this function before the joins, so
+    // every writer is joined on every path out, not just the passing one.
+    JoinAll joinAll{threads};
+
+    // Read the QML-facing properties from the owning thread while four other
+    // threads are inside appendFrame(). These contend for the same lock, so
+    // an ordering mistake between m_mutex and m_indexMutex shows up here as
+    // the deadline below being reached rather than as a silent hang.
+    QElapsedTimer deadline;
+    deadline.start();
+    while (rec.framesWritten() < 60 && deadline.elapsed() < 30000) {
+        QVERIFY(rec.isRecording());
+        QVERIFY(rec.errorString().isEmpty());
+        QVERIFY(rec.bytesWritten() >= 0);
+        QVERIFY(rec.path().endsWith(QStringLiteral(".scamrec")));
+    }
+    QVERIFY2(rec.framesWritten() >= 60, "the writers never got going");
+
+    // Stop while frames are still arriving. Appends past this point must
+    // become a no-op rather than write into a file that has been closed.
+    rec.stop();
+    joinAll.join();
+
+    QVERIFY(!rec.isRecording());
+    QVERIFY(rec.errorString().isEmpty());
+    const qint64 written = rec.framesWritten();
+    QVERIFY(written >= 60);
+    QVERIFY(written <= total);
+
+    QVector<Recorder::FrameEntry> entries;
+    QString err;
+    QVERIFY2(Recorder::scan(rec.path(), &entries, nullptr, &err), qPrintable(err));
+    QCOMPARE(qint64(entries.size()), written);
+
+    QFile f(rec.path());
+    QVERIFY(f.open(QIODevice::ReadOnly));
+
+    // Contiguous offsets and exact bytes. The writers interleave, so the file
+    // order is not the payload order and the container does not store a seq -
+    // scan() numbers frames by their position. Which frame each entry carries
+    // is therefore identified by its bytes. What must hold either way is that
+    // nothing is torn, nothing is duplicated, and nothing is missing: a frame
+    // written without the lock shows up as a gap, an overlap, or bytes that
+    // are not the ones handed in.
+    QHash<QByteArray, int> byPayload;
+    for (int i = 0; i < total; i++) {
+        byPayload.insert(payloads.at(i), i);
+    }
+    QSet<int> seen;
+    qint64 expectedSize = 0;
+    for (int i = 0; i < entries.size(); i++) {
+        const Recorder::FrameEntry &e = entries.at(i);
+        QCOMPARE(e.seq, i);
+        if (i > 0) {
+            const Recorder::FrameEntry &prev = entries.at(i - 1);
+            QCOMPARE(e.offset, prev.offset + 4 + prev.bytes);
+        } else {
+            QVERIFY(e.offset > 0);
+        }
+        QVERIFY(f.seek(e.offset + 4));
+        const QByteArray got = f.read(e.bytes);
+        const int n = byPayload.value(got, -1);
+        QVERIFY2(n >= 0, "the bytes on disk are not a frame that was handed to the recorder");
+        QVERIFY2(!seen.contains(n), "the same frame was written twice");
+        seen.insert(n);
+        expectedSize = e.offset + 4 + e.bytes;
+    }
+    QCOMPARE(seen.size(), int(written));
+    // stop() closes the file under the same lock appendFrame() writes with,
+    // so nothing can be half-written at the tail.
+    QCOMPARE(f.size(), expectedSize);
+
+    // The sidecar is what a player reads first, so it has to describe exactly
+    // the frames the container holds - not a snapshot taken a moment earlier.
+    QVERIFY(QFile::exists(rec.indexPath()));
+    QFile sidecarFile(rec.indexPath());
+    QVERIFY(sidecarFile.open(QIODevice::ReadOnly));
+    const QJsonObject sidecar =
+        QJsonDocument::fromJson(sidecarFile.readAll()).object();
+    QCOMPARE(sidecar.value(QStringLiteral("frames")).toArray().size(),
+             int(written));
+    QCOMPARE(sidecar.value(QStringLiteral("file")).toString(),
+             QFileInfo(rec.path()).fileName());
 }
 
 QTEST_GUILESS_MAIN(TestRecorder)

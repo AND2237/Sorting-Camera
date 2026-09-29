@@ -167,6 +167,11 @@ CameraDevice::CameraDevice(const QString &deviceId, const QString &address, quin
     // and the untouched socket bytes for the recorder. Snapshotting reads the
     // same bytes, which is what makes a snapshot the picture that was on
     // screen rather than a re-encode of it.
+    // Delivered on the network thread, which is where architecture.md:124-128
+    // puts the frame bus and the recorder. An Auto connection would queue this
+    // to the GUI thread and put both of them there with it (CP-3). Nothing in
+    // this lambda touches CameraDevice's own state: FrameBus::setFrame is
+    // mutex-guarded and Recorder is internally synchronised.
     connect(m_stream, &MjpegClient::frameReady, this,
             [this](const QImage &image, const QByteArray &raw, qint64 completeMs) {
                 m_frames->setFrame(image, raw, completeMs);
@@ -175,7 +180,8 @@ CameraDevice::CameraDevice(const QString &deviceId, const QString &address, quin
                                             QDateTime::currentMSecsSinceEpoch(), image.width(),
                                             image.height());
                 }
-            });
+            },
+            Qt::DirectConnection);
 
     // The camera asked to be re-initialised (a stalled capture task). Recovery
     // goes through the control channel, which is per device, so it uses this

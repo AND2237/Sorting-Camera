@@ -214,13 +214,89 @@ revert):
 
 ---
 
+## Stage 4 — remaining findings (2026-09-29)
+
+### g1 — CP-3: recording and the frame bus ran on the GUI thread
+
+`MjpegClient` moved only its worker onto the network thread. The worker→client hop used the
+default connection type, which queued to `MjpegClient`'s GUI affinity, so `frameReady` was
+*emitted* on the GUI thread and both downstream consumers ran there too: `CameraDevice.cpp:170`
+writing `FrameBus` and feeding `Recorder`. That is the reverse of the thread table at
+`docs/architecture.md:124-128`, which puts the transport, the bus and recording on the network
+thread, and it is what the GUI-thread rule at `architecture.md:134` exists to prevent.
+
+Three changes:
+
+1. **`MjpegClient.cpp`** — the worker→client hop is now `Qt::DirectConnection`, so the lambda
+   and the `emit frameReady` run on the network thread. The per-frame GUI property bookkeeping
+   that used to run before the emit (`setRetryAttempt`, `setConnecting`, `setNoResponseStreak`,
+   `setReconnecting`, `setRecoveryHint`) is queued back to the owning thread with
+   `QMetaObject::invokeMethod(…, Qt::QueuedConnection)`, so no QML property is written from
+   off-thread. `AppMetrics::addPresentAgeMs` is already mutex-guarded.
+2. **`CameraDevice.cpp:170`** — the frame-delivery connection is now `Qt::DirectConnection`, so
+   `FrameBus::setFrame` and `Recorder::appendFrame` are reached on the network thread. The
+   connection at `CameraDevice.cpp:99` (Diagnostics frame counters) is deliberately left Auto
+   and therefore becomes queued to the GUI thread, where `Diagnostics` lives.
+3. **`Recorder`** is now internally synchronised. `start()`, `stop()`, `appendFrame()` and every
+   `Q_PROPERTY` reader take `m_mutex`; `writeIndex()` takes `m_indexMutex` first and `m_mutex`
+   second, and that nesting is never reversed anywhere else, so the pair cannot deadlock.
+   Taking them in that order is what makes the last sidecar written also the most complete:
+   `stop()` closes the file under `m_mutex` before it indexes, so an in-flight periodic flush
+   cannot leave the sidecar describing fewer frames than the container. Signals are emitted only
+   after both locks are released, because a slot is free to read a property back and would
+   otherwise re-enter the lock it is being emitted under. The O(N) sidecar serialisation runs
+   outside `m_mutex`, so the frame path is never blocked behind disk I/O.
+
+No change to the `.scamrec` or sidecar format (ADR-0011): `tst_recorder`'s existing sidecar and
+byte-identity assertions pass unmodified.
+
+### Tests
+
+| Test | Guards |
+|---|---|
+| `TestCapture::framesAreDeliveredOffTheGuiThread` | `frameReady` is not emitted on the GUI thread — the CP-3 defect itself |
+| `TestRecorder::stopRacingTheFramePathKeepsContainerAndIndexInAgreement` | four threads feed one `Recorder` while this thread reads the QML properties and stops it; the container is then contiguous and duplicate-free and the sidecar describes exactly the frames it holds |
+
+The second test does **not** prove the absence of data races. That needs a thread sanitizer,
+which the MinGW toolchain does not provide, and removing every `m_mutex` lock from
+`Recorder.cpp` left it green over 20 runs. Its stated job is narrower: a lock-order mistake
+between `m_mutex` and `m_indexMutex` shows up as the 30 s deadline being reached rather than a
+hang, and a `writeIndex()` that snapshots outside the serialising lock shows up as a sidecar
+that disagrees with the container. The locking itself is established by construction in
+`Recorder.h`, not by this test.
+
+**Mutation evidence** (introduce the defect, rebuild, expect non-zero exit, revert):
+
+| Mutation | Result |
+|---|---|
+| `MjpegClient.cpp` worker→client hop `Qt::DirectConnection` → default Auto | exit 1, `framesAreDeliveredOffTheGuiThread`, 15/15 runs; reverted, 6/6 green |
+| every `m_mutex` lock in `Recorder.cpp` → uncontended mutex | exit 0, 20/20 — **not caught**, see above |
+
+### Still open in g1
+
+| ID | Why |
+|---|---|
+| CP-19 / FW-7 | firmware holds the frame mutex across the network send — next in this group |
+
+### Gate
+
+| Check | Result |
+|---|---|
+| build | exit 0 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 12**, 16.57 s, exit 0 |
+| repeat `ctest` | 4/4 rounds green |
+| `tst_recorder` | **Totals: 10 passed, 0 failed** |
+| `tst_capture` | **Totals: 9 passed, 0 failed, 1 skipped** (live test, needs `SCAM_TEST_HOST`) |
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
 |---|---|---|---|---|---|
 | CP-1 | A | desktop | Test suites never registered | closed | Stage 1: `ctest -N` 12, `ctest` 12/12 |
 | CP-2 | A | desktop | `ProfileEngine` borrows another profile's byte count | **closed** | Stage 3: 16982 (own config), 14680 rejected by test; mutation-tested |
-| CP-3 | A | desktop | Recording and frame bus run on the GUI thread | open | — |
+| CP-3 | A | desktop | Recording and frame bus run on the GUI thread | **closed** | Stage 4 g1: Direct frame hop + `DirectConnection` delivery + synchronised `Recorder`; mutation-caught |
 | CP-4 | A | firmware | Sensor controls reset on every `esp_camera_init` | open | — |
 | CP-5 | A | desktop | Recovery counter never resets | open | — |
 | CP-6 | A | desktop | 401 during connect permanently dead | open | — |
@@ -271,5 +347,6 @@ revert):
 | Stage 1 test registration | 2026-09-29 | **pass** | fresh `desktop\build`: `ctest -N` = 12, `ctest` = 12/12, exit 0 |
 | Stage 2 PSRAM reproducibility | 2026-09-29 | **pass** | clean generated `sdkconfig` identical before/after the fix; `40M` == `40M` |
 | Stage 3 profile provenance | 2026-09-29 | **pass** | `ctest` 12/12; `tst_profileengine` 23/23; all 60 published figures present in `benchmark-results.md`; 3 mutations caught |
+| Stage 4 g1 CP-3 thread placement | 2026-09-29 | **pass** | `ctest` 12/12 (4/4 repeat); `tst_capture` 9/9+1 skipped; `tst_recorder` 10/10; thread-placement mutation caught 15/15 |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |

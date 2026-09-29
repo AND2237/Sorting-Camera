@@ -489,16 +489,28 @@ MjpegClient::MjpegClient(QObject *parent)
         }
         setError(err);
     });
+    // Runs on the network thread, not on the GUI thread. The default Auto
+    // connection would queue to this object's GUI affinity, and every consumer
+    // of frameReady downstream of it would land there too - the frame bus and
+    // the recorder both, which is the defect CP-3 describes. The frame is
+    // therefore emitted straight from the thread that received it, and only
+    // the per-frame property bookkeeping hops back to the GUI.
     connect(m_worker, &MjpegWorker::frameReady, this,
             [this](const QImage &image, const QByteArray &raw, qint64 completeMs) {
                 AppMetrics::instance().addPresentAgeMs(AppMetrics::nowMs() - completeMs);
-                setRetryAttempt(0);
-                setConnecting(false);
-                setNoResponseStreak(0);
-                setReconnecting(false);
-                setRecoveryHint(QString());
+                QMetaObject::invokeMethod(
+                    this,
+                    [this]() {
+                        setRetryAttempt(0);
+                        setConnecting(false);
+                        setNoResponseStreak(0);
+                        setReconnecting(false);
+                        setRecoveryHint(QString());
+                    },
+                    Qt::QueuedConnection);
                 emit frameReady(image, raw, completeMs);
-            });
+            },
+            Qt::DirectConnection);
 
     m_thread->start();
 }
