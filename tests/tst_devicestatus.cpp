@@ -13,6 +13,8 @@
 #include <QTcpSocket>
 #include <QTest>
 
+#include <utility>
+
 namespace {
 
 // Stands in for the camera's control port. Records every request so a test can
@@ -48,6 +50,11 @@ public:
     int capabilitiesStatus = 200;
     int sensorPostStatus = 200;
     QString sensorPostError = QStringLiteral("rejected");
+    // Turns /api/v1/config into a 401 until a sign-in succeeds, which is what
+    // the camera looks like after a restart that dropped its token table.
+    bool configUnauthorized = false;
+    int configRequests = 0;
+    int loginRequests = 0;
 
     const QJsonObject capabilities = QJsonObject{
         {QStringLiteral("controls"),
@@ -154,7 +161,31 @@ private:
             respond(sock, 200, QJsonDocument(status).toJson(QJsonDocument::Compact));
             return;
         }
+        if (req.path == QStringLiteral("/api/v1/auth/challenge")) {
+            const QJsonObject challenge{
+                {QStringLiteral("nonce"),
+                 QStringLiteral("00112233445566778899aabbccddeeff")},
+                {QStringLiteral("salt"), QStringLiteral("000102030405060708090a0b0c0d0e0f")},
+                {QStringLiteral("iterations"), 1000}};
+            respond(sock, 200, QJsonDocument(challenge).toJson(QJsonDocument::Compact));
+            return;
+        }
+        if (req.path == QStringLiteral("/api/v1/auth/login")) {
+            ++loginRequests;
+            // Signing in is what puts the camera back in a state where the
+            // write it just rejected will be accepted.
+            configUnauthorized = false;
+            const QJsonObject session{{QStringLiteral("token"), QStringLiteral("stub-token")},
+                                      {QStringLiteral("expires_in_s"), 1800}};
+            respond(sock, 200, QJsonDocument(session).toJson(QJsonDocument::Compact));
+            return;
+        }
         if (req.path.startsWith(QStringLiteral("/api/v1/config"))) {
+            ++configRequests;
+            if (configUnauthorized) {
+                respond(sock, 401, QByteArray("{\"error\":\"unauthorized\"}"));
+                return;
+            }
             respond(sock, 200, QJsonDocument(status).toJson(QJsonDocument::Compact));
             return;
         }
@@ -203,6 +234,8 @@ private slots:
     void writesAreSerialisedWhileOneIsInFlight();
     void aProfileLeavesAsASingleConfigRequest();
     void aStaleNotConnectedErrorClearsWhenTheCameraAnswers();
+    void aConfigWriteRejectedWith401IsReplayedAfterSignIn();
+    void aConfigWriteRejectedWith401FailsHonestlyWhenSignInCannotStart();
 };
 
 void TestDeviceStatus::capabilitiesArriveAfterAStatusPoll()
@@ -469,6 +502,88 @@ void TestDeviceStatus::aStaleNotConnectedErrorClearsWhenTheCameraAnswers()
     status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
     QTRY_VERIFY_WITH_TIMEOUT(status.configError().isEmpty(), 8000);
 
+    status.stopPolling();
+}
+
+// CP-6: a token that expires mid-session used to end the request with
+// "session expired, signing in again" and never send anything again. The batch
+// had already been cleared on the GUI side, so the user's change was gone and
+// the message promised a retry nothing performed.
+void TestDeviceStatus::aConfigWriteRejectedWith401IsReplayedAfterSignIn()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    // A password is what makes a 401 recoverable at all; without one the
+    // sign-in declines and there is nothing to wait for.
+    status.signIn(QStringLiteral("control-password"), false);
+    QTRY_VERIFY_WITH_TIMEOUT(status.isAuthenticated(), 8000);
+    const int loginsBefore = stub.loginRequests;
+    const int configBefore = stub.configRequests;
+
+    // From here the config endpoint rejects us until a sign-in succeeds - the
+    // camera kept the endpoint but not our token.
+    stub.configUnauthorized = true;
+
+    status.setResolution(QStringLiteral("hd"));
+    status.setQuality(12);
+    QVERIFY(status.configBusy());
+
+    QTRY_VERIFY_WITH_TIMEOUT(!status.configBusy(), 15000);
+    QVERIFY2(status.configError().isEmpty(), qPrintable(status.configError()));
+    // One fresh sign-in, and the batch went out twice: rejected, then accepted.
+    QCOMPARE(stub.loginRequests, loginsBefore + 1);
+    QCOMPARE(stub.configRequests, configBefore + 2);
+
+    // The replay carries the whole batch, not a fragment of it: a rejected
+    // write must arrive as the one request it was originally built as.
+    QStringList queries;
+    for (const ControlApiStub::Request &r : stub.requests) {
+        if (r.path.startsWith(QStringLiteral("/api/v1/config"))) {
+            queries << r.path;
+        }
+    }
+    QCOMPARE(queries.size(), 2);
+    for (const QString &q : std::as_const(queries)) {
+        QVERIFY2(q.contains(QStringLiteral("framesize=hd")), qPrintable(q));
+        QVERIFY2(q.contains(QStringLiteral("quality=12")), qPrintable(q));
+    }
+    status.stopPolling();
+}
+
+// The other half of CP-6: when there is no session to get back, the write has
+// to fail with a sentence that is true, once, and leaves the panel usable.
+void TestDeviceStatus::aConfigWriteRejectedWith401FailsHonestlyWhenSignInCannotStart()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    stub.configUnauthorized = true;
+
+    status.setQuality(12);
+    QVERIFY(status.configBusy());
+
+    QTRY_VERIFY_WITH_TIMEOUT(!status.configBusy(), 8000);
+    QVERIFY2(!status.configError().isEmpty(), "a dropped write reported success");
+    QVERIFY2(status.configError().contains(QStringLiteral("session expired")),
+             qPrintable(status.configError()));
+    QVERIFY2(!status.configError().contains(QStringLiteral("signing in again")),
+             "the message promised a retry that will not happen");
+
+    // One attempt, one honest answer, and the panel is free for the next try.
+    QTest::qWait(500);
+    QCOMPARE(stub.configRequests, 1);
+    QCOMPARE(stub.loginRequests, 0);
     status.stopPolling();
 }
 

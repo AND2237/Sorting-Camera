@@ -346,6 +346,68 @@ None — g1 (CP-3 and CP-19 / FW-7) is code-complete.
 | `tst_recorder` | **Totals: 10 passed, 0 failed** |
 | `tst_capture` | **Totals: 9 passed, 0 failed, 1 skipped** (live test, needs `SCAM_TEST_HOST`) |
 
+### g2 — CP-6: a 401 on a config write silently dropped the change
+
+Desktop. `desktop/src/DeviceStatus.cpp`, `tests/tst_devicestatus.cpp`.
+
+**What was wrong.** `trySendPendingConfig()` clears `m_pendingKv` before the
+request is sent (`DeviceStatus.cpp:1061` today, `:924` in the audited snapshot),
+so the batch survives only as
+`m_cfgQuery` inside the worker. On a 401 the handler called `m_auth->signIn()`
+and emitted `configFinished(false, "session expired, signing in again")` —
+wording that promises a retry — and queued nothing. The write was gone while the
+UI showed a transient message. The audit notes the same path on `setSensor`.
+
+**What changed:**
+
+- The worker keeps `m_cfgAuthRetryPending` / `m_sensorAuthRetryPending` and the
+  body of the rejected write. While either is set, no `configFinished` /
+  `sensorFinished` is emitted, so `m_configInFlight` and `m_sensorBusy` stay
+  true and the panel stays busy **on purpose** rather than reporting a failure
+  that has not been decided yet.
+- `AuthClient::settled()` — emitted on every terminal outcome of a sign-in — now
+  calls `resumeWritesAfterSignIn()`: authenticated → replay the stored write
+  exactly as it was built; not → one honest failure carrying
+  `AuthClient::lastError()`.
+- `armAuthRetry()` arms a single-shot `kAuthRetryWaitMs` (15 s) bound, because
+  `AuthClient::invalidate()` aborts an in-flight sign-in **without** emitting
+  `settled()`. Without the bound, a device switch or `forgetCredential()` in the
+  retry window would leave the panel busy for ever.
+- `signIn()` declining silently (the re-auth cooldown at `AuthClient.cpp:196`)
+  is caught by the `!isBusy()` check immediately after the call.
+- One replay per write: a second 401 fails with "the camera rejected the write
+  twice" instead of looping.
+- `setSensor` was split into `setSensor` (store) and `sendSensor` (send) so the
+  sensor write can be replayed by the same mechanism.
+
+**Tests**
+
+| Slot | What it pins |
+|---|---|
+| `aConfigWriteRejectedWith401IsReplayedAfterSignIn` | a rejected batch leaves the machine **twice**, the replay still carries `framesize=hd` *and* `quality=12` together, one fresh sign-in happens, `configError()` ends empty |
+| `aConfigWriteRejectedWith401FailsHonestlyWhenSignInCannotStart` | with no credential the write fails **once** with a message containing `session expired` and **not** containing `signing in again`, the panel is released, and no extra request is sent |
+
+The stub gained `/api/v1/auth/challenge`, `/api/v1/auth/login`, a
+`configUnauthorized` flag that makes `/api/v1/config` answer 401 until a login
+succeeds, and counters for both.
+
+**Mutation** — reverting only the 401 branch of `doConfig()` to its original
+three lines:
+
+| Check | Result |
+|---|---|
+| build | exit 0 |
+| `tst_devicestatus` | **exit 2, 11 passed, 2 failed** — `aConfigWrite…ReplayedAfterSignIn` fails on `configError() == "session expired, signing in again"`; `aConfigWrite…FailsHonestly…` fails on "the message promised a retry that will not happen" |
+| restored | exit 0, 13/13 |
+
+**Gate**
+
+| Check | Result |
+|---|---|
+| build | exit 0 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 12** |
+| repeat `ctest` | 4/4 rounds green |
+
 ---
 
 ## Finding status
@@ -357,7 +419,7 @@ None — g1 (CP-3 and CP-19 / FW-7) is code-complete.
 | CP-3 | A | desktop | Recording and frame bus run on the GUI thread | **closed** | Stage 4 g1: Direct frame hop + `DirectConnection` delivery + synchronised `Recorder`; mutation-caught |
 | CP-4 | A | firmware | Sensor controls reset on every `esp_camera_init` | open | — |
 | CP-5 | A | desktop | Recovery counter never resets | open | — |
-| CP-6 | A | desktop | 401 during connect permanently dead | open | — |
+| CP-6 | A | desktop | 401 on a config write silently drops the change | **closed** | Stage 4 g2: one bounded replay after `AuthClient::settled()`; 2 new tests; mutation-caught (11/13, exit 2) |
 | CP-7 | B | tests | No chunked-transfer test | open | — |
 | CP-8 | B | tests | No reconnect-ladder test | open | — |
 | CP-9 | B | tests | No malformed-frame matrix | open | — |
@@ -407,5 +469,6 @@ None — g1 (CP-3 and CP-19 / FW-7) is code-complete.
 | Stage 3 profile provenance | 2026-09-29 | **pass** | `ctest` 12/12; `tst_profileengine` 23/23; all 60 published figures present in `benchmark-results.md`; 3 mutations caught |
 | Stage 4 g1 CP-3 thread placement | 2026-09-29 | **pass** | `ctest` 12/12 (4/4 repeat); `tst_capture` 9/9+1 skipped; `tst_recorder` 10/10; thread-placement mutation caught 15/15 |
 | Stage 4 g1 CP-19 / FW-7 camera drain gate | 2026-09-30 | **pass (build + desktop only)** | `idf.py build` exit 0, no `camera.c` warnings; `ctest` 12/12; live hardware validation **not run** (Stage 4 g5) |
+| Stage 4 g2 CP-6 401 replay | 2026-09-30 | **pass** | `ctest` 12/12 (4/4 repeat); `tst_devicestatus` 13/13; mutation of the 401 branch caught by both new tests (11/13, exit 2) |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |

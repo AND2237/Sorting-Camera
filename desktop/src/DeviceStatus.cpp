@@ -27,6 +27,11 @@ constexpr int kConfigDebounceMs = 120;
 // camera's own stream_clients count is what makes a config write legal, so
 // guessing at it is what produced the 409.
 constexpr int kConfigStatusWaitMs = 1500;
+// How long to wait for a sign-in we asked for after a 401 before giving up on
+// the write it is meant to unblock. Long enough for a challenge plus a login
+// round trip against a camera that is also streaming, short enough that a
+// slider drag does not look like it went nowhere.
+constexpr int kAuthRetryWaitMs = 15000;
 } // namespace
 
 class DeviceStatusWorker : public QObject
@@ -52,6 +57,16 @@ public:
                 emit authRequiredChanged(true);
             }
             pollOnce();
+            resumeWritesAfterSignIn();
+        });
+        // AuthClient::invalidate() aborts a sign-in attempt without settling it,
+        // so a wait that trusts settled() alone can hold the panel busy for ever.
+        // This is the bound on that wait.
+        m_authRetryTimer = new QTimer(this);
+        m_authRetryTimer->setSingleShot(true);
+        m_authRetryTimer->setInterval(kAuthRetryWaitMs);
+        connect(m_authRetryTimer, &QTimer::timeout, this, [this]() {
+            failPendingWrites(QStringLiteral("session expired: sign-in did not finish"));
         });
     }
 
@@ -127,6 +142,12 @@ public slots:
         m_cfgPort = port;
         m_cfgQuery = query;
         m_cfgRetries = 0;
+        // A newer write supersedes whatever the previous one was waiting to
+        // replay; keeping both would send a value the user has already changed.
+        m_cfgAuthRetryPending = false;
+        if (m_authRetryTimer && !m_sensorAuthRetryPending) {
+            m_authRetryTimer->stop();
+        }
         doConfig(host, port, query);
     }
 
@@ -167,6 +188,18 @@ public slots:
     // reconfiguration.
     void setSensor(const QString &host, quint16 port, const QString &body)
     {
+        m_sensorHost = host;
+        m_sensorPort = port;
+        m_sensorBody = body;
+        m_sensorAuthRetryPending = false;
+        if (m_authRetryTimer && !m_cfgAuthRetryPending) {
+            m_authRetryTimer->stop();
+        }
+        sendSensor(host, port, body);
+    }
+
+    void sendSensor(const QString &host, quint16 port, const QString &body)
+    {
         if (!m_nam) {
             m_nam = new QNetworkAccessManager(this);
         }
@@ -190,8 +223,18 @@ public slots:
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (reply->error() != QNetworkReply::NoError) {
                 if (status == 401) {
+                    if (m_sensorAuthRetryPending || m_sensorBody.isEmpty()) {
+                        failPendingWrites(
+                            QStringLiteral("session expired: the camera rejected the control twice"));
+                        return;
+                    }
+                    m_sensorAuthRetryPending = true;
+                    armAuthRetry();
                     m_auth->signIn();
-                    emit sensorFinished(false, QStringLiteral("session expired, signing in again"));
+                    if (m_sensorAuthRetryPending && !m_auth->isBusy()) {
+                        failPendingWrites(
+                            QStringLiteral("session expired: could not start a new sign-in"));
+                    }
                     return;
                 }
                 const QByteArray err = reply->readAll();
@@ -220,6 +263,72 @@ public:
     QString currentPassword() const { return m_auth->password(); }
 
 private:
+    // A write that ran into a 401 used to answer "session expired, signing in
+    // again" and stop - wording that promised a retry nothing then performed.
+    // The batch it belonged to had already been cleared on the GUI side, so the
+    // change was gone (CP-6). These two decide what actually happens next.
+    void resumeWritesAfterSignIn()
+    {
+        const bool cfgWaiting = m_cfgAuthRetryPending;
+        const bool sensorWaiting = m_sensorAuthRetryPending;
+        if (!cfgWaiting && !sensorWaiting) {
+            return;
+        }
+        if (m_authRetryTimer) {
+            m_authRetryTimer->stop();
+        }
+
+        if (cfgWaiting) {
+            m_cfgAuthRetryPending = false;
+            if (m_auth->isAuthenticated()) {
+                qDebug() << "[config] session restored, sending the write that hit 401";
+                m_cfgRetries = 0;
+                doConfig(m_cfgHost, m_cfgPort, m_cfgQuery);
+            } else {
+                emit configFinished(false, signInFailure());
+            }
+        }
+        if (sensorWaiting) {
+            m_sensorAuthRetryPending = false;
+            if (m_auth->isAuthenticated()) {
+                qDebug() << "[sensor] session restored, sending the control that hit 401";
+                sendSensor(m_sensorHost, m_sensorPort, m_sensorBody);
+            } else {
+                emit sensorFinished(false, signInFailure());
+            }
+        }
+    }
+
+    void failPendingWrites(const QString &reason)
+    {
+        if (m_cfgAuthRetryPending) {
+            m_cfgAuthRetryPending = false;
+            emit configFinished(false, reason);
+        }
+        if (m_sensorAuthRetryPending) {
+            m_sensorAuthRetryPending = false;
+            emit sensorFinished(false, reason);
+        }
+        if (m_authRetryTimer) {
+            m_authRetryTimer->stop();
+        }
+    }
+
+    void armAuthRetry()
+    {
+        if (m_authRetryTimer) {
+            m_authRetryTimer->start();
+        }
+    }
+
+    QString signInFailure() const
+    {
+        const QString err = m_auth->lastError();
+        return err.isEmpty()
+                   ? QStringLiteral("session expired: the camera did not accept the sign-in")
+                   : QStringLiteral("session expired: %1").arg(err);
+    }
+
     void doConfig(const QString &host, quint16 port, const QString &query)
     {
         if (!m_nam) {
@@ -247,8 +356,26 @@ private:
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (reply->error() != QNetworkReply::NoError) {
                 if (status == 401) {
+                    if (m_cfgAuthRetryPending || m_cfgQuery.isEmpty()) {
+                        // This was already the replay. The camera is not going
+                        // to accept it, so stop rather than hold the panel busy.
+                        failPendingWrites(
+                            QStringLiteral("session expired: the camera rejected the write twice"));
+                        return;
+                    }
+                    // The batch was cleared on the GUI side before the request
+                    // went out, so m_cfgQuery is the only record of what the
+                    // user asked for. Keep it, keep the panel busy, and send it
+                    // once the new session is up (CP-6).
+                    m_cfgAuthRetryPending = true;
+                    armAuthRetry();
                     m_auth->signIn();
-                    emit configFinished(false, QStringLiteral("session expired, signing in again"));
+                    if (m_cfgAuthRetryPending && !m_auth->isBusy()) {
+                        // signIn() declined without settling (re-auth cooldown),
+                        // so no settled() is coming to resume this write.
+                        failPendingWrites(
+                            QStringLiteral("session expired: could not start a new sign-in"));
+                    }
                     return;
                 }
                 QString message;
@@ -413,6 +540,16 @@ private:
     quint16 m_cfgPort = 0;
     QString m_cfgQuery;
     int m_cfgRetries = 0;
+    // Set when a write hit 401 and is waiting for the sign-in it triggered;
+    // cleared by the replay, by the bound in m_authRetryTimer, or by a newer
+    // write. While it is set no configFinished has been emitted, so the panel
+    // stays busy on purpose.
+    bool m_cfgAuthRetryPending = false;
+    QString m_sensorHost;
+    quint16 m_sensorPort = 0;
+    QString m_sensorBody;
+    bool m_sensorAuthRetryPending = false;
+    QTimer *m_authRetryTimer = nullptr;
 };
 
 DeviceStatus::DeviceStatus(QObject *parent)
