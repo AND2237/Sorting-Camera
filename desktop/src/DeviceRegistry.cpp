@@ -22,7 +22,7 @@ CameraDevice *DeviceRegistry::acquire(const QString &deviceId, const QString &ad
         return nullptr;
     }
 
-    CameraDevice *device = m_byId.value(deviceId, nullptr);
+    CameraDevice *    device = m_byId.value(deviceId, nullptr);
     if (device) {
         // Same camera, possibly a new endpoint. Nothing is torn down: the
         // stream, the credential and the session state all belong to the
@@ -31,6 +31,12 @@ CameraDevice *DeviceRegistry::acquire(const QString &deviceId, const QString &ad
         m_seen[device] = QDateTime::currentDateTime();
         return device;
     }
+
+    // A new id is about to become a whole new pipeline, so give back the ones
+    // nobody has selected recently first. This is the one call site that keeps
+    // the registry bounded against a camera with a rotating device id, and
+    // until now there was none at all (CP-11).
+    releaseStale(m_staleTtlMs);
 
     device = new CameraDevice(deviceId, address, controlPort, streamPort, m_discovery, this);
     m_devices.append(device);
@@ -120,4 +126,14 @@ int DeviceRegistry::releaseStale(qint64 ttlMs)
         emit changed();
     }
     return released;
+}
+
+void DeviceRegistry::setStaleTtlMs(qint64 ttlMs)
+{
+    m_staleTtlMs = qMax<qint64>(0, ttlMs);
+}
+
+qint64 DeviceRegistry::staleTtlMs() const
+{
+    return m_staleTtlMs;
 }

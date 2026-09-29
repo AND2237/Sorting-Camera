@@ -29,6 +29,7 @@ private slots:
     void setActiveRejectsAnUnknownIdWithoutDisturbingTheView();
     void staleReleaseSparesTheActiveDevice();
     void staleReleaseFreesDevicesThatWentQuiet();
+    void acquiringANewIdReclaimsTheOnesNobodySelected();
     void setActiveIsIdempotent();
     void emptyDeviceIdIsRefused();
     void portsOutsideTheValidRangeAreRefused();
@@ -174,6 +175,35 @@ void TestDeviceRegistry::staleReleaseFreesDevicesThatWentQuiet()
     QVERIFY(again);
     QCOMPARE(registry.deviceCount(), 1);
     QCOMPARE(again->address(), QStringLiteral("192.168.4.9"));
+}
+
+void TestDeviceRegistry::acquiringANewIdReclaimsTheOnesNobodySelected()
+{
+    DeviceRegistry registry(nullptr);
+    registry.setStaleTtlMs(0);
+
+    registry.acquire(QStringLiteral("rotating-1"), QStringLiteral("192.168.4.1"), 80, 81);
+    QCOMPARE(registry.deviceCount(), 1);
+
+    // A new id is the only event that grows the registry, and it is also the
+    // moment the sweep now runs. With every idle device eligible, the previous
+    // pipeline must be handed back instead of accumulated - which is the whole
+    // of CP-11: releaseStale() had no production caller, so a camera
+    // announcing with rotating device ids built one pair of threads per id
+    // for ever.
+    registry.acquire(QStringLiteral("rotating-2"), QStringLiteral("192.168.4.2"), 80, 81);
+    QVERIFY(registry.find(QStringLiteral("rotating-1")) == nullptr);
+    QVERIFY(registry.find(QStringLiteral("rotating-2")));
+    QCOMPARE(registry.deviceCount(), 1);
+
+    // The camera on screen is exempt, whatever its age: reclaiming it would
+    // tear down the picture the user is watching.
+    registry.setActive(QStringLiteral("rotating-2"));
+    registry.acquire(QStringLiteral("rotating-3"), QStringLiteral("192.168.4.3"), 80, 81);
+    QVERIFY(registry.find(QStringLiteral("rotating-2")));
+    QVERIFY(registry.find(QStringLiteral("rotating-3")));
+    QCOMPARE(registry.deviceCount(), 2);
+    QCOMPARE(registry.staleTtlMs(), 0);
 }
 
 void TestDeviceRegistry::setActiveIsIdempotent()

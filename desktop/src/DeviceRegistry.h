@@ -54,7 +54,22 @@ public:
     // device is never collected, whatever its age - dropping the camera the
     // user is watching because it went quiet would be a worse failure than
     // keeping one stale object.
+    //
+    // acquire() calls this before it builds a device for a new id, because
+    // that is the only event that grows the registry: cameras are keyed by
+    // their own id, so a camera announcing with rotating ids used to build one
+    // whole pipeline - an MjpegClient QThread, a DeviceStatus QThread, a
+    // NotificationCenter sweep timer - per id and never reclaim any of them.
+    // With no production caller the list was monotonic (CP-11).
     int releaseStale(qint64 ttlMs);
+
+    // Default age at which an unselected device becomes eligible for release.
+    static constexpr qint64 kStaleTtlMs = 60000;
+    // The sweep happens inside acquire(), so the TTL is a knob rather than a
+    // constant: it lets the reclaim behaviour be exercised without waiting out
+    // a minute of wall clock.
+    void setStaleTtlMs(qint64 ttlMs);
+    qint64 staleTtlMs() const;
 
 signals:
     // The set of known cameras changed - a new announce created a device.
@@ -68,4 +83,5 @@ private:
     QHash<QString, CameraDevice *> m_byId;
     QHash<CameraDevice *, QDateTime> m_seen;
     CameraDevice *m_active = nullptr;
+    qint64 m_staleTtlMs = kStaleTtlMs;
 };
