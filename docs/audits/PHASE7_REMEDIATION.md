@@ -839,8 +839,8 @@ code changes; FW-17 is a correction of arithmetic in two places.
 
 **A note on evidence, stated up front.** No host-side harness executes the
 firmware, so six of the seven are **build-verified only** and stay `fixed`,
-never `closed`, until they are confirmed on the camera (Stage 4 g7 hardware
-pass). The one new desktop test is a *contract* test for FW-9 — it pins what the
+never `closed`, until they are confirmed on the camera (the Stage 4 hardware
+pass, still pending). The one new desktop test is a *contract* test for FW-9 — it pins what the
 client requires of a stream that now ends properly — and is mutation-checked
 below. Nothing in this group is claimed as hardware-verified.
 
@@ -1002,6 +1002,107 @@ such rather than presented as coverage.
 
 ---
 
+### g7 — FW-13, FW-10: config writes are POST, and the silent 200 is gone
+
+Two findings about one endpoint, resolved together because fixing either alone
+leaves the other's failure mode: making writes POST without removing the
+fall-through leaves a GET that reports success for a camera nobody touched, and
+fixing only the truncation leaves state-changing GETs on the wire.
+
+**A note on evidence, stated up front.** The firmware half is **build-verified
+only** and stays `fixed`, never `closed`, until it runs on the camera. What is
+verified here is the *contract*: the desktop's assertions were rewritten to pin
+the new request shape, and the fake camera implements the same four refusal
+paths in the same order as the firmware, so a client that passes against the
+fake meets the firmware's rules. Recorded as such rather than as hardware
+coverage. Decision recorded in **ADR-0017**.
+
+#### FW-13 — the config endpoint took writes on GET
+
+`firmware/.../http_servers.c`, `desktop/src/DeviceStatus.{h,cpp}`,
+`benchmarks/run_phase3.py`, `benchmarks/phase4_matrix.py`,
+`tools/fake_camera.py`.
+
+**What was wrong.** `/api/v1/config` was registered `HTTP_GET` while
+`docs/protocol.md` said `GET/PUT`. Every configuration change was a URL: the
+desktop sent `GET .../config?framesize=hd&quality=12`, `set_config()` and
+`apply_config()` did the same, and the fake camera applied whatever the query
+string carried. That is a state change reachable by a request a browser will
+send without asking, on a device that answers every preflight with 405 and
+serves `Access-Control-Allow-Origin: *`.
+
+**What changed.**
+
+- `config_handler` was split into `config_get_handler` (read-only) and
+  `config_post_handler` (the write), both registered on `/api/v1/config`;
+  `esp_http_server` dispatches on URI *and* method, so the two cannot catch
+  each other's requests and an unmatched method still returns 405. Both share
+  one `config_state_reply()` so their responses cannot drift apart.
+- The POST handler requires a `Content-Type` containing `application/json`
+  (**415** otherwise), reads a 1–512-byte JSON object, rejects a query string,
+  an unknown key, a wrong type or an out-of-range number with **400** *before*
+  anything is applied, then runs the same 409 stream gate, atomic apply and
+  rollback the GET used to run.
+- The desktop's setters build a `QJsonObject` instead of `"key=value"` strings;
+  `setConfigQuery`/`m_cfgQuery`/`m_pendingKv` became
+  `setConfigBody`/`m_cfgBody`/`QMap<QString, QJsonValue>`, so `quality` leaves
+  as the number 12 and not the string `"12"`. The 401-replay machinery (CP-6)
+  is untouched: `m_cfgBody` is what gets replayed.
+- Both benchmark harnesses and `fake_camera.py` moved to POST JSON.
+  `benchmarks/results/**` — recorded runs — were not modified.
+
+#### FW-10 — a truncated config query returned 200 OK
+
+`firmware/.../http_servers.c`.
+
+**What was wrong.** `httpd_req_get_url_query_str(req, query, 192)` returns
+`ESP_ERR_HTTPD_RESULT_TRUNC` when the query exceeds 191 bytes
+(`httpd_parse.c:992`), and the old handler only acted on `== ESP_OK`. A
+truncated query therefore skipped the whole apply block and fell through to the
+JSON echo: **200 OK** describing an unchanged camera. The same fall-through
+answered `200` for a URL with no query at all, which is how a bare GET read
+state — so the "success" path and the "nothing happened" path were the same
+line. `char val[16]` was the quieter cousin: a value longer than 15 characters
+was cut before `atoi()` saw it.
+
+**What changed.** The GET handler now distinguishes all three cases:
+`ESP_ERR_HTTPD_RESULT_TRUNC` → **400** `config query too long`; `ESP_OK` (a
+query exists) → **400** naming the POST alternative; anything else → the state
+JSON. On the POST side the query string is rejected too, after the body is
+drained so the request is fully consumed before the answer is written. Values
+now arrive as JSON in a body sized and parsed as a whole, so there is no
+truncating `val[16]` and no partial `atoi()`.
+
+**Mutation / contract check**
+
+| Check | Result |
+|---|---|
+| mutation A — `doConfig()` reverts to `m_nam->get(request)` | **caught** — `tst_devicestatus` exit 2, 11 passed, 2 failed (the method/path assertions in `aProfileLeavesAsASingleConfigRequest`) |
+| mutation B — the `Content-Type: application/json` header is dropped | **caught** — exit 1, 12 passed, 1 failed (`content-type` assertion; the stub records headers for this purpose) |
+| restored | exit 0, **13 passed, 0 failed** |
+| fake-camera contract smoke (15 cases: read-only GET, GET/POST with query → 400, missing and `text/plain` content type → 415, unknown key → 400 naming it, non-object body → 400, accepted write echoes and persists, status unaffected) | **15/15 pass**, exit 0 |
+
+Both mutations prove the new assertions can fail. Neither proves the *firmware*
+enforces the contract: no mutation of `http_servers.c` is available without the
+camera. The fake camera implements the same four refusals in the same order, so
+a client that passes against the fake meets the firmware's rules — recorded as
+such rather than presented as coverage of the device.
+
+**Gate**
+
+| Check | Result |
+|---|---|
+| `idf.py build` (ESP-IDF 5.5.4, after both handlers + the split registration) | **exit 0**, `Project build complete` |
+| desktop build | exit 0 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 13**, 62.08 s (`tst_devicestatus` 8.89 s, `tst_capture` 48.13 s) |
+| 2 desktop mutations | both caught, then restored to green (13/13) |
+| fake-camera contract smoke | 15/15 |
+| `python -m py_compile` on both harnesses and the fake | exit 0 |
+| stale-symbol grep | no `setConfigQuery` / `m_cfgQuery` / `config?` left outside the frozen audit |
+| hardware | **not run** — FW-13 and FW-10 are firmware behaviour; needs the camera |
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
@@ -1041,10 +1142,10 @@ such rather than presented as coverage.
 | FW-7 | A | firmware | Camera lock held across send (alias of CP-19) | **fixed** | Stage 4 g1 part 2: same change as CP-19; see ADR-0016 |
 | FW-8 | B | firmware | Watchdog resets camera at 1 Hz | open | — |
 | FW-9 | C | firmware | Missing close delimiter | **fixed** | Stage 4 g6: `\r\n--FRAME--\r\n` before the terminating chunk; client contract test + mutation; **hardware pending** |
-| FW-10 | B | firmware | Truncated config query returns 200 OK | open | — |
+| FW-10 | B | firmware | Truncated config query returns 200 OK | **fixed** | Stage 4 g7: GET distinguishes `TRUNC` → 400, query present → 400, else state; POST refuses a query after draining the body; ADR-0017; build-verified, hardware pending |
 | FW-11 | C | firmware | Quality-blind frame estimate | **fixed** | Stage 4 g6: `camera_measured_max_frame_bytes(fs)`, quality parameter deleted, honest messages, JSON key renamed; build-verified, hardware pending |
 | FW-12 | C | firmware | Sensor endpoint lacks lock and debounce | **fixed** | Stage 4 g6: shared `refuse_while_streaming()` 409 + exported `camera_lock()`/`camera_unlock()`; build-verified, hardware pending. The NVS-per-request half is FW-21, still open |
-| FW-13 | B | firmware | Config accepts GET, spec says POST | open | — |
+| FW-13 | B | firmware | Config accepts GET, spec says POST | **fixed** | Stage 4 g7: `config_get_handler` (read-only) + `config_post_handler` (JSON body, 415 on wrong content type, 400 on query/unknown key); desktop, both harnesses and the fake moved in the same change; ADR-0017; build-verified, hardware pending |
 | FW-16 | C | firmware | Path cited for secrets check is wrong | **fixed** | Stage 4 g6: example password emptied **and** `provision()` refuses the old literal; the copy step is in the project-root `CMakeLists.txt`, not `main/`; build-verified, hardware pending |
 | FW-17 | C | firmware | Socket budget in three places, three answers | **fixed** | Stage 4 g6: Kconfig help + `architecture.md` corrected to 15 of 16 at baseline, 18 with the transport (it does not fit); docs-only |
 | FW-19 | D | firmware | Counter definition undocumented | **fixed** | Stage 4 g6: `frames_send_failures` / `frames_near_budget` / `snapshots_served` counted and defined in `docs/protocol.md`; build-verified, hardware pending |
@@ -1067,5 +1168,6 @@ such rather than presented as coverage.
 | Stage 4 g4 CP-10/14/15/23/DX-1 | 2026-09-30 | **pass** | `ctest` 12/12 (61 s); `tst_notificationcenter` 15/15; `tst_sessionstate` 21/21; 3 mutations caught; `qmllint` differential 18 → 18 (no new); `SortingCamera -platform offscreen` loaded QML and ran 8 s clean |
 | Stage 4 g5 CP-11/12/13/21/22 desktop seams | 2026-09-30 | **pass** | `ctest` **13/13**, 61.53 s (new suite `tst_configwritesequence`, 6/6); `tst_deviceregistry` 13/13, `tst_discovery` 17/0/2, `tst_sessionstate` 22/22, `tst_credentialstore` 8/8 (no longer writes HKCU); 5 mutations all caught |
 | Stage 4 g6 FW-9/11/12/16/17/19/20 firmware truthfulness | 2026-09-30 | **pass (build + desktop only)** | `idf.py build` exit 0 after all seven edits; `ctest` **13/13**, 61.98 s; `tst_capture` 11/0/1; 1 mutation caught then restored green; **FW-9/11/12/16 need the camera, hardware validation not run** |
+| Stage 4 g7 FW-13 / FW-10 POST-only config | 2026-09-30 | **pass (build + desktop + fake only)** | `idf.py build` exit 0 (split GET/POST handlers); `ctest` **13/13**, 62.08 s; 2 desktop mutations caught then restored green; fake-camera contract smoke **15/15**; `py_compile` clean; **firmware refusal paths need the camera, hardware validation not run** |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
