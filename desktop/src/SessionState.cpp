@@ -135,7 +135,13 @@ void SessionState::observe(MjpegClient *stream, DeviceStatus *device,
     };
     if (m_stream) {
         hook(m_stream, &MjpegClient::activeChanged);
-        hook(m_stream, &MjpegClient::statsChanged);
+        // Deliberately not hooked: statsChanged fires on every readyRead(),
+        // i.e. for every incoming frame, and none of the frame counters feed
+        // SessionInput. Hooking it re-ran recompute() roughly 600 times a
+        // second - fifteen cross-object property reads and a full derive()
+        // that builds QString::arg() detail strings, all of it discarded by
+        // the "outcome unchanged" early-out (CP-13). retryDelayMs() is derived
+        // from retryAttempt, so retryAttemptChanged already covers backoff.
         hook(m_stream, &MjpegClient::errorStringChanged);
         hook(m_stream, &MjpegClient::reconnectingChanged);
         hook(m_stream, &MjpegClient::connectingChanged);
@@ -160,6 +166,7 @@ void SessionState::observe(MjpegClient *stream, DeviceStatus *device,
 
 void SessionState::recompute()
 {
+    ++m_recomputeCount;
     if (!m_stream || !m_device || !m_discovery) {
         return;
     }

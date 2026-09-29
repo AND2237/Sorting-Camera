@@ -1,5 +1,10 @@
 #include "SessionState.h"
 
+#include "DeviceStatus.h"
+#include "DiscoveryService.h"
+#include "MjpegClient.h"
+
+#include <QSignalSpy>
 #include <QTest>
 
 using State = SessionState::State;
@@ -55,6 +60,7 @@ private slots:
     void reconnectingOutrankAuthenticated();
     void authenticatedOutranksDiscovering();
     void signRequiredOutranksDiscovering();
+    void frameStatsNeverChangeTheSessionOutcome();
 };
 
 void TestSessionState::stateNamesMatchMasterPrompt()
@@ -288,6 +294,44 @@ void TestSessionState::signRequiredOutranksDiscovering()
     in.scanning = true;
     in.deviceCount = 1;
     QCOMPARE(SessionState::derive(in).state, int(State::Error));
+}
+
+void TestSessionState::frameStatsNeverChangeTheSessionOutcome()
+{
+    // CP-13. statsChanged fires on every readyRead(), i.e. once per incoming
+    // frame, and SessionState used to recompute on it: fifteen cross-object
+    // property reads plus a full derive() building QString::arg() detail
+    // strings, all of it thrown away by the "outcome unchanged" early-out,
+    // roughly 600 times a second while the stream ran. The hook is gone, and
+    // this pins the invariant that made removing it safe: no frame counter
+    // reaches SessionInput, so stats can never change the outcome. If a field
+    // is ever added that does, this test fails before the UI can freeze.
+    DiscoveryService discovery;
+    DeviceStatus device;
+    MjpegClient stream;
+
+    SessionState state;
+    state.observe(&stream, &device, &discovery);
+
+    QSignalSpy changed(&state, &SessionState::changed);
+    const qint64 before = state.recomputeCount();
+    for (int i = 0; i < 50; ++i) {
+        stream.statsChanged();
+    }
+    // Neither the outcome nor the recompute count may move: the cost CP-13 was
+    // about was the recompute itself, not the signal that was already discarded
+    // by the "outcome unchanged" early-out.
+    QCOMPARE(changed.count(), 0);
+    QCOMPARE(state.recomputeCount(), before);
+
+    // The wiring itself is still live: a signal that does feed SessionInput
+    // recomputes and moves the token.
+    const State beforeState = state.state();
+    discovery.startScanning();
+    QVERIFY(state.recomputeCount() > before);
+    QVERIFY(changed.count() > 0);
+    QVERIFY(state.state() != beforeState);
+    discovery.stopScanning();
 }
 
 QTEST_GUILESS_MAIN(TestSessionState)

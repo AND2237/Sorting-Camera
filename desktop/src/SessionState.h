@@ -88,6 +88,10 @@ public:
     int retryAttempt() const;
     int retryDelayMs() const;
     int maxRetries() const;
+    // How many times recompute() has run since observe(). Frame stats used to
+    // be hooked, which drove this once per incoming frame while changing
+    // nothing; a counter is what lets that stay out of the code (CP-13).
+    qint64 recomputeCount() const { return m_recomputeCount; }
 
     State state() const { return static_cast<State>(m_outcome.state); }
 
@@ -113,4 +117,5 @@ private:
     DeviceStatus *m_device = nullptr;
     DiscoveryService *m_discovery = nullptr;
     SessionOutcome m_outcome;
+    qint64 m_recomputeCount = 0;
 };
