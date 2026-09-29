@@ -249,6 +249,24 @@ void DiscoveryService::ingest(const QByteArray &payload, const QString &senderAd
     if (!parseAnnounce(payload, &parsed, &error)) {
         return;
     }
+    if (!isCompatible(parsed.protocolVersion)) {
+        // parseAnnounce() stays a pure parser - it reports what the payload
+        // says and is unit-tested against missing fields. The compatibility
+        // rule belongs here, at the point where a device would otherwise enter
+        // the model and become something the user can select.
+        const QString status =
+            QStringLiteral("camera %1 speaks protocol version %2; this app speaks version %3")
+                .arg(parsed.deviceId)
+                .arg(parsed.protocolVersion)
+                .arg(kProtoVersion);
+        if (m_statusText != status) {
+            m_statusText = status;
+            emit statusTextChanged();
+            qWarning() << "discovery: refusing" << parsed.deviceId << "protocol version"
+                       << parsed.protocolVersion << "- this build speaks" << kProtoVersion;
+        }
+        return;
+    }
     if (parsed.address.isEmpty() && !senderAddress.isEmpty()) {
         parsed.address = senderAddress;
     }

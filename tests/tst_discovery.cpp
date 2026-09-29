@@ -13,17 +13,18 @@
 namespace {
 
 QByteArray announce(const char *deviceId, const char *ip, const char *fw, bool auth = true,
-                    int controlPort = 80, int streamPort = 81)
+                    int controlPort = 80, int streamPort = 81, int protoVersion = 1)
 {
     return QStringLiteral(
         "{\"scam\":1,\"op\":\"announce\","
         "\"device_id\":\"%1\",\"device_name\":\"cam-%1\",\"ip\":\"%2\","
-        "\"fw_version\":\"%3\",\"proto_version\":1,\"sensor\":\"ov2640\","
+        "\"fw_version\":\"%3\",\"proto_version\":%7,\"sensor\":\"ov2640\","
         "\"control_port\":%4,\"stream_port\":%5,\"auth_required\":%6,"
         "\"resolutions\":[\"qvga\",\"vga\",\"hd\"],"
         "\"controls\":{\"exposure\":[\"aec\",\"aec_value\"]}}")
         .arg(deviceId).arg(ip).arg(fw).arg(controlPort).arg(streamPort)
         .arg(auth ? QStringLiteral("true") : QStringLiteral("false"))
+        .arg(protoVersion)
         .toUtf8();
 }
 
@@ -39,6 +40,7 @@ private slots:
     void rejectsWrongMagic();
     void rejectsWrongOp();
     void rejectsMissingDeviceId();
+    void rejectsAnAnnounceFromAnotherProtocolVersion();
     void defaultsAreAppliedWhenFieldsAreAbsent();
     void deduplicatesByStableDeviceId();
     void detectsChangedAnnouncements();
@@ -107,6 +109,53 @@ void TestDiscovery::rejectsMissingDeviceId()
     QVERIFY(!DiscoveryService::parseAnnounce("{\"scam\":1,\"op\":\"announce\","
                                              "\"ip\":\"192.168.4.1\"}", &device, &error));
     QVERIFY(error.contains(QStringLiteral("device_id")));
+}
+
+void TestDiscovery::rejectsAnAnnounceFromAnotherProtocolVersion()
+{
+    DiscoveryService service;
+    QSignalSpy found(&service, &DiscoveryService::deviceFound);
+    QSignalSpy status(&service, &DiscoveryService::statusTextChanged);
+
+    // A camera on our version is listed normally.
+    service.ingest(announce("aabbcc", "192.168.4.1", "0.2.0"), QString(), 1000000);
+    QCOMPARE(service.rowCount(), 1);
+    QCOMPARE(found.count(), 1);
+
+    // The same payload from a camera speaking the next protocol major version
+    // must not reach the model: the desktop would otherwise offer it for
+    // selection and then drive control endpoints, frame framing and field
+    // names that firmware does not implement (CP-21).
+    service.ingest(announce("ddeeff", "192.168.4.2", "0.3.0", true, 80, 81, 2),
+                   QString(), 1002000);
+    QCOMPARE(service.rowCount(), 1);
+    QCOMPARE(found.count(), 1);
+    QVERIFY(service.indexOfDevice(QStringLiteral("ddeeff")) < 0);
+
+    // The refusal has to be visible, not silent: docs/protocol.md promises a
+    // clear UI error naming the mismatch.
+    QVERIFY(status.count() > 0);
+    QVERIFY(service.statusText().contains(QStringLiteral("ddeeff")));
+    QVERIFY(service.statusText().contains(QStringLiteral("version 2")));
+    QVERIFY(service.statusText().contains(QStringLiteral("version 1")));
+
+    // An announcement that states no version is unknown, not compatible.
+    service.ingest(announce("112233", "192.168.4.3", "0.1.0", true, 80, 81, 0),
+                   QString(), 1004000);
+    QCOMPARE(service.rowCount(), 1);
+
+    QVERIFY(DiscoveryService::isCompatible(1));
+    QVERIFY(!DiscoveryService::isCompatible(2));
+    QVERIFY(!DiscoveryService::isCompatible(0));
+    QCOMPARE(DiscoveryService::kProtoVersion, 1);
+
+    // The gate sits in ingest(), so the pure parser still reports what the
+    // payload said - that separation is what makes the version rule testable.
+    DiscoveredDevice parsed;
+    QString error;
+    QVERIFY(DiscoveryService::parseAnnounce(
+        announce("ddeeff", "192.168.4.2", "0.3.0", true, 80, 81, 2), &parsed, &error));
+    QCOMPARE(parsed.protocolVersion, 2);
 }
 
 void TestDiscovery::defaultsAreAppliedWhenFieldsAreAbsent()
@@ -205,7 +254,11 @@ void TestDiscovery::fallbackToSenderAddress()
 {
     DiscoveryService service;
     const qint64 t0 = 6000000;
-    QByteArray payload = "{\"scam\":1,\"op\":\"announce\",\"device_id\":\"noip\"}";
+    // A realistic announce: no "ip" field, so ingest() has to fall back to the
+    // sender address. It still carries a protocol version, because an announce
+    // that omits one is refused rather than assumed compatible (CP-21).
+    QByteArray payload =
+        "{\"scam\":1,\"op\":\"announce\",\"device_id\":\"noip\",\"proto_version\":1}";
     service.ingest(payload, QStringLiteral("10.0.0.9"), t0);
 
     DiscoveredDevice device;

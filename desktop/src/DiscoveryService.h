@@ -83,6 +83,19 @@ public:
     static bool parseAnnounce(const QByteArray &payload, DiscoveredDevice *out,
                               QString *error);
 
+    // The protocol major version this build speaks, as documented in
+    // docs/protocol.md ("Desktop rejects major-version mismatch with a clear
+    // UI error"). Announcements are checked in ingest(), so a camera on a
+    // different major version is refused instead of being listed and then
+    // driven over control endpoints and frame framing it does not implement.
+    // An announcement that states no version at all is refused too: unknown is
+    // not the same as compatible (CP-21).
+    static constexpr int kProtoVersion = 1;
+    static bool isCompatible(int protocolVersion)
+    {
+        return protocolVersion == kProtoVersion;
+    }
+
 signals:
     void countChanged();
     void scanningChanged();
