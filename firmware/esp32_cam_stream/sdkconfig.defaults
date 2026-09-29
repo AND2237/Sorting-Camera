@@ -3,7 +3,24 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
-CONFIG_SPIRAM_SPEED_80M=y
+# PSRAM clock: 40 MHz, deliberately and explicitly.
+#
+# This is the clock every artifact in benchmarks/results/ was measured on, and it
+# is also what a plain defaults file produces, so stating it costs nothing.
+#
+# This line previously read CONFIG_SPIRAM_SPEED_80M=y, which never took effect.
+# In esp_psram/esp32/Kconfig.spiram the symbol carries
+#     depends on ESPTOOLPY_FLASHFREQ_80M
+# and flash frequency is left at its 40M default here (only ESPTOOLPY_FLASHSIZE_4MB
+# is set above, which is capacity, not speed). The dependency is unmet, kconfgen
+# discards the value, and - the dangerous part - it does so *silently*: no warning
+# is printed, so the file used to claim a configuration the firmware never ran at.
+#
+# Verified empirically 2026-09-29 (ADR-0015): a clean checkout configures to
+# CONFIG_SPIRAM_SPEED_40M=y, matching the measured build exactly. Changing this to
+# 80 MHz means also raising ESPTOOLPY_FLASHFREQ to 80M, which is a new, unmeasured
+# configuration affecting frame-buffer bandwidth. Read ADR-0015 first.
+CONFIG_SPIRAM_SPEED_40M=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

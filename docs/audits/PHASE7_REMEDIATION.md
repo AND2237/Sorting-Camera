@@ -89,6 +89,35 @@ All twelve suites pass on first execution, so no latent breakage was hidden by t
 
 ---
 
+## Stage 2 — A0 / FW-3: PSRAM speed (2026-09-29)
+
+The audit's premise does not hold. `CONFIG_SPIRAM_SPEED_80M=y` in `sdkconfig.defaults`
+**never took effect**: `SPIRAM_SPEED_80M depends on ESPTOOLPY_FLASHFREQ_80M`
+(`esp_psram/esp32/Kconfig.spiram`), flash frequency is never set there and defaults to
+`40M`, so `kconfgen` discards the value — with **no warning whatsoever**, which is what made
+the line convincing for as long as it did.
+
+Therefore:
+
+- A clean checkout produces `CONFIG_SPIRAM_SPEED_40M=y`.
+- The measured build ran `CONFIG_SPIRAM_SPEED_40M=y`.
+- **They already matched.** There was nothing to reconcile.
+
+Fix: state `40M` explicitly and comment the dependency hazard at the site. Decision and full
+evidence in `docs/decisions/0015-psram-speed-default.md`.
+
+**Verification (stronger than the re-measurement the audit proposed):** regenerating the
+configuration from a clean checkout before and after the change gives a **byte-identical**
+72,127-byte `sdkconfig`. The fix provably perturbs no configuration value, so a hardware
+re-baseline would be measuring a configuration that did not change. The audit's A0
+sub-step *"re-measure one HD/q12 point to confirm the choice does not move the frame rate"*
+is discharged by the diff instead, and costs no hardware time.
+
+No artifact in `benchmarks/results/` records a clock frequency (`free_spiram` is capacity
+telemetry), so nothing in the record is invalidated, relabelled or discarded.
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
@@ -119,10 +148,10 @@ All twelve suites pass on first execution, so no latent breakage was hidden by t
 | DX-1 | C | QML | Severity conflated for sign-in failure | open | — |
 | DX-12 | D | desktop | `FrameImageProvider` outside `scamcore` | open | — |
 | DX-17 | D | desktop | `~CameraDevice` blocking-queued across threads | open | — |
-| A0 | A | firmware | PSRAM config unreproducible | **fixed pending** | Stage 0 proves reproducible; line fix + ADR |
+| A0 | A | firmware | PSRAM config unreproducible | **closed** | ADR-0015: clean config == measured config; generated `sdkconfig` diff IDENTICAL |
 | FW-1 | A | firmware | Control reset on re-init (alias of CP-4) | open | — |
 | FW-2 | C | firmware | Discovery accepts oversized query | open | — |
-| FW-3 | A | firmware | PSRAM config divergence | **verified** | Stage 0 table above — no divergence exists |
+| FW-3 | A | firmware | PSRAM config divergence | **closed** | No divergence exists — see ADR-0015; `80M` was silently discarded, `40M` measured and produced |
 | FW-4 | B | firmware | Unbounded recovery on stream failure | open | — |
 | FW-6 | B | firmware | NVS restore unvalidated (alias of CP-18) | open | — |
 | FW-7 | A | firmware | Camera lock held across send (alias of CP-19) | open | — |
@@ -144,5 +173,6 @@ All twelve suites pass on first execution, so no latent breakage was hidden by t
 | Gate | Date | Result | Evidence |
 |---|---|---|---|
 | Stage 1 test registration | 2026-09-29 | **pass** | fresh `desktop\build`: `ctest -N` = 12, `ctest` = 12/12, exit 0 |
+| Stage 2 PSRAM reproducibility | 2026-09-29 | **pass** | clean generated `sdkconfig` identical before/after the fix; `40M` == `40M` |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
