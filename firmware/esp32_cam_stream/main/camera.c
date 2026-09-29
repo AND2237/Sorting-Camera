@@ -169,13 +169,17 @@ size_t camera_frame_budget(void)
     return CAM_FRAME_BUDGET_BYTES;
 }
 
-uint32_t camera_estimate_frame_bytes(framesize_t fs, int quality)
+uint32_t camera_measured_max_frame_bytes(framesize_t fs)
 {
     const cam_size_model_t *m = camera_size_model(fs);
     if (!m) {
         return 0;
     }
-    (void)quality;
+    // Measured at `m->safe_quality` and nowhere else. Lower quality numbers
+    // mean better quality and therefore larger frames, so this is an upper
+    // bound for every quality the camera will accept and an *under*estimate of
+    // what a quality below the floor would have produced - which is exactly the
+    // case the rejection message quotes it in (FW-11).
     return m->measured_max_bytes;
 }
 
@@ -467,6 +471,30 @@ static void camera_gate_open(void)
     s_gate_closed = false;
 }
 
+/*
+ * Public exclusion for the sensor endpoint (FW-12). camera_recover() and
+ * camera_apply_config() both sit between esp_camera_deinit() and
+ * esp_camera_init() while holding this mutex, and an SCCB write issued in
+ * that window would touch a driver that is being torn down. Taking the mutex
+ * is enough on its own: unlike a config change, a register write does not have
+ * to stop frame delivery, so the drain gate is deliberately not closed here.
+ */
+bool camera_lock(void)
+{
+    if (!s_cam_mutex) {
+        return false;
+    }
+    xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
+    return true;
+}
+
+void camera_unlock(void)
+{
+    if (s_cam_mutex) {
+        xSemaphoreGive(s_cam_mutex);
+    }
+}
+
 esp_err_t camera_recover(void)
 {
     if (!s_cam_mutex) {
@@ -605,8 +633,11 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
 
     const int floor = camera_quality_floor(fs);
     if (quality < floor) {
-        ESP_LOGW(TAG, "quality %d below measured safe floor %d for fs=%d (max frame %u, budget %u)",
-                 quality, floor, (int)fs, (unsigned)camera_estimate_frame_bytes(fs, floor),
+        ESP_LOGW(TAG,
+                 "quality %d below measured safe floor %d for fs=%d "
+                 "(measured max frame %u B at quality %d, budget %u)",
+                 quality, floor, (int)fs,
+                 (unsigned)camera_measured_max_frame_bytes(fs), floor,
                  (unsigned)CAM_FRAME_BUDGET_BYTES);
         return ESP_ERR_INVALID_SIZE;
     }
@@ -665,9 +696,9 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
     err = camera_try_init();
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "camera applied fs=%d q=%d xclk=%d fb=%d grab=%d loc=%d "
-                      "max_frame_measured=%u budget=%u",
+                      "measured_max_frame=%u budget=%u",
                  (int)fs, quality, xclk_mhz, fb_count, (int)grab, (int)fb_location,
-                 (unsigned)camera_estimate_frame_bytes(fs, quality),
+                 (unsigned)camera_measured_max_frame_bytes(fs),
                  (unsigned)CAM_FRAME_BUDGET_BYTES);
         camera_cfg_save();
         camera_gate_open();

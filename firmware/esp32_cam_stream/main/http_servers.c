@@ -87,6 +87,10 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "udp_peer", frame_transport_udp_peer());
     cJSON_AddNumberToObject(root, "udp_tx_dgrams", frame_transport_udp_tx_dgrams());
     cJSON_AddNumberToObject(root, "udp_tx_drops", frame_transport_udp_tx_drops());
+    // Loss and pressure that were previously only in the serial log (FW-19/20).
+    cJSON_AddNumberToObject(root, "frames_send_failures", metrics_send_failures());
+    cJSON_AddNumberToObject(root, "frames_near_budget", metrics_near_budget_frames());
+    cJSON_AddNumberToObject(root, "snapshots_served", metrics_snapshots_served());
 
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -115,6 +119,28 @@ static bool parse_framesize(const char *name, framesize_t *out)
     return false;
 }
 
+/*
+ * One policy, one message. A write that reconfigures the camera is refused
+ * while anybody is watching, and every write endpoint has to go through here:
+ * the sensor endpoint used to have no check at all, so a slider could rewrite
+ * registers mid-capture while the config endpoint was refusing the same
+ * request (FW-12).
+ */
+static bool refuse_while_streaming(httpd_req_t *req, const char *what)
+{
+    const int clients = stream_client_count() + frame_transport_client_count();
+    if (clients <= 0) {
+        return false;
+    }
+    char msg[96];
+    snprintf(msg, sizeof(msg), "stream active (%d client(s)): disconnect before %s", clients,
+             what);
+    httpd_resp_set_status(req, "409 Conflict");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
+    return true;
+}
+
 static esp_err_t config_handler(httpd_req_t *req)
 {
     if (!auth_authorized(req)) {
@@ -132,14 +158,7 @@ static esp_err_t config_handler(httpd_req_t *req)
             httpd_query_key_value(query, "fb_count", val, sizeof(val)) == ESP_OK ||
             httpd_query_key_value(query, "grab", val, sizeof(val)) == ESP_OK ||
             httpd_query_key_value(query, "fbloc", val, sizeof(val)) == ESP_OK;
-        if (has_param && (stream_client_count() + frame_transport_client_count()) > 0) {
-            char msg[80];
-            snprintf(msg, sizeof(msg),
-                     "stream active (%d client(s)): disconnect before config change",
-                     stream_client_count() + frame_transport_client_count());
-            httpd_resp_set_status(req, "409 Conflict");
-            httpd_resp_set_type(req, "text/plain");
-            httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
+        if (has_param && refuse_while_streaming(req, "config change")) {
             return ESP_FAIL;
         }
         framesize_t fs = camera_current_framesize();
@@ -211,9 +230,9 @@ static esp_err_t config_handler(httpd_req_t *req)
                 if (aerr == ESP_ERR_INVALID_SIZE) {
                     snprintf(msg, sizeof(msg),
                              "quality %d is below the measured safe floor %d for %s "
-                             "(max frame %u B, budget %u B)",
+                             "(largest frame measured at that floor is %u B, budget %u B)",
                              quality, camera_quality_floor(fs), framesize_name(fs),
-                             (unsigned)camera_estimate_frame_bytes(fs, quality),
+                             (unsigned)camera_measured_max_frame_bytes(fs),
                              (unsigned)camera_frame_budget());
                 } else if (aerr == ESP_ERR_INVALID_ARG && xclk > camera_xclk_max_mhz(fs)) {
                     snprintf(msg, sizeof(msg),
@@ -248,9 +267,8 @@ static esp_err_t config_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "frame_budget_bytes", (int)camera_frame_budget());
     cJSON_AddNumberToObject(root, "quality_floor", camera_quality_floor(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "xclk_max_mhz", camera_xclk_max_mhz(camera_current_framesize()));
-    cJSON_AddNumberToObject(root, "est_frame_bytes",
-                            (int)camera_estimate_frame_bytes(camera_current_framesize(),
-                                                             camera_current_quality()));
+    cJSON_AddNumberToObject(root, "measured_max_frame_bytes",
+                            (int)camera_measured_max_frame_bytes(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "camera_recoveries", camera_recovery_count());
 
     char *payload = cJSON_PrintUnformatted(root);
@@ -290,6 +308,12 @@ static esp_err_t snapshot_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     esp_err_t err = httpd_resp_send(req, (const char *)fb->buf, fb->len);
     camera_fb_return(fb);
+    // Counted in its own bucket on purpose: a snapshot does not touch
+    // frames_captured/frames_delivered, so a client polling /snapshot can never
+    // make a dead stream look alive to the liveness watchdog (FW-19).
+    if (err == ESP_OK) {
+        metrics_record_snapshot();
+    }
     return err;
 }
 
@@ -297,6 +321,9 @@ static esp_err_t stream_handler(httpd_req_t *req)
 {
     static const char boundary[] = "--FRAME\r\n";
     static const char boundary_cont[] = "\r\n--FRAME\r\n";
+    // RFC 2046 close-delimiter: ends the multipart body properly instead of
+    // leaving the reader between two boundaries (FW-9).
+    static const char close_delim[] = "\r\n--FRAME--\r\n";
     char part_hdr[128];
     bool first = true;
     int consecutive_fails = 0;
@@ -309,7 +336,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
     metrics_mark_stream_active();
 
     int recovery_attempts = 0;
-    int near_budget_frames = 0;
     while (true) {
         if (sockfd >= 0) {
             char probe;
@@ -346,8 +372,9 @@ static esp_err_t stream_handler(httpd_req_t *req)
 
         const size_t budget = camera_frame_budget();
         if (budget && fb->len * 10 >= budget * 9) {
-            near_budget_frames++;
-            if (near_budget_frames == 1 || near_budget_frames % 100 == 0) {
+            metrics_record_near_budget();
+            const uint32_t n = metrics_near_budget_frames();
+            if (n == 1 || n % 100 == 0) {
                 ESP_LOGW(TAG, "frame %u B is >=90%% of the %u B budget - lower the quality",
                          (unsigned)fb->len, (unsigned)budget);
             }
@@ -372,11 +399,21 @@ static esp_err_t stream_handler(httpd_req_t *req)
 
         if (err != ESP_OK) {
             ESP_LOGI(TAG, "stream client disconnected (%s)", esp_err_to_name(err));
+            // The frame that died with the connection is otherwise invisible:
+            // the client's counters never see it and ours would have counted
+            // neither capture nor delivery for it (FW-19).
+            metrics_record_send_failure();
             break;
         }
         metrics_record_delivery();
     }
 
+    // RFC 2046 close-delimiter for the multipart body. Without it the response
+    // simply stops between two boundaries and any conforming reader sits in
+    // "waiting for a boundary" forever (FW-9). It is sent unconditionally: by
+    // now every error path has already decided to leave, and the best thing a
+    // well-behaved client can do with a failed terminator is close the socket.
+    httpd_resp_send_chunk(req, close_delim, sizeof(close_delim) - 1);
     atomic_fetch_sub(&s_stream_clients, 1);
 
     httpd_resp_send_chunk(req, NULL, 0);
@@ -502,6 +539,14 @@ static esp_err_t sensor_set_handler(httpd_req_t *req)
     }
     body[received] = '\0';
 
+    // The body is read before the policy check so the connection is drained
+    // first, and the sensor endpoint is then held to exactly the rule the
+    // config endpoint has always followed: nobody may reconfigure the camera
+    // while somebody is watching it (FW-12).
+    if (refuse_while_streaming(req, "sensor change")) {
+        return ESP_FAIL;
+    }
+
     cJSON *params = cJSON_Parse(body);
     if (!params) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid JSON body");
@@ -509,7 +554,17 @@ static esp_err_t sensor_set_handler(httpd_req_t *req)
     }
 
     char err[160] = {0};
+    // Excludes the SCCB writes from a concurrent camera_recover() /
+    // camera_apply_config() teardown-reinit window; those hold the same mutex
+    // for their whole run (FW-12).
+    if (!camera_lock()) {
+        cJSON_Delete(params);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                            "camera subsystem is not running");
+        return ESP_FAIL;
+    }
     esp_err_t aerr = camera_control_apply(params, err, sizeof(err));
+    camera_unlock();
     cJSON_Delete(params);
     if (aerr != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err[0] ? err : "apply failed");

@@ -12,6 +12,9 @@ static const char *TAG = "metrics";
 static uint32_t s_captured;
 static uint32_t s_delivered;
 static uint32_t s_capture_failures;
+static uint32_t s_send_failures;
+static uint32_t s_near_budget;
+static uint32_t s_snapshots;
 static int64_t s_avg_capture_us;
 static size_t s_last_bytes;
 static int64_t s_last_delivery_us;
@@ -64,6 +67,82 @@ void metrics_capture_failure(void)
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_capture_failures++;
     xSemaphoreGive(s_mutex);
+}
+
+/*
+ * The three counters below were each visible somewhere and exported nowhere.
+ * AGENTS.md is explicit that every drop or loss is counted and never hidden:
+ * a client that vanishes mid-frame takes a frame with it and leaves no trace,
+ * a frame close enough to the budget to matter was only a line in the serial
+ * log, and a served snapshot was indistinguishable from nothing at all.
+ */
+void metrics_record_send_failure(void)
+{
+    ensure_mutex();
+    if (!s_mutex) {
+        return;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_send_failures++;
+    xSemaphoreGive(s_mutex);
+}
+
+void metrics_record_near_budget(void)
+{
+    ensure_mutex();
+    if (!s_mutex) {
+        return;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_near_budget++;
+    xSemaphoreGive(s_mutex);
+}
+
+void metrics_record_snapshot(void)
+{
+    ensure_mutex();
+    if (!s_mutex) {
+        return;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_snapshots++;
+    xSemaphoreGive(s_mutex);
+}
+
+uint32_t metrics_send_failures(void)
+{
+    ensure_mutex();
+    if (!s_mutex) {
+        return 0;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t v = s_send_failures;
+    xSemaphoreGive(s_mutex);
+    return v;
+}
+
+uint32_t metrics_near_budget_frames(void)
+{
+    ensure_mutex();
+    if (!s_mutex) {
+        return 0;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t v = s_near_budget;
+    xSemaphoreGive(s_mutex);
+    return v;
+}
+
+uint32_t metrics_snapshots_served(void)
+{
+    ensure_mutex();
+    if (!s_mutex) {
+        return 0;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t v = s_snapshots;
+    xSemaphoreGive(s_mutex);
+    return v;
 }
 
 void metrics_mark_stream_active(void)
@@ -169,9 +248,12 @@ static void metrics_log_task(void *arg)
         }
         ESP_LOGI(TAG,
                  "capture_fps=%.1f delivery_fps=%.1f captured=%u delivered=%u fail=%u "
+                 "send_fail=%u near_budget=%u snapshots=%u "
                  "avg_capture_ms=%.1f last_bytes=%u heap=%u",
                  (cap - last_captured) / secs, (del - last_delivered) / secs,
                  (unsigned)cap, (unsigned)del, (unsigned)metrics_capture_failures(),
+                 (unsigned)metrics_send_failures(), (unsigned)metrics_near_budget_frames(),
+                 (unsigned)metrics_snapshots_served(),
                  metrics_avg_capture_us() / 1000.0, (unsigned)metrics_last_frame_bytes(),
                  (unsigned)esp_get_free_heap_size());
         last_captured = cap;

@@ -50,9 +50,21 @@ esp_err_t camera_recover(void);
 bool camera_is_up(void);
 uint32_t camera_recovery_count(void);
 size_t camera_frame_budget(void);
-uint32_t camera_estimate_frame_bytes(framesize_t fs, int quality);
+// The largest frame measured for this resolution *at its quality floor* - a
+// conservative bound for every accepted quality, and a lower bound for a
+// quality that is about to be rejected. It deliberately takes no quality
+// argument: there is no measured size-vs-quality model (ADR-0009 decision 2
+// measured one and threw it away), so a number reported for a specific quality
+// would be invented rather than measured (FW-11).
+uint32_t camera_measured_max_frame_bytes(framesize_t fs);
 int camera_quality_floor(framesize_t fs);
 int camera_xclk_max_mhz(framesize_t fs);
+// Excludes a sensor-register write from camera_recover()/camera_apply_config(),
+// which may be between esp_camera_deinit() and esp_camera_init() while holding
+// this mutex. Returns false when the camera subsystem is not up yet, in which
+// case there is nothing to exclude (FW-12).
+bool camera_lock(void);
+void camera_unlock(void);
 
 bool wifi_start(const char *ssid, const char *password);
 int wifi_get_rssi(void);
@@ -74,6 +86,16 @@ int64_t metrics_us_since_last_capture(void);
 void metrics_record_capture(int64_t duration_us, size_t bytes);
 void metrics_record_delivery(void);
 void metrics_capture_failure(void);
+// A frame whose send started and failed part-way (client vanished), a frame
+// whose JPEG reached >=90% of the frame budget, and a snapshot served. None of
+// the three was exported before, so none of them could be counted from the
+// status JSON (FW-19 / FW-20).
+void metrics_record_send_failure(void);
+void metrics_record_near_budget(void);
+void metrics_record_snapshot(void);
+uint32_t metrics_send_failures(void);
+uint32_t metrics_near_budget_frames(void);
+uint32_t metrics_snapshots_served(void);
 uint32_t metrics_frames_captured(void);
 uint32_t metrics_frames_delivered(void);
 uint32_t metrics_capture_failures(void);

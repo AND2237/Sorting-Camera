@@ -162,6 +162,11 @@ static void tcp_task(void *arg)
             camera_fb_return(fb);
             if (err != 0) {
                 ESP_LOGI(TAG, "tcp client disconnected (errno %d)", errno);
+                // The frame started and died with the connection. captured is
+                // already incremented while delivered is not, but nothing said
+                // *why* - every drop has to be counted, not just inferable
+                // (FW-19).
+                metrics_record_send_failure();
                 break;
             }
             metrics_record_delivery();
