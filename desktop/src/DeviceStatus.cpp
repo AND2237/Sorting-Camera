@@ -136,11 +136,11 @@ public slots:
         emit authRequiredChanged(true);
     }
 
-    void setConfig(const QString &host, quint16 port, const QString &query)
+    void setConfig(const QString &host, quint16 port, const QString &body)
     {
         m_cfgHost = host;
         m_cfgPort = port;
-        m_cfgQuery = query;
+        m_cfgBody = body;
         m_cfgRetries = 0;
         // A newer write supersedes whatever the previous one was waiting to
         // replay; keeping both would send a value the user has already changed.
@@ -148,7 +148,7 @@ public slots:
         if (m_authRetryTimer && !m_sensorAuthRetryPending) {
             m_authRetryTimer->stop();
         }
-        doConfig(host, port, query);
+        doConfig(host, port, body);
     }
 
     void fetchCapabilities(const QString &host, quint16 port)
@@ -283,7 +283,7 @@ private:
             if (m_auth->isAuthenticated()) {
                 qDebug() << "[config] session restored, sending the write that hit 401";
                 m_cfgRetries = 0;
-                doConfig(m_cfgHost, m_cfgPort, m_cfgQuery);
+                doConfig(m_cfgHost, m_cfgPort, m_cfgBody);
             } else {
                 emit configFinished(false, signInFailure());
             }
@@ -329,20 +329,23 @@ private:
                    : QStringLiteral("session expired: %1").arg(err);
     }
 
-    void doConfig(const QString &host, quint16 port, const QString &query)
+    // A config write is a POST with a JSON body since FW-13: state-changing
+    // requests no longer live in a URL, so nothing about the write - not even
+    // its length - is subject to the query-string truncation that used to let
+    // a request report success without being applied (FW-10).
+    void doConfig(const QString &host, quint16 port, const QString &body)
     {
         if (!m_nam) {
             m_nam = new QNetworkAccessManager(this);
         }
         abortConfigReply();
 
-        const QUrl url(QStringLiteral("http://%1:%2/api/v1/config?%3")
-                           .arg(host)
-                           .arg(port)
-                           .arg(query));
+        const QUrl url(QStringLiteral("http://%1:%2/api/v1/config").arg(host).arg(port));
         QNetworkRequest request(url);
         m_auth->applyAuthHeaderPublic(&request);
-        m_configReply = m_nam->get(request);
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QStringLiteral("application/json"));
+        m_configReply = m_nam->post(request, body.toUtf8());
         QTimer::singleShot(kRequestTimeoutMs, m_configReply, &QNetworkReply::abort);
         connect(m_configReply, &QNetworkReply::finished, this, [this]() {
             QNetworkReply *reply = m_configReply;
@@ -356,7 +359,7 @@ private:
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (reply->error() != QNetworkReply::NoError) {
                 if (status == 401) {
-                    if (m_cfgAuthRetryPending || m_cfgQuery.isEmpty()) {
+                    if (m_cfgAuthRetryPending || m_cfgBody.isEmpty()) {
                         // This was already the replay. The camera is not going
                         // to accept it, so stop rather than hold the panel busy.
                         failPendingWrites(
@@ -364,7 +367,7 @@ private:
                         return;
                     }
                     // The batch was cleared on the GUI side before the request
-                    // went out, so m_cfgQuery is the only record of what the
+                    // went out, so m_cfgBody is the only record of what the
                     // user asked for. Keep it, keep the panel busy, and send it
                     // once the new session is up (CP-6).
                     m_cfgAuthRetryPending = true;
@@ -385,7 +388,7 @@ private:
                         qDebug() << "[config] 409 stale client, retrying in 1000 ms";
                         QTimer::singleShot(1000, this, [this]() {
                             if (!m_configReply) {
-                                doConfig(m_cfgHost, m_cfgPort, m_cfgQuery);
+                                doConfig(m_cfgHost, m_cfgPort, m_cfgBody);
                             }
                         });
                         return;
@@ -538,7 +541,7 @@ private:
     quint16 m_controlPort = 80;
     QString m_cfgHost;
     quint16 m_cfgPort = 0;
-    QString m_cfgQuery;
+    QString m_cfgBody;
     int m_cfgRetries = 0;
     // Set when a write hit 401 and is waiting for the sign-in it triggered;
     // cleared by the replay, by the bound in m_authRetryTimer, or by a newer
@@ -849,17 +852,23 @@ void DeviceStatus::setResolution(const QString &framesizeKey)
     if (framesizeKey.isEmpty()) {
         return;
     }
-    setConfigQuery(QStringLiteral("framesize=%1").arg(framesizeKey));
+    QJsonObject body;
+    body.insert(QStringLiteral("framesize"), framesizeKey);
+    setConfigBody(body);
 }
 
 void DeviceStatus::setQuality(int quality)
 {
-    setConfigQuery(QStringLiteral("quality=%1").arg(qBound(0, quality, 63)));
+    QJsonObject body;
+    body.insert(QStringLiteral("quality"), qBound(0, quality, 63));
+    setConfigBody(body);
 }
 
 void DeviceStatus::setFrameBufferCount(int fbCount)
 {
-    setConfigQuery(QStringLiteral("fb_count=%1").arg(qBound(1, fbCount, 3)));
+    QJsonObject body;
+    body.insert(QStringLiteral("fb_count"), qBound(1, fbCount, 3));
+    setConfigBody(body);
 }
 
 void DeviceStatus::setGrabMode(const QString &mode)
@@ -868,7 +877,9 @@ void DeviceStatus::setGrabMode(const QString &mode)
     if (m != QStringLiteral("latest") && m != QStringLiteral("cont")) {
         return;
     }
-    setConfigQuery(QStringLiteral("grab=%1").arg(m));
+    QJsonObject body;
+    body.insert(QStringLiteral("grab"), m);
+    setConfigBody(body);
 }
 
 void DeviceStatus::setXclk(int mhz)
@@ -876,7 +887,9 @@ void DeviceStatus::setXclk(int mhz)
     if (mhz < 6 || mhz > 27) {
         return;
     }
-    setConfigQuery(QStringLiteral("xclk=%1").arg(mhz));
+    QJsonObject body;
+    body.insert(QStringLiteral("xclk"), mhz);
+    setConfigBody(body);
 }
 
 void DeviceStatus::requestCameraRecovery()
@@ -896,7 +909,9 @@ void DeviceStatus::requestCameraRecovery()
         key = QStringLiteral("hd");
     }
     qDebug() << "[config] requesting camera re-init at" << key;
-    setConfigQuery(QStringLiteral("framesize=%1").arg(key));
+    QJsonObject body;
+    body.insert(QStringLiteral("framesize"), key);
+    setConfigBody(body);
 }
 
 // Capabilities are requested once the camera has answered a status poll, which
@@ -976,7 +991,7 @@ void DeviceStatus::resetSensorControls()
         Q_ARG(QString, QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact))));
 }
 
-void DeviceStatus::setConfigQuery(const QString &query)
+void DeviceStatus::setConfigBody(const QJsonObject &body)
 {
     if (m_host.isEmpty()) {
         if (m_configError != QStringLiteral("not connected")) {
@@ -991,18 +1006,11 @@ void DeviceStatus::setConfigQuery(const QString &query)
     // sent the first and discarded the other four without a word. The camera
     // kept the configuration it already had, the profile selector appeared to
     // do nothing, and the four lost writes never reached a log either.
-    bool added = false;
-    const QStringList pairs = query.split(QLatin1Char('&'));
-    for (const QString &pair : pairs) {
-        const int eq = pair.indexOf(QLatin1Char('='));
-        if (eq <= 0) {
-            continue;
-        }
-        m_pendingKv.insert(pair.left(eq), pair.mid(eq + 1));
-        added = true;
-    }
-    if (!added) {
+    if (body.isEmpty()) {
         return;
+    }
+    for (auto it = body.constBegin(); it != body.constEnd(); ++it) {
+        m_pendingKv.insert(it.key(), it.value());
     }
 
     if (!m_configBusy) {
@@ -1054,15 +1062,17 @@ void DeviceStatus::trySendPendingConfig()
         qDebug("[config] device still reports %d stream client(s), sending anyway", clients);
     }
 
-    QStringList parts;
+    QJsonObject body;
     for (auto it = m_pendingKv.constBegin(); it != m_pendingKv.constEnd(); ++it) {
-        parts << it.key() + QLatin1Char('=') + it.value();
+        body.insert(it.key(), it.value());
     }
     m_pendingKv.clear();
     m_configInFlight = true;
     QMetaObject::invokeMethod(m_worker, "setConfig", Qt::QueuedConnection,
                               Q_ARG(QString, m_host), Q_ARG(quint16, m_port),
-                              Q_ARG(QString, parts.join(QLatin1Char('&'))));
+                              Q_ARG(QString, QString::fromUtf8(
+                                                 QJsonDocument(body)
+                                                     .toJson(QJsonDocument::Compact))));
 }
 
 #include "DeviceStatus.moc"

@@ -42,6 +42,7 @@ public:
     {
         QString method;
         QString path;
+        QString contentType;
         QByteArray body;
     };
 
@@ -134,6 +135,7 @@ private:
         Request req;
         req.method = QString::fromUtf8(first.value(0));
         req.path = QString::fromUtf8(first.value(1));
+        req.contentType = QString::fromUtf8(headerValue(head, "content-type"));
         req.body = body;
         requests.append(req);
 
@@ -192,14 +194,20 @@ private:
         respond(sock, 404, QByteArray("{\"error\":\"not found\"}"));
     }
 
-    static int parseContentLength(const QByteArray &head)
+    static QByteArray headerValue(const QByteArray &head, const QByteArray &name)
     {
         for (const QByteArray &line : head.split('\n')) {
             const QByteArray l = line.trimmed();
-            if (l.toLower().startsWith("content-length:"))
-                return l.mid(QByteArray("content-length:").size()).trimmed().toInt();
+            if (l.toLower().startsWith(name + ':')) {
+                return l.mid(name.size() + 1).trimmed();
+            }
         }
-        return 0;
+        return {};
+    }
+
+    static int parseContentLength(const QByteArray &head)
+    {
+        return headerValue(head, "content-length").toInt();
     }
 
     static void respond(QTcpSocket *sock, int code, const QByteArray &body)
@@ -455,7 +463,7 @@ void TestDeviceStatus::aProfileLeavesAsASingleConfigRequest()
     QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
 
     // A profile is five settings issued in the same tick, which is how the
-    // profile selector sends them. The camera takes all of them in one query,
+    // profile selector sends them. The camera takes all of them in one body,
     // and the desktop used to keep a single pending slot that returned early
     // on the second write - so the first setting went out, the other four were
     // discarded in silence, and the camera stayed on whatever it had.
@@ -470,19 +478,38 @@ void TestDeviceStatus::aProfileLeavesAsASingleConfigRequest()
     QVERIFY2(status.configError().isEmpty(), qPrintable(status.configError()));
 
     int configRequests = 0;
-    QString query;
+    QByteArray method;
+    QByteArray path;
+    QString contentType;
+    QJsonObject body;
     for (const ControlApiStub::Request &r : stub.requests) {
         if (r.path.startsWith(QStringLiteral("/api/v1/config"))) {
             ++configRequests;
-            query = r.path;
+            method = r.method.toUtf8();
+            path = r.path.toUtf8();
+            contentType = r.contentType;
+            body = QJsonDocument::fromJson(r.body).object();
         }
     }
     QCOMPARE(configRequests, 1);
-    QVERIFY2(query.contains(QStringLiteral("framesize=hd")), qPrintable(query));
-    QVERIFY2(query.contains(QStringLiteral("quality=12")), qPrintable(query));
-    QVERIFY2(query.contains(QStringLiteral("xclk=18")), qPrintable(query));
-    QVERIFY2(query.contains(QStringLiteral("fb_count=3")), qPrintable(query));
-    QVERIFY2(query.contains(QStringLiteral("grab=latest")), qPrintable(query));
+    // FW-13: a write is a POST whose body carries the configuration, so an
+    // exact path is also proof that nothing leaked into a query string (the
+    // truncation path FW-10 used to swallow silently).
+    QCOMPARE(method, QByteArray("POST"));
+    QCOMPARE(path, QByteArray("/api/v1/config"));
+    // The content type is the cross-origin contract (ADR-0017): without it a
+    // browser can post a simple text/plain request that never preflights.
+    QVERIFY2(contentType.contains(QStringLiteral("application/json")),
+             qPrintable(contentType));
+    QCOMPARE(body.value(QStringLiteral("framesize")).toString(), QStringLiteral("hd"));
+    QCOMPARE(body.value(QStringLiteral("quality")).toInt(), 12);
+    QCOMPARE(body.value(QStringLiteral("xclk")).toInt(), 18);
+    QCOMPARE(body.value(QStringLiteral("fb_count")).toInt(), 3);
+    QCOMPARE(body.value(QStringLiteral("grab")).toString(), QStringLiteral("latest"));
+    // Numbers stay numbers: a firmware that typed on the JSON type would refuse
+    // "12" for quality, so a stringified int is a silently dropped setting.
+    QVERIFY(body.value(QStringLiteral("quality")).isDouble());
+    QVERIFY(body.value(QStringLiteral("fb_count")).isDouble());
     status.stopPolling();
 }
 
@@ -542,16 +569,18 @@ void TestDeviceStatus::aConfigWriteRejectedWith401IsReplayedAfterSignIn()
 
     // The replay carries the whole batch, not a fragment of it: a rejected
     // write must arrive as the one request it was originally built as.
-    QStringList queries;
+    QList<QJsonObject> bodies;
     for (const ControlApiStub::Request &r : stub.requests) {
         if (r.path.startsWith(QStringLiteral("/api/v1/config"))) {
-            queries << r.path;
+            bodies << QJsonDocument::fromJson(r.body).object();
         }
     }
-    QCOMPARE(queries.size(), 2);
-    for (const QString &q : std::as_const(queries)) {
-        QVERIFY2(q.contains(QStringLiteral("framesize=hd")), qPrintable(q));
-        QVERIFY2(q.contains(QStringLiteral("quality=12")), qPrintable(q));
+    QCOMPARE(bodies.size(), 2);
+    QVERIFY2(bodies.at(0) == bodies.at(1),
+             "the replay was not byte-for-byte the batch the camera rejected");
+    for (const QJsonObject &b : bodies) {
+        QCOMPARE(b.value(QStringLiteral("framesize")).toString(), QStringLiteral("hd"));
+        QCOMPARE(b.value(QStringLiteral("quality")).toInt(), 12);
     }
     status.stopPolling();
 }

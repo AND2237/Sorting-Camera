@@ -82,7 +82,7 @@ signals:
     void authStateChanged();
 
 private:
-    void setConfigQuery(const QString &query);
+    void setConfigBody(const QJsonObject &body);
     void trySendPendingConfig();
     void requestCapabilities();
     void refreshAuthState();
@@ -111,8 +111,10 @@ private:
     QString m_deviceId;
     // One pending config write is a batch, not a slot. Keyed so a second write
     // to the same key replaces the first and the batch still leaves as a
-    // single request, which is what /api/v1/config is built for.
-    QMap<QString, QString> m_pendingKv;
+    // single request, which is what POST /api/v1/config is built for. Values
+    // stay JSON (not pre-stringified) so an int stays an int on the wire:
+    // quality=42 must not reach the camera as the string "42".
+    QMap<QString, QJsonValue> m_pendingKv;
     bool m_configInFlight = false;
     bool m_statusFresh = false;
     int m_cfgDebounceGen = 0;
