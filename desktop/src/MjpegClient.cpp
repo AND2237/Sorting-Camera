@@ -506,6 +506,12 @@ MjpegClient::MjpegClient(QObject *parent)
                         setNoResponseStreak(0);
                         setReconnecting(false);
                         setRecoveryHint(QString());
+                        // CP-5: the recovery budget re-arms exactly where the
+                        // hint does. Without this the device could only ever be
+                        // asked to re-init twice in a process lifetime, so a
+                        // camera that ran cleanly for an hour and then wedged
+                        // got no self-repair at all.
+                        m_recoveriesTriggered = 0;
                     },
                     Qt::QueuedConnection);
                 emit frameReady(image, raw, completeMs);
@@ -674,6 +680,7 @@ void MjpegClient::start(const QString &host, quint16 port)
     setNoResponseStreak(0);
     setRecoveryHint(QString());
     setError(QString());
+    m_recoveriesTriggered = 0;
     invokeStart();
 }
 
@@ -689,6 +696,7 @@ void MjpegClient::stop()
     setRetryAttempt(0);
     setNoResponseStreak(0);
     setRecoveryHint(QString());
+    m_recoveriesTriggered = 0;
     QMetaObject::invokeMethod(m_worker, "stop", Qt::QueuedConnection);
 }
 

@@ -47,6 +47,26 @@ public:
 
     quint16 port() const { return m_server.serverPort(); }
 
+    // Accepts the connection and answers with nothing. The worker's first-byte
+    // watchdog is the only thing that produces "no response from camera", and
+    // that is the only error that feeds the recovery budget - so a test that
+    // wants to spend that budget has to starve it like a wedged camera does.
+    bool silent = false;
+
+    // Fails the parser with a part header block that carries no usable
+    // Content-Length. Deliberately NOT a first-byte timeout: it stops the
+    // streak climbing so the next episode has to earn its way back to two,
+    // which is what separates "re-arms after a healthy frame" from a counter
+    // that just never stops counting.
+    void sendBrokenPart()
+    {
+        if (!m_socket) {
+            return;
+        }
+        m_socket->write("--FRAME\r\nContent-Length: nope\r\n\r\n");
+        m_socket->flush();
+    }
+
     // Pushes more parts onto an already-open connection, so a test can create
     // traffic inside a measurement window rather than only before it.
     void sendMore(const QList<QByteArray> &payloads)
@@ -74,9 +94,14 @@ private:
     {
         QTcpSocket *sock = m_server.nextPendingConnection();
         m_socket = sock;
+        // Every connection states its own request, so a later connection is
+        // judged on what it actually asked for rather than on what the one
+        // before it left behind.
+        m_request.clear();
+        m_sent = false;
         connect(sock, &QTcpSocket::readyRead, this, [this, sock]() {
             m_request.append(sock->readAll());
-            if (m_sent || !m_request.contains("\r\n\r\n")) {
+            if (silent || m_sent || !m_request.contains("\r\n\r\n")) {
                 return;
             }
             m_sent = true;
@@ -128,6 +153,7 @@ private slots:
     void unreadFramesAreCountedAsOverwritten();
     void readFramesAreNotCountedAsOverwritten();
     void framesAreDeliveredOffTheGuiThread();
+    void recoveryBudgetRearmsAfterTheStreamIsHealthyAgain();
     void liveCameraBytesAreStoredVerbatim();
 };
 
@@ -480,6 +506,63 @@ void TestCapture::framesAreDeliveredOffTheGuiThread()
     QVERIFY2(!onGuiThread.load(),
              "frameReady is emitted on the GUI thread, which is where CP-3 "
              "puts the frame bus and the recorder");
+}
+
+// CP-5: the recovery budget was incremented and compared but never assigned
+// back anywhere, so two recovery requests in a process lifetime permanently
+// disabled self-repair. A camera that ran cleanly for an hour and then wedged
+// got nothing.
+//
+// The budget is 2, so a test with two episodes proves nothing: the second
+// recovery is allowed either way. It takes a third - which is only reachable
+// if the budget was handed back after each healthy frame - to tell the fix
+// from the defect. Each episode costs two first-byte timeouts and that
+// watchdog is 6 s in production; the test does not shorten it, because it is
+// exercising the shipped constants, so it runs for roughly 40 s on purpose.
+void TestCapture::recoveryBudgetRearmsAfterTheStreamIsHealthyAgain()
+{
+    const QList<QByteArray> payloads = realJpegs(2);
+    QVERIFY(payloads.size() == 2);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+    stub.silent = true;
+
+    MjpegClient stream;
+    int recoveries = 0;
+    int frames = 0;
+    // Both queued to this thread, so neither counter is ever touched off it.
+    connect(&stream, &MjpegClient::deviceRecoveryRequested, &stream,
+            [&recoveries]() { ++recoveries; }, Qt::QueuedConnection);
+    connect(&stream, &MjpegClient::frameReady, &stream, [&frames]() { ++frames; },
+            Qt::QueuedConnection);
+
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+    for (int episode = 1; episode <= 3; ++episode) {
+        QTRY_VERIFY_WITH_TIMEOUT(recoveries == episode, 40000);
+        QCOMPARE(stream.noResponseStreak(), 2);
+        if (episode == 3) {
+            break;
+        }
+
+        // A real camera answers the re-init request by coming back. So does
+        // the stub, and the frame it then produces is what hands the budget
+        // back - without it episode three can never be reached.
+        stub.silent = false;
+        const int framesBefore = frames;
+        QTRY_VERIFY_WITH_TIMEOUT(frames > framesBefore, 20000);
+        QCOMPARE(stream.noResponseStreak(), 0);
+
+        // Take the stream away with a failure that is not a first-byte
+        // timeout, so the streak starts from zero rather than carrying over,
+        // and starve the next connection so the episode has to earn its way
+        // back to two.
+        stub.sendBrokenPart();
+        stub.silent = true;
+    }
+
+    QCOMPARE(recoveries, 3);
+    stream.stop();
 }
 
 QTEST_GUILESS_MAIN(TestCapture)
