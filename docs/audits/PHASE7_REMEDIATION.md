@@ -1389,27 +1389,34 @@ where they landed:
 
 ---
 
-### Stage 5 — Phase 7 completion (task log, in progress)
+### Stage 5 — Phase 7 completion (task log)
 
-Tasks **C7** (release hygiene), **B4** (§28 capability detection) and **G-12**
-(§25 accessibility) are done. **B5** (packaging / licensing / versioning) is not,
-so the Phase-7 acceptance gate has **not** been run yet — item 7 of that gate
-(§28 detection) is now satisfiable, items 8–10 still wait on B5, and item 4
-(camera recovery preserves the operating point) is and stays hardware-pending.
+Tasks **C7** (release hygiene), **B4** (§28 capability detection), **G-12**
+(§25 accessibility) and **B5** (packaging / licensing / versioning) are done.
+The Phase-7 acceptance gate has been run and is recorded below: **9 of its 10
+items are met**; item 4 (camera recovery preserves the operating point) is and
+stays hardware-pending, so Phase 7 is **not** called done until Stage 6 puts
+the camera on the softAP.
 
 | Task | Gap | Commit | Evidence |
 |---|---|---|---|
 | C7 | G-6, G-7, G-13 | `effc165`, `30bb171` | `scripts\ci.ps1` run 2026-09-30: configure → build → `ctest` **15/15** → config-contract smoke 18 cases `FAILURES=0` → **CI PASS**, exit 0 (`-Firmware` / `-Package` optional; no `.github`, per AGENTS.md); root `README.md` with prerequisites, build/test, firmware, use, layout and licence sections — its 21 file-like references resolve to real files |
 | B4 | G-1 | `54dc096` | `desktop/src/Capabilities.{h,cpp}` answers all eight §28 bullets, each with a stated fallback and no invented value; F12 diagnostics panel re-probes on open (the scene-graph backend only exists once a window does); `tst_capabilities` **7/7**; documented in `architecture.md` → *Hardware capability detection* |
 | G-12 | G-12 | `cee45d9` | 30 controls and surfaces carry `Accessible.role` + `Accessible.name` (101 `Accessible.*` lines, 11 descriptions); `tst_accessibility` **6/6** and both seeded mutations caught (a deleted name, `Accessible.Image`); `qmllint` exit 0 with the same 6 pre-existing layout warnings; app offscreen start clean, no `QAccessible` or binding errors; documented in `architecture.md` → *Accessibility* and `testing.md` |
-| B5 | G-2, G-4, G-5, G-8, G-9, G-10, G-11, CP-24, G-13 | — | **not started**: version single-sourcing, LICENSE/NOTICE, `package-release.ps1` building *and* testing *and* stamping both artifacts' commit, `licensing.md` completion, `deployment.md` rewrite, installer deferral recorded |
+| B5 | G-2, G-4, G-5, G-8, G-9, G-10, G-11, CP-24, G-13 | `dd5bbf0`, `5d7ad4d`, `40bcb32`, `2f2a2ef`, `afe2bfc`, `9bd90f7`, `b94ae90`, `97db992` | version single-sourced from the root `VERSION`: desktop `project(VERSION …)` → manifest `0.2.0.0` → `SortingCamera --version` → `setApplicationVersion` → recording `app_version` + the diagnostics header label; firmware `PROJECT_VER` **and** `FW_VERSION` (the image now carries `0.2.0`, not the `git describe` string); zip names; a `scripts\ci.ps1` step asserting `VERSION 0.2.0 = binary 'SortingCamera 0.2.0'`, and the packager refuses a mismatch. `package-release.ps1` **builds and tests before staging** (`ci.ps1 -Firmware`; `ci.ps1 -Package` passes `-SkipBuild` to avoid the round trip) and refuses a red suite or a stale exe. Both archives stamp the same `source commit` (computed before staging) with `-dirty` when the tree is not clean. `THIRD_PARTY_NOTICES.txt` + `licenses\` staged into **both** zips (app: LGPL-3.0, GPL-3.0, GCC runtime exception, MinGW-w64/winpthreads, Mesa llvmpipe attribution; fw: Apache-2.0). `licensing.md` table completed (shipped Qt plugins, the three MinGW DLLs, `opengl32sw.dll`, `D3Dcompiler_47.dll`, esptool external) and all four checkboxes closed with named evidence; `deployment.md` rewritten to the shipped artifacts, no `build-firmware.ps1`, real (in-memory) logging story, installer deferred with an owner (G-4). Verified: full `package-release.ps1` run exit 0 → `dist\SortingCamera-0.2.0-win64.zip` (35 MB) + `dist\esp32_cam_stream-0.2.0-fw.zip` (0.6 MB), zip listings read back (notices + 6 licence texts in the app, notices + Apache-2.0 in the firmware), both READMEs showing the same commit |
 
 Checks held at this point: `scripts\ci.ps1` **CI PASS** (exit 0) over desktop
-build **exit 0**, `ctest` **15/15** (83.39 s) and the config-contract smoke
-**18/18**; `tst_capabilities` 7/7; `tst_accessibility` 6/6; `qmllint` exit 0, 6
-pre-existing warnings before and after the sweep; app offscreen start clean (no
-`QAccessible`, no binding errors); `idf.py build` exit 0 (firmware untouched
-since `5eaf580`).
+build **exit 0**, the version step (`VERSION 0.2.0 = binary 'SortingCamera
+0.2.0'`), `ctest` **15/15** (84.71 s) and the config-contract smoke **18/18**;
+`tst_capabilities` 7/7; `tst_accessibility` 6/6 (allow-list now also admits
+`StaticText`, the role the diagnostics version label uses — `Accessible.Label`
+does not exist and was caught at run time as "Unable to assign [undefined]");
+`qmllint` exit 0, the same 6 pre-existing layout warnings (line numbers shifted
+by the inserted header label); app offscreen start clean (0 `Unable to assign`,
+0 `QAccessible`, 0 QML errors — stderr holds only session/discovery lines and
+Qt's no-fonts note); `idf.py build` exit 0 with `App "esp32_cam_stream" version:
+0.2.0` (bin 0xf80a0, the image contains `0.2.0` and no `stable-phase6…` string);
+`package-release.ps1` full run exit 0 and `-SkipBuild` run exit 0.
 
 ---
 
@@ -1448,7 +1455,7 @@ later stage.
 | CP-21 | C | desktop | Protocol version check absent | **closed** | Stage 4 g5: `kProtoVersion` gate in `ingest()` + `statusText` naming both; new test; mutation-caught |
 | CP-22 | C | desktop | Test settings path not redirected | **closed** | Stage 4 g5: scratch-dir `QSettings` in `initTestCase` + path probe; mutation-caught |
 | CP-23 | C | QML | Decode-failure counter labelled as transport drops | **closed** | Stage 4 g4: `dec` and `drop` shown separately with tooltips, no sum |
-| CP-24 | C | firmware | Firmware version reaches the wire via the IDF default | open | Stage 5 (B5): version single-sourcing, together with G-10 |
+| CP-24 | C | firmware | Firmware version reaches the wire via the IDF default | **verified** | Stage 5 B5 (`dd5bbf0`, `afe2bfc`): `FW_VERSION` comes from the root `VERSION` (`main/CMakeLists.txt`) and `PROJECT_VER` is set from the same file, so ESP-IDF no longer falls back to `git describe`; build log `App "esp32_cam_stream" version: 0.2.0` (was `stable-phase6-baseline-2026-09-…`) and the built image contains `0.2.0`; the wire value reads that string (`discovery.c:96`, `http_servers.c:56,601`) — observing it live stays Phase 8 |
 | CP-25 | B | desktop | Conservative reading rule documented but not implemented | **closed** | Stage 3: `conservativeFps()` used by `recommended()` and `activeMeetsFloor()`; disagreement forced by test |
 | DX-1 | C | QML | Severity conflated for sign-in failure | **closed** | Stage 4 g4: `SessionState::notificationLevel()` consulted by `CameraDevice`; new test, mutation caught |
 | DX-12 | D | desktop | `FrameImageProvider` outside `scamcore` | **closed** | Stage 4 g9: provider moved into `qt_add_library(scamcore)` + `Qt6::Quick` linked there; full rebuild exit 0 (85 steps) |
@@ -1482,16 +1489,16 @@ later stage.
 | FW-26 | P3 | firmware | Discovery reply rate limit is one global `last_reply_us`, not per-source | deferred | P3; one client can suppress discovery for others |
 | FW-27 | P3 | firmware | `atoi()` on caller-supplied strings in three places | deferred | P3; overflow is UB, impact low, no error channel |
 | G-1 | P1 | desktop | §28 hardware capability detection entirely absent | **verified** | Stage 5 B4 (`54dc096`): `Capabilities` probes all eight bullets (CPU, memory, graphics backend/acceleration, decode path, display, interfaces, touch) each with a stated fallback, F12 panel re-probes on open; `tst_capabilities` 7/7; `ctest` 15/15 |
-| G-2 | P1 | release | No licence/notice in the shipped package | open | Stage 5 (B5 packaging) |
+| G-2 | P1 | release | No licence/notice in the shipped package | **verified** | Stage 5 B5 (`40bcb32`): `package-release.ps1` stages `THIRD_PARTY_NOTICES.txt` + a `licenses\` folder into **both** archives (app: `LGPL-3.0.txt`, `GPL-3.0.txt`, `GCC-RUNTIME-LIBRARY-EXCEPTION.txt`, `mingw-w64-runtime.txt`, `winpthreads.txt`, `mesa-llvmpipe-attribution.html`; fw: `Apache-2.0.txt`), texts vendored under `third_party\licenses\`; verified by reading the zip listings back (app notices 3,902 B + 6 texts, fw notices + Apache-2.0) and `README.txt` now points at them — the audit's "0 licence entries in 1,388 zip entries" no longer holds |
 | G-3 | P1 | hardware | ≥1 h soak gate never run (longest 293 s; one 145 s aborted) | deferred | **Phase 8 / D1** — the mandatory ≥60 min production-default soak, needs the camera on the softAP |
-| G-4 | P2 | release | No installer (zips only) | open | Stage 5 (B5 packaging) |
-| G-5 | P2 | release | `licensing.md` unclosed; dependency set understated | open | Stage 5 (B5 packaging) |
+| G-4 | P2 | release | No installer (zips only) | deferred | **owner: the project owner** — v1 ships the portable app zip + the firmware zip with its generated `flash.ps1`; an installer (Qt Installer Framework / MSIX / Inno — choice not made) is deferred until after the Phase-8 gates, with revisit triggers, in `docs/deployment.md` → *Installer (G-4 — deferred)* (`9bd90f7`) |
+| G-5 | P2 | release | `licensing.md` unclosed; dependency set understated | **verified** | Stage 5 B5 (`2f2a2ef`): rows added for the shipped Qt plugins, the three shipped MinGW DLLs, `opengl32sw.dll` (Mesa llvmpipe, MIT + BSL-1.0 per Qt's attribution page), `D3Dcompiler_47.dll` (Microsoft, version info read from the staged DLL), esptool (external, GPLv2+, from its package metadata) and the confirmed zero-asset QML/UI row; all four checklist boxes closed with named evidence (Qt SBOMs → `LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only`, installer `License type [Opensource]`, both Apache-2.0 `LICENSE` texts, `desktop\qml\` holds only `Main.qml` + `Theme.qml`); new *What ships where (G-2)* section |
 | G-6 | P2 | release | No CI — nothing ever builds or runs the tests | **verified** | Stage 5 C7 (`effc165`): local `scripts\ci.ps1` only, no `.github` (AGENTS.md); run 2026-09-30 → configure + build + `ctest` **15/15**, `CI PASS`, exit 0 |
 | G-7 | P2 | release | No root README | **verified** | Stage 5 C7 (`effc165`): root `README.md` — status, prerequisites, build/test, firmware, package, use, layout, docs index, licence; its 21 file-like references resolve to real files |
-| G-8 | P2 | release | `package-release.ps1` neither builds nor tests | open | Stage 5 (B5 packaging) |
-| G-9 | P2 | release | Release script stamps the wrong commit as firmware provenance | open | Stage 5 (B5 packaging) |
-| G-10 | P2 | release | Version split across four places, already inconsistent | open | Stage 5 (B5 packaging), with CP-24 |
-| G-11 | P2 | release | `docs/deployment.md` stale for a shipped release | open | Stage 5 (B5 packaging) |
+| G-8 | P2 | release | `package-release.ps1` neither builds nor tests | **verified** | Stage 5 B5 (`5d7ad4d`): the script runs `scripts\ci.ps1 -Firmware` before staging — toolchain, build, version step, `ctest` **15/15**, smoke **18/18**, firmware build — and throws (nothing staged) on a non-zero exit, a stale exe or a version mismatch; `ci.ps1 -Package` passes `-SkipBuild` because it has already run those steps; full default run 2026-09-30 exit 0, both zips produced afterwards |
+| G-9 | P2 | release | Release script stamps the wrong commit as firmware provenance | **verified** | Stage 5 B5 (`5d7ad4d`): `$commit` is computed **before** anything is staged, from the checkout the binaries were just built in, and gets a `-dirty` suffix whenever `git status --porcelain` is non-empty; both archives' `README.txt` observed carrying the same `source commit: 5d7ad4d-dirty` (app + firmware), replacing the firmware-only, after-the-fact `git rev-parse` |
+| G-10 | P2 | release | Version split across four places, already inconsistent | **verified** | Stage 5 B5 (`dd5bbf0`, `afe2bfc`, `97db992`): root `VERSION` (0.2.0) feeds desktop `project(VERSION …)` → exe manifest `0.2.0.0`, `SortingCamera --version`, `setApplicationVersion` → recording `app_version` + the diagnostics header label (§19 item 10's "About" surface); firmware `PROJECT_VER` + `FW_VERSION`; both zip names. `scripts\ci.ps1` step asserts `VERSION 0.2.0 = binary 'SortingCamera 0.2.0'`; `package-release.ps1` refuses to name an archive after a version the exe does not report |
+| G-11 | P2 | release | `docs/deployment.md` stale for a shipped release | **verified** | Stage 5 B5 (`9bd90f7`, `b94ae90`): deployment.md rewritten to what ships — the two zips and their contents, the `package-release.ps1` pipeline, version/provenance/notices, the portable-zip install, `Diagnostics` as the real (in-memory) logging story, the firmware build path and the generated `flash.ps1` (explicitly: there is no `build-firmware.ps1`), the installer deferral — and the README brought in line with the same script behaviour |
 | G-12 | P2 | QML | Zero `Accessible.*` properties in the QML | **verified** | Stage 5 (`cee45d9`): 30 controls and surfaces annotated (101 `Accessible.*` lines); `tst_accessibility` 6/6 with both seeded mutations caught; `qmllint` unchanged (6 pre-existing warnings); app runs clean |
 | G-13 | P3 | tests | `tools/fake_camera.py` wired to nothing | **verified** | Stage 5 C7 (`30bb171`): `scripts\ci.ps1` now runs `tools\config_contract_smoke.py` after the suites (from the repo root, `-SkipSmoke` to opt out); run 2026-09-30 → 18 cases, `FAILURES=0`, `CI PASS` over `ctest` 15/15 |
 | DD-1 | — | docs | Transport: ADR-0007/`protocol.md`/`architecture.md` said TCP primary | **closed** | Stage 4 g9: ADR-0007 status + amendment (*decided, not implemented*, measured basis preserved); `architecture.md` `transport` row and `protocol.md` status line say HTTP MJPEG ships |
@@ -1549,6 +1556,33 @@ stays open — that split is recorded rather than averaged away.
 
 ---
 
+### Phase-7 acceptance gate (audit §19, items 1–10), run 2026-09-30
+
+The audit's ten "must close before Phase 7 is called done" gates, checked one by
+one at HEAD (the frozen audit's table still shows what these read *before* the
+remediation):
+
+| # | Gate (audit §19 wording) | Result | Evidence |
+|---|---|---|---|
+| 1 | Clean clone → documented build → tests | **met** | CP-1 closed in Stage 1 (`include(CTest)`; the documented commands build every suite — the audit's "builds zero tests" no longer holds); at HEAD: build exit 0 and `ctest` **15/15** (84.71 s) from the README commands |
+| 2 | Every ladder figure traceable to a raw artifact | **met** | CP-2 closed (16,982 B is the svga/q24 envelope figure; 14,680 B rejected by a test) and CP-17 closed (one run described as one run); provenance tests pin both |
+| 3 | GUI thread free of blocking work, including recording | **met** | CP-3 closed Stage 4 g1 — direct frame hop, `DirectConnection` frame delivery, synchronised `Recorder`; mutation-caught |
+| 4 | Camera recovery preserves the full operating point | **open — hardware** | CP-4 / FW-1 `fixed`: restore moved into `camera_driver_init()`, boot-time reset removed, `idf.py build` exit 0. Proving it needs the camera on the softAP → Stage 6 |
+| 5 | No settings silently lost on session expiry | **met** | CP-6 closed Stage 4 g2 — one bounded replay after `AuthClient::settled()`; 2 tests, mutation-caught |
+| 6 | Reconnect contract covered by a test | **met** | CP-7 closed Stage 4 g8 — 2 tests pin the shipped 5-step delay table (500/1000/2000/3000/5000 ms), the give-up and reset-on-decoded-frame |
+| 7 | §28 capability detection present | **met** | G-1 `verified` (`54dc096`): `Capabilities` answers all eight bullets, `tst_capabilities` 7/7, F12 panel re-probes |
+| 8 | Package is redistributable (licence/notice present) | **met** | G-2 `verified` (`40bcb32`): `THIRD_PARTY_NOTICES.txt` + full texts in **both** zips, verified by reading the archives back |
+| 9 | Release script builds and tests | **met** | G-8 `verified` (`5d7ad4d`): `package-release.ps1` runs `ci.ps1 -Firmware` before staging and throws on a red suite, stale exe or version mismatch; `ci.ps1 -Package` passes `-SkipBuild` |
+| 10 | Version identity consistent across CMake/exe/About/package/firmware | **met** | G-10 `verified` (`dd5bbf0`, `afe2bfc`, `97db992`): root `VERSION` → desktop `project(VERSION …)` → manifest `0.2.0.0` / `--version` / `setApplicationVersion` → diagnostics header label (`Qt.application.version`) + recording `app_version` → zip names; firmware `PROJECT_VER` + `FW_VERSION`; a CI step asserts the exe matches the file |
+
+**Result: 9 of 10 met; item 4 carried to Stage 6.** Same split as the
+remediation gate: every axis this machine can check is met at HEAD, and item 4
+is explicitly not claimed. Per the audit's own wording — *must close before
+Phase 7 is called done* — **Phase 7 is not called done** until CP-4 has been
+exercised on the camera.
+
+---
+
 ## Gate log
 
 | Gate | Date | Result | Evidence |
@@ -1568,4 +1602,4 @@ stays open — that split is recorded rather than averaged away.
 | Stage 4 g8 CP-7/8/9 stream matrices, FW-18 rationale | 2026-09-30 | **pass (desktop + docs)** | `ctest` **13/13**, 84.37 s; `tst_capture` **16/0/1** (5 new slots, was 11); 4 mutations caught by their own test then restored green; `tools/config_contract_smoke.py` **18/18**; `idf.py build` not run (no firmware change); hardware not run |
 | Stage 4 g9 FW-2/4/8/14, DX-12/17, CP-20 + documentation sweep | 2026-09-30 | **pass (build + desktop + docs)** | `idf.py build` exit 0 (bin 0xf80a0, no warnings); desktop full rebuild exit 0 (85 steps); `ctest` **13/13**, 83.15 s; `tst_capture` **17/0/1**, `tst_devicestatus` **14/0**; teardown measured **2 ms / 1 ms** against a 200 ms budget; all 42 untracked audit IDs dispositioned; **firmware findings stay `fixed` — the camera was never joined to the softAP** |
 | Remediation gate | 2026-09-30 | **pass** | 8 criteria above: 0 audit IDs without a row; no group-A row open; 13 open rows each name Stage 5; `ctest` **13/13** (83.42 s) + smoke `FAILURES=0` + `idf.py build` exit 0 at HEAD; frozen audit untouched. Condition carried: 19 `fixed` rows await Stage 6/D1 hardware |
-| Phase-7 acceptance | — | not run | — |
+| Phase-7 acceptance | 2026-09-30 | **9/10 met; item 4 open (hardware)** | items 1–3 and 5–10 met at HEAD (table above): `ctest` **15/15**, `scripts\ci.ps1` **CI PASS** including the version step, `package-release.ps1` run exit 0 with notices + licence texts read back out of both zips, firmware build `version: 0.2.0`; item 4 = CP-4 on the camera → Stage 6. **Phase 7 is not called done** until item 4 closes |
