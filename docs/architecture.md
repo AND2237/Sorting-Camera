@@ -250,6 +250,7 @@ This is the "no reconnect storms" requirement of §24.
 - Session token issued after challenge–response login (HMAC of server nonce + password hash); token required on all control endpoints.
 - Rate-limit + lockout on failures; no plaintext creds in logs; NVS-stored password hash (salted); replay protected via nonce + timestamp window.
 - Video stream itself unauthenticated on trusted LAN for now (ADR; revisit if product scope changes). No TLS on ESP32 without measured cost/benefit.
+  - **Why snapshot is checked and the stream is not (FW-18):** `GET /api/v1/snapshot` sits on the control plane behind the same token as every other `/api/v1/*` route, and removing it would be a hole in a plane that is otherwise closed. The stream lives on its own port with no TLS, so a token would only be sent in clear text — no confidentiality gained, third-party viewers and the benchmark harness broken. The split is advertised honestly as `stream_port_protected: false` in the capabilities response; the full rationale and revisit triggers (TLS on the video plane, untrusted/multi-tenant network) are in `docs/protocol.md`.
 
 ## Recording & snapshot
 

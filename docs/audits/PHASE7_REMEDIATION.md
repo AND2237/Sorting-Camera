@@ -1103,6 +1103,149 @@ such rather than presented as coverage of the device.
 
 ---
 
+### g8 — CP-7, CP-8, CP-9: the stream tests never met the shipped wire; FW-18: the split is written down
+
+Three test-matrix findings about `tst_capture` plus one documentation finding.
+The implementation was correct in every case — the audit says so for CP-7 and
+CP-9 — so what was missing was proof: nothing in CI would notice if a delay
+table, the chunked decoder or one of the parser bounds changed underneath the
+published contract (`docs/protocol.md` → *Reconnect contract* and *MJPEG
+framing*). FW-18 is documentation only; the audit states "no change required
+beyond a written rationale".
+
+**One production change was needed to write the tests at all**, and it is the
+only code change outside `tests/`: `MjpegClient` gained a `lastErrorString`
+property. The retry path clears `errorString()` before the next attempt — that
+is the published behaviour, so the UI never keeps showing a stale reason — which
+left no way for a test, or an operator reading diagnostics, to see *which*
+branch fired while the ladder was still running. `lastErrorString` is recorded
+in the `errorUpdated` handler just before the clear and is reset by `start()`.
+It changes no behaviour, only reports it.
+
+#### CP-7 — the reconnect ladder and both watchdogs were never exercised
+
+`tests/tst_capture.cpp`, `desktop/src/MjpegClient.{h,cpp}`.
+
+**What was wrong.** The ladder is `kMaxRetries=5` with delays
+`{500,1000,2000,3000,5000}` ms, reset only on a *decoded* frame, plus a 6 s
+first-byte watchdog and an 8 s stall watchdog — the §24 "no reconnect storms"
+mechanism that stops a dead camera from masquerading as a live stream. No test
+touched it: `MjpegStub` never failed, never stalled, never closed. A regression
+that advanced the counter on TCP connect, or shipped a different delay table,
+went green.
+
+**What changed.**
+
+- `theRetryLadderSpendsEveryStepThenGivesUp` — every connection is answered
+  with a response head that never terminates (`"HTTP/1.1 200 OK\r\n"` plus 9000
+  `X`s), so each attempt fails for the same reason as fast as the parser
+  allows. The test pins `maxRetries() == 5`, then asserts the recorded
+  `retryAttemptChanged` pairs are exactly attempts `1..5` with delays
+  `500/1000/2000/3000/5000` ms; that after the *sixth* connection's failure
+  `isReconnecting()` is false (no seventh retry was scheduled) and the reason is
+  still in `lastErrorString()`; and that a further 600 ms wait leaves
+  `retryAttempt()` at 5. The constants are the shipped ones — the test never
+  shortens them, it only makes each attempt fail immediately instead of after a
+  watchdog.
+- `aDecodedFrameResetsTheRetryLadder` — after a first failure (attempt 1,
+  500 ms) the stub is switched back to healthy, and one decoded frame must put
+  `retryAttempt` back to 0; the failure *after* that must start again at attempt
+  1 / 500 ms rather than carrying the earlier step forward, with the reason
+  (`Content-Length`) visible in `lastErrorString()`.
+
+#### CP-8 — the tested wire format was not the shipped wire format
+
+**What was wrong.** The stub emitted `multipart/x-mixed-replace` parts with
+`Content-Length` and **no** `Transfer-Encoding`, so the parser ran only its
+`HttpState::Identity` branch. The firmware sends every frame with
+`httpd_resp_send_chunk` → `Transfer-Encoding: chunked`, so the
+`ChunkSize`/`ChunkData`/`ChunkEnd` states — the path the real device uses on
+every frame — were executed by nothing in CI.
+
+**What changed.** `MjpegStub` gained a `chunked` mode (and a `rawResponse`
+escape hatch used by the cases below). Each part is written as a transfer chunk
+whose size line is **split inside the `Content-Length` digits** (`encodeChunked()`
+cuts at `head.indexOf("Content-Length: ") + 17`, one digit in). That is what
+makes the test discriminating: an identity reader takes `1` as the whole frame
+and cannot decode it.
+`aChunkedStreamDecodesTheBytesTheFirmwareSends` asserts 4 frames received,
+**0 dropped**, no error, and `sha256` of each emitted JPEG equals the bytes the
+stub was handed — the byte-identity rule AGENTS.md sets for snapshots and
+recordings, applied to the decode path.
+
+#### CP-9 — no malformed-input matrix; six `fail()` branches were dead to CI
+
+**What was wrong.** The bounds are real and were verified by reading the code —
+8 MiB buffer, 8 KiB response headers, 2 KiB part headers, 128 B chunk line — but
+had no regression guard, so the "bounded buffers" claim in
+`docs/architecture.md` and AGENTS.md was true and untested.
+
+**What changed.**
+
+- `malformedStreamsFailWithTheNamedError` — seven cases, each the byte string
+  that trips one bound: response headers over budget → `malformed HTTP response
+  headers`; part headers over budget → `malformed part headers`; chunk size line
+  over 128 B → `malformed chunk size line`; `xyz` → `bad chunk size`; a
+  terminator that is not CRLF → `malformed chunk terminator`; `Content-Length:
+  nope` → `missing or invalid Content-Length`; a part declaring 9,000,000 bytes
+  carrying 8.5 MiB → `stream buffer overflow`. The assertion is on the **named
+  reason**, which is what proves the right branch fired rather than some branch.
+- `aForeignBoundaryNeverMatchesAndTheStallWatchdogEndsTheStream` — the
+  `boundary` parameter is deliberately ignored (the firmware writes `--FRAME`;
+  trusting a camera-supplied boundary would hand a remote string to a parser), so
+  a stream declaring `boundary=NOTFRAME` matches nothing. What has to happen is
+  bounded and finite: the 8 s stall watchdog ends it with `stream stalled` and
+  `8000 ms`, with `framesReceived() == 0`, `framesDropped() == 0` and
+  `bytesReceived() > 0` — the data never became a part, and neither a hang nor
+  an unbounded buffer happened.
+
+#### FW-18 — the stream/snapshot split had no written rationale
+
+`docs/protocol.md`, `docs/architecture.md`.
+
+**What was recorded.** `stream_handler` never calls `auth_authorized` while
+`snapshot_handler` does, the capabilities response honestly reports
+`stream_port_protected: false`, and §19 excludes video-stream encryption — but
+the asymmetry with the snapshot was nowhere written down, so it read as a bug
+from the status JSON. `docs/protocol.md` now carries a *Stream authentication
+posture (FW-18)* bullet and `docs/architecture.md`'s *Authentication* section
+explains it next to the token rules: the control plane is closed uniformly and a
+snapshot sits on it, the video plane has no TLS so a token would travel in clear
+text against a listener who can already read the frames it guards, and the split
+is advertised rather than hidden. Revisit triggers (TLS on the video plane with
+its measured cost/benefit; an untrusted or multi-tenant network) are stated with
+it. **No code change** — the audit says none is required.
+
+**Mutation check**
+
+| Check | Result |
+|---|---|
+| M1 — `frameReady` handler no longer resets the ladder to step 0 | **caught** — `aDecodedFrameResetsTheRetryLadder` fails, exit 1 (2 passed, 1 failed) |
+| M2 — one retry delay 2000 → 2500 ms | **caught** — `theRetryLadderSpendsEveryStepThenGivesUp` fails, exit 1 |
+| M3 — chunked detection disabled (`m_chunked = false;`) | **caught** — `aChunkedStreamDecodesTheBytesTheFirmwareSends` fails, exit 1 |
+| M4 — 8 MiB buffer budget raised to 64 MiB | **caught** — `malformedStreamsFailWithTheNamedError` fails, exit 1 |
+| restored | exit 0, **16 passed, 0 failed, 1 skipped**, 70360 ms |
+
+Each mutation is paired with exactly the test written for it, so a non-zero exit
+cannot come from an unrelated failure. Qt 6.11 rejects `-function` as an unknown
+option, so the single-test runs pass the function name as a positional argument
+(init + cleanup + the one test = "2 passed, 1 failed").
+
+**Gate**
+
+| Check | Result |
+|---|---|
+| desktop build (Ninja, MinGW 13.1 / Qt 6.11.2) | exit 0 |
+| `ctest --output-on-failure` | **100% tests passed, 0 failed out of 13**, 84.37 s final confirmation run (82.70 s on the first g8 run, `tst_capture` 69.83 s) |
+| `tst_capture` | **16 passed, 0 failed, 1 skipped** (was 11 passed) — 5 new slots |
+| 4 mutations | all caught by their own test, then restored to green |
+| fake-camera contract smoke, committed as `tools/config_contract_smoke.py` | **18/18**, exit 0 — the g7 control-plane 15 plus 3 wire cases reading the fake's chunked stream (CP-8: "started by nothing") |
+| `python -m py_compile tools/config_contract_smoke.py` | exit 0 |
+| firmware | **not touched** — CP-7/8/9 are desktop test gaps, FW-18 is documentation; no `idf.py build` needed |
+| hardware | **not run** — nothing here changes device behaviour |
+
+---
+
 ## Finding status
 
 | ID | Sev | Area | Summary | Status | Evidence |
@@ -1113,9 +1256,9 @@ such rather than presented as coverage of the device.
 | CP-4 | A | firmware | Sensor controls reset on every `esp_camera_init` | **fixed** | Stage 4 g3: restore moved into `camera_driver_init()`, boot call removed; build-verified, hardware pending g5 |
 | CP-5 | A | desktop | Recovery counter never resets | **closed** | Stage 4 g3: re-arm at the 3 `setRecoveryHint` sites; 3-episode test; mutation-caught (exit 1) |
 | CP-6 | A | desktop | 401 on a config write silently drops the change | **closed** | Stage 4 g2: one bounded replay after `AuthClient::settled()`; 2 new tests; mutation-caught (11/13, exit 2) |
-| CP-7 | B | tests | No chunked-transfer test | open | — |
-| CP-8 | B | tests | No reconnect-ladder test | open | — |
-| CP-9 | B | tests | No malformed-frame matrix | open | — |
+| CP-7 | B | tests | Session-reconnect watchdogs and the retry ladder never tested | **closed** | Stage 4 g8: 2 new tests pin the shipped 5-step delay table (500/1000/2000/3000/5000 ms), the give-up, and reset-on-decoded-frame; 2 mutations caught |
+| CP-8 | B | tests | Tested wire format is not the shipped (chunked) format | **closed** | Stage 4 g8: stub gains chunked mode split inside the `Content-Length` digits; byte-identity decode test; chunked-detection mutation caught; fake's chunked stream now read by `tools/config_contract_smoke.py` |
+| CP-9 | B | tests | No malformed-frame matrix; six `fail()` branches dead to CI | **closed** | Stage 4 g8: 7-case named-reason matrix + foreign-boundary/stall test; buffer-budget mutation caught |
 | CP-10 | C | QML | Overlapping anchored labels | **closed** | Stage 4 g4: three labels wrapped in a `Column`; qmllint differential clean, runtime load clean |
 | CP-11 | C | desktop | `releaseStale()` has no production caller | **closed** | Stage 4 g5: sweep on new-id `acquire()` + `setStaleTtlMs`; new test; mutation-caught |
 | CP-12 | C | desktop | Config chain stops at the first unset option | **closed** | Stage 4 g5: `ConfigWriteSequence` + new suite; 4 tests; mutation-caught (exit 2) |
@@ -1148,6 +1291,7 @@ such rather than presented as coverage of the device.
 | FW-13 | B | firmware | Config accepts GET, spec says POST | **fixed** | Stage 4 g7: `config_get_handler` (read-only) + `config_post_handler` (JSON body, 415 on wrong content type, 400 on query/unknown key); desktop, both harnesses and the fake moved in the same change; ADR-0017; build-verified, hardware pending |
 | FW-16 | C | firmware | Path cited for secrets check is wrong | **fixed** | Stage 4 g6: example password emptied **and** `provision()` refuses the old literal; the copy step is in the project-root `CMakeLists.txt`, not `main/`; build-verified, hardware pending |
 | FW-17 | C | firmware | Socket budget in three places, three answers | **fixed** | Stage 4 g6: Kconfig help + `architecture.md` corrected to 15 of 16 at baseline, 18 with the transport (it does not fit); docs-only |
+| FW-18 | D | firmware | Video stream unauthenticated; snapshot is not (disclosed) | **closed** | Stage 4 g8: written rationale in `docs/protocol.md` (*Stream authentication posture*) and `docs/architecture.md` → *Authentication*, with revisit triggers; audit states no code change required |
 | FW-19 | D | firmware | Counter definition undocumented | **fixed** | Stage 4 g6: `frames_send_failures` / `frames_near_budget` / `snapshots_served` counted and defined in `docs/protocol.md`; build-verified, hardware pending |
 | FW-20 | D | firmware | Documented counter not implemented | **fixed** | Stage 4 g6: all three exported in the status JSON, `fake_camera.py` parity, `architecture.md` metrics row matches; hardware pending |
 
@@ -1168,6 +1312,7 @@ such rather than presented as coverage of the device.
 | Stage 4 g4 CP-10/14/15/23/DX-1 | 2026-09-30 | **pass** | `ctest` 12/12 (61 s); `tst_notificationcenter` 15/15; `tst_sessionstate` 21/21; 3 mutations caught; `qmllint` differential 18 → 18 (no new); `SortingCamera -platform offscreen` loaded QML and ran 8 s clean |
 | Stage 4 g5 CP-11/12/13/21/22 desktop seams | 2026-09-30 | **pass** | `ctest` **13/13**, 61.53 s (new suite `tst_configwritesequence`, 6/6); `tst_deviceregistry` 13/13, `tst_discovery` 17/0/2, `tst_sessionstate` 22/22, `tst_credentialstore` 8/8 (no longer writes HKCU); 5 mutations all caught |
 | Stage 4 g6 FW-9/11/12/16/17/19/20 firmware truthfulness | 2026-09-30 | **pass (build + desktop only)** | `idf.py build` exit 0 after all seven edits; `ctest` **13/13**, 61.98 s; `tst_capture` 11/0/1; 1 mutation caught then restored green; **FW-9/11/12/16 need the camera, hardware validation not run** |
-| Stage 4 g7 FW-13 / FW-10 POST-only config | 2026-09-30 | **pass (build + desktop + fake only)** | `idf.py build` exit 0 (split GET/POST handlers); `ctest` **13/13**, 62.08 s; 2 desktop mutations caught then restored green; fake-camera contract smoke **15/15**; `py_compile` clean; **firmware refusal paths need the camera, hardware validation not run** |
+| Stage 4 g7 FW-13 / FW-10 POST-only config | 2026-09-30 | **pass (build + desktop + fake only)** | `idf.py build` exit 0 (split GET/POST handlers); `ctest` **13/13**, 62.08 s; 2 desktop mutations caught then restored green; fake-camera contract smoke **15/15** (script later committed as `tools/config_contract_smoke.py`); `py_compile` clean; **firmware refusal paths need the camera, hardware validation not run** |
+| Stage 4 g8 CP-7/8/9 stream matrices, FW-18 rationale | 2026-09-30 | **pass (desktop + docs)** | `ctest` **13/13**, 84.37 s; `tst_capture` **16/0/1** (5 new slots, was 11); 4 mutations caught by their own test then restored green; `tools/config_contract_smoke.py` **18/18**; `idf.py build` not run (no firmware change); hardware not run |
 | Remediation gate | — | not run | — |
 | Phase-7 acceptance | — | not run | — |
