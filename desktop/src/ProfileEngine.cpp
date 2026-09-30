@@ -597,6 +597,14 @@ QString ProfileEngine::advice() const
     }
     const Profile &next = l.at(here + 1);
 
+    // A custom configuration has no measured operating point to speak about,
+    // and the sentence below reads m_activeProfile - so the guard belongs
+    // before it, not after it (audit section 17, group E: the shortfall branch
+    // could dereference a null profile).
+    if (!m_activeProfile) {
+        return QStringLiteral("Custom configuration - no measured operating point matches it");
+    }
+
     if (m_shortWindows >= shortfallWindowsRequired() && m_observedFps > 0.0) {
         return QStringLiteral("measured %1 fps against a %2 fps floor for %3 consecutive "
                               "windows - %4 (%5 fps measured) trades %6 MP for %7 fps")
@@ -609,9 +617,6 @@ QString ProfileEngine::advice() const
             .arg(next.measuredFps, 0, 'f', 1);
     }
 
-    if (!m_activeProfile) {
-        return QStringLiteral("Custom configuration - no measured operating point matches it");
-    }
     if (m_activeProfile->measuredFps < m_activeProfile->floorFps) {
         return QStringLiteral("%1 measured %2 fps, under its %3 fps floor")
             .arg(m_activeProfile->name)

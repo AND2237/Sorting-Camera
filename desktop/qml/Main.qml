@@ -936,10 +936,10 @@ ApplicationWindow {
                     ToolTip.text: "Frames the display never got because a newer one replaced them first"
                 }
             }
-                        Label {
-                            visible: streamStats.hasFrame
-                            text: streamStats.bitrateMbps.toFixed(2) + " Mbps"
-                            color: Theme.textMuted
+            Label {
+                visible: streamStats.hasFrame
+                text: streamStats.bitrateMbps.toFixed(2) + " Mbps"
+                color: Theme.textMuted
                 font.pixelSize: Theme.fontSmall
                 font.family: Theme.fontMonoFamily
                 MouseArea {

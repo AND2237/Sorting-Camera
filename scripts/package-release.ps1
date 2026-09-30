@@ -107,6 +107,50 @@ if ($removed) { Write-Host "  removed restricted/debug Qt modules: $($removed -j
 $leftover = Get-ChildItem $appStage -Recurse | Where-Object { $_.Name -match "Lottie|Quick3D|VirtualKeyboard|HttpServer|Mqtt|Coap|Graphs|qmldbg_" -or $_.Name -eq "qmltooling" }
 if ($leftover) { throw "restricted Qt modules still present: $($leftover.Name -join ', ')" }
 
+# Audit section 17, group E: windeployqt stages every QuickControls2 style Qt
+# ships, but the app pins itself to Basic (QQuickStyle::setStyle plus
+# QT_QUICK_CONTROLS_STYLE in main.cpp), so five style families and the native
+# fallback are dead weight in a redistributable. The keep-set was checked with
+# objdump against the deployed files: the Basic style plugin imports only
+# Qt6QuickControls2 + Qt6QuickControls2Basic, BasicStyleImpl imports
+# Qt6QuickControls2Impl, and Basic's QML imports QtQuick.Controls.impl at run
+# time (invisible to objdump), so qml\QtQuick\Controls\impl stays too. The
+# keep-set is re-checked below so a Qt release that renames these fails
+# packaging instead of shipping a viewer that cannot paint a button.
+$styleKeep = @(
+    "Qt6QuickControls2.dll",
+    "Qt6QuickControls2Impl.dll",
+    "Qt6QuickControls2Basic.dll",
+    "Qt6QuickControls2BasicStyleImpl.dll"
+)
+$styleRemoveDirs = @(
+    "qml\QtQuick\Controls\FluentWinUI3",
+    "qml\QtQuick\Controls\Fusion",
+    "qml\QtQuick\Controls\Imagine",
+    "qml\QtQuick\Controls\Material",
+    "qml\QtQuick\Controls\Universal",
+    "qml\QtQuick\Controls\Windows",
+    "qml\QtQuick\NativeStyle"
+)
+$styleRemoved = 0
+foreach ($d in $styleRemoveDirs) {
+    $p = Join-Path $appStage $d
+    if (Test-Path $p) { Remove-Item -Recurse -Force $p; ++$styleRemoved }
+}
+Get-ChildItem $appStage -File -Filter "Qt6QuickControls2*.dll" |
+    Where-Object { $styleKeep -notcontains $_.Name } |
+    ForEach-Object { Remove-Item -Force $_.FullName; ++$styleRemoved }
+if ($styleRemoved) { Write-Host "  removed $styleRemoved unused QuickControls2 style entries (Basic only)" }
+foreach ($k in $styleKeep) {
+    if (-not (Test-Path (Join-Path $appStage $k))) { throw "QuickControls2 keep-set member missing after prune: $k" }
+}
+if (-not (Test-Path (Join-Path $appStage "qml\QtQuick\Controls\Basic\qtquickcontrols2basicstyleplugin.dll"))) {
+    throw "the Basic style plugin is missing after prune"
+}
+if (-not (Test-Path (Join-Path $appStage "qml\QtQuick\Controls\impl\qtquickcontrols2implplugin.dll"))) {
+    throw "the shared Controls impl plugin is missing after prune"
+}
+
 @(
     "SortingCamera $Version (Windows x64, Qt 6.11 / MinGW 13.1)",
     "source commit: $commit",

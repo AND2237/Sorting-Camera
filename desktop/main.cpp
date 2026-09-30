@@ -9,6 +9,10 @@
 #include "src/FrameBus.h"
 #include "src/FrameImageProvider.h"
 #include "src/MjpegClient.h"
+// Needed for the setContextProperty calls below: QVariant must see the
+// complete type of a QObject pointer it wraps. (The qmlRegisterUncreatableType
+// block these headers also used to serve was removed - QML never names the
+// types; it receives them as context properties.)
 #include "src/NotificationCenter.h"
 #include "src/ProfileEngine.h"
 #include "src/Recorder.h"
@@ -26,6 +30,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QStandardPaths>
+#include <QTextStream>
 #include <QTimer>
 
 namespace {
@@ -34,15 +39,6 @@ namespace {
 int main(int argc, char *argv[])
 {
     qputenv("QT_QUICK_CONTROLS_STYLE", QByteArrayLiteral("Basic"));
-
-    // Registered before any context property can carry it, otherwise the
-    // profile engine cannot be exposed to QML as an object pointer.
-    qmlRegisterUncreatableType<ProfileEngine>("SortingCamera", 1, 0,
-                                             "ProfileEngine", QStringLiteral("owned by its camera"));
-    qmlRegisterUncreatableType<NotificationCenter>("SortingCamera", 1, 0, "NotificationCenter",
-                                                   QStringLiteral("owned by its camera"));
-    qmlRegisterUncreatableType<Diagnostics::Facility>("SortingCamera", 1, 0, "Facility",
-                                                      QStringLiteral("one per process"));
 
     QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("SortingCamera"));
@@ -104,7 +100,22 @@ int main(int argc, char *argv[])
     parser.process(app);
 
     const bool benchMode = parser.isSet(benchOpt);
-    const int benchSeconds = parser.isSet(benchOpt) ? parser.value(benchOpt).toInt() : 0;
+    int benchSeconds = 0;
+    if (benchMode) {
+        bool ok = false;
+        benchSeconds = parser.value(benchOpt).toInt(&ok);
+        // Audit section 17, group E: --bench used to swallow a typo
+        // ("--bench abc" became a zero-second run) whose metrics file looks
+        // exactly like a real one. The window a benchmark measures has to be a
+        // real window, so an unparseable or non-positive value stops the
+        // program here instead of producing a figure nobody can trust.
+        if (!ok || benchSeconds < 1) {
+            QTextStream(stderr) << "SortingCamera: --bench needs a whole number of "
+                                   "seconds >= 1, got \""
+                                << parser.value(benchOpt) << "\"\n";
+            return 2;
+        }
+    }
     const int warmupSeconds = parser.value(warmOpt).toInt();
     const QString host = parser.value(hostOpt);
     const quint16 controlPort = (quint16)parser.value(controlPortOpt).toUShort();
