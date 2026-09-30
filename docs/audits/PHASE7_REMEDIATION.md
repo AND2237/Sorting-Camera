@@ -1389,6 +1389,28 @@ where they landed:
 
 ---
 
+### Stage 5 — Phase 7 completion (task log, in progress)
+
+Tasks **C7** (release hygiene), **B4** (§28 capability detection) and **G-12**
+(§25 accessibility) are done. **B5** (packaging / licensing / versioning) is not,
+so the Phase-7 acceptance gate has **not** been run yet — item 7 of that gate
+(§28 detection) is now satisfiable, items 8–10 still wait on B5, and item 4
+(camera recovery preserves the operating point) is and stays hardware-pending.
+
+| Task | Gap | Commit | Evidence |
+|---|---|---|---|
+| C7 | G-6, G-7 | `effc165` | `scripts\ci.ps1` run 2026-09-30: configure → build → `ctest` → **CI PASS, 15/15**, exit 0 (`-Firmware` / `-Package` optional; no `.github`, per AGENTS.md); root `README.md` with prerequisites, build/test, firmware, use, layout and licence sections — its 21 file-like references resolve to real files |
+| B4 | G-1 | `54dc096` | `desktop/src/Capabilities.{h,cpp}` answers all eight §28 bullets, each with a stated fallback and no invented value; F12 diagnostics panel re-probes on open (the scene-graph backend only exists once a window does); `tst_capabilities` **7/7**; documented in `architecture.md` → *Hardware capability detection* |
+| G-12 | G-12 | `cee45d9` | 30 controls and surfaces carry `Accessible.role` + `Accessible.name` (101 `Accessible.*` lines, 11 descriptions); `tst_accessibility` **6/6** and both seeded mutations caught (a deleted name, `Accessible.Image`); `qmllint` exit 0 with the same 6 pre-existing layout warnings; app offscreen start clean, no `QAccessible` or binding errors; documented in `architecture.md` → *Accessibility* and `testing.md` |
+| B5 | G-2, G-4, G-5, G-8, G-9, G-10, G-11, CP-24, G-13 | — | **not started**: version single-sourcing, LICENSE/NOTICE, `package-release.ps1` building *and* testing *and* stamping both artifacts' commit, `licensing.md` completion, `deployment.md` rewrite, installer deferral recorded |
+
+Checks held at this point: desktop build **exit 0**; `ctest` **15/15** (83.21 s);
+`tst_capabilities` 7/7; `tst_accessibility` 6/6; `qmllint` exit 0, 6 pre-existing
+warnings before and after the sweep; `tools\config_contract_smoke.py`
+`FAILURES=0`; `idf.py build` exit 0 (firmware untouched since `5eaf580`).
+
+---
+
 ## Finding status
 
 `Sev` is the audit's **finding group** for CP / DX / FW / A0 rows (A = must-fix before
@@ -1457,18 +1479,18 @@ later stage.
 | FW-25 | P3 | firmware | `strlen` after `strncpy(…,31)`; password checked `< 8` but not `> 63` | deferred | P3; config-path input validation, needs hardware |
 | FW-26 | P3 | firmware | Discovery reply rate limit is one global `last_reply_us`, not per-source | deferred | P3; one client can suppress discovery for others |
 | FW-27 | P3 | firmware | `atoi()` on caller-supplied strings in three places | deferred | P3; overflow is UB, impact low, no error channel |
-| G-1 | P1 | desktop | §28 hardware capability detection entirely absent | open | Stage 5 (Phase 7 completion): capability probe + UI |
+| G-1 | P1 | desktop | §28 hardware capability detection entirely absent | **verified** | Stage 5 B4 (`54dc096`): `Capabilities` probes all eight bullets (CPU, memory, graphics backend/acceleration, decode path, display, interfaces, touch) each with a stated fallback, F12 panel re-probes on open; `tst_capabilities` 7/7; `ctest` 15/15 |
 | G-2 | P1 | release | No licence/notice in the shipped package | open | Stage 5 (B5 packaging) |
 | G-3 | P1 | hardware | ≥1 h soak gate never run (longest 293 s; one 145 s aborted) | deferred | **Phase 8 / D1** — the mandatory ≥60 min production-default soak, needs the camera on the softAP |
 | G-4 | P2 | release | No installer (zips only) | open | Stage 5 (B5 packaging) |
 | G-5 | P2 | release | `licensing.md` unclosed; dependency set understated | open | Stage 5 (B5 packaging) |
-| G-6 | P2 | release | No CI — nothing ever builds or runs the tests | open | Stage 5 (C7): local `scripts/ci.ps1` only, no `.github` (AGENTS.md) |
-| G-7 | P2 | release | No root README | open | Stage 5 (C7) |
+| G-6 | P2 | release | No CI — nothing ever builds or runs the tests | **verified** | Stage 5 C7 (`effc165`): local `scripts\ci.ps1` only, no `.github` (AGENTS.md); run 2026-09-30 → configure + build + `ctest` **15/15**, `CI PASS`, exit 0 |
+| G-7 | P2 | release | No root README | **verified** | Stage 5 C7 (`effc165`): root `README.md` — status, prerequisites, build/test, firmware, package, use, layout, docs index, licence; its 21 file-like references resolve to real files |
 | G-8 | P2 | release | `package-release.ps1` neither builds nor tests | open | Stage 5 (B5 packaging) |
 | G-9 | P2 | release | Release script stamps the wrong commit as firmware provenance | open | Stage 5 (B5 packaging) |
 | G-10 | P2 | release | Version split across four places, already inconsistent | open | Stage 5 (B5 packaging), with CP-24 |
 | G-11 | P2 | release | `docs/deployment.md` stale for a shipped release | open | Stage 5 (B5 packaging) |
-| G-12 | P2 | QML | Zero `Accessible.*` properties in the QML | open | Stage 5 |
+| G-12 | P2 | QML | Zero `Accessible.*` properties in the QML | **verified** | Stage 5 (`cee45d9`): 30 controls and surfaces annotated (101 `Accessible.*` lines); `tst_accessibility` 6/6 with both seeded mutations caught; `qmllint` unchanged (6 pre-existing warnings); app runs clean |
 | G-13 | P3 | tests | `tools/fake_camera.py` wired to nothing | open | Stage 5 (C7); partially addressed — the fake is now driven by `tools/config_contract_smoke.py` (g7/g8) |
 | DD-1 | — | docs | Transport: ADR-0007/`protocol.md`/`architecture.md` said TCP primary | **closed** | Stage 4 g9: ADR-0007 status + amendment (*decided, not implemented*, measured basis preserved); `architecture.md` `transport` row and `protocol.md` status line say HTTP MJPEG ships |
 | DD-2 | — | docs | Master Prompt §5 (router) contradicts ADR-0006 (softAP) | **closed** | Stage 4 g9: superseded banner on §5, original kept for provenance, one-network-per-camera consequence recorded |
