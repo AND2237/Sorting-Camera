@@ -109,6 +109,7 @@ void TestAccessibility::rolesAreRealQAccessibleRoles()
         QStringLiteral("List"),
         QStringLiteral("Pane"),
         QStringLiteral("Slider"),
+        QStringLiteral("StaticText"),
     };
 
     const QRegularExpression role(

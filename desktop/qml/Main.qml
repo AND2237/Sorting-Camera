@@ -740,6 +740,17 @@ ApplicationWindow {
                     font.pixelSize: Theme.fontSubtitle
                     font.bold: true
                 }
+                // The viewer's own version - the UI half of G-10's chain
+                // (root VERSION -> CMake -> exe -> this label). Same string
+                // the recording header writes as app_version.
+                Label {
+                    text: Qt.application.version
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontCaption
+                    font.family: Theme.fontMonoFamily
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: "Application version " + Qt.application.version
+                }
                 Button {
                     implicitHeight: Theme.touchTarget
                     text: "×"
