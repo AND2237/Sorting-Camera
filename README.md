@@ -45,7 +45,7 @@ cmake --build desktop\build
 ctest --test-dir desktop\build --output-on-failure
 ```
 
-13 suites; they must all pass. Three of them talk to real hardware only when
+15 suites; they must all pass. Three of them talk to real hardware only when
 `SCAM_TEST_HOST` / `SCAM_TEST_PASSWORD` / `SCAM_DISCOVERY_PORT` are set and skip
 otherwise, so a normal `ctest` run stays hermetic. Details:
 [`docs/testing.md`](docs/testing.md).
@@ -56,7 +56,7 @@ Run it all in one step:
 .\scripts\ci.ps1              # configure (if needed) + build + ctest + contract smoke
 .\scripts\ci.ps1 -SkipSmoke   # ... without the Python config-contract smoke
 .\scripts\ci.ps1 -Firmware    # ... and build the ESP-IDF project
-.\scripts\ci.ps1 -Package     # ... and package a release (after a green run)
+.\scripts\ci.ps1 -Package     # ... and, after a green run, package a release
 ```
 
 The smoke step starts `tools/fake_camera.py` and drives the camera's config
@@ -78,13 +78,16 @@ there and never commit that file.
 ## Package a release
 
 ```powershell
-.\scripts\package-release.ps1
+.\scripts\package-release.ps1        # builds + tests first, then packages
+.\scripts\package-release.ps1 -SkipBuild   # package an already green build
 ```
 
 Produces `dist\SortingCamera-<version>-win64.zip` and
-`dist\esp32_cam_stream-<version>-fw.zip` (binaries, flash script, README, and
-third-party licence notices). The script builds nothing itself — run
-`.\scripts\ci.ps1 -Package`, which refuses to package a red suite.
+`dist\esp32_cam_stream-<version>-fw.zip`: binaries, flash script, README with
+the `source commit`, and `THIRD_PARTY_NOTICES.txt` plus the full licence
+texts under `licenses\`. The script refuses to package a red suite, a stale
+exe, or an exe whose `--version` does not match the root `VERSION` file;
+`.\scripts\ci.ps1 -Package` runs the same pipeline end to end.
 
 ## Use it
 
@@ -104,7 +107,7 @@ decode → re-encode.
 ```
 firmware/    ESP-IDF project (esp32_cam_stream)
 desktop/     Qt 6.11 application (scamcore library + Quick UI)
-tests/       13 Qt Test suites, registered with CTest
+tests/       15 Qt Test suites, registered with CTest
 docs/        architecture, protocol, benchmarks, security, deployment, licensing,
              testing, decisions/ (ADRs), audits/
 tools/       fake camera, contract smoke, benchmark helpers
@@ -132,6 +135,7 @@ benchmarks/  benchmark harnesses and raw JSON results
 The application's licence is the project owner's to set; this repository does not
 declare one yet — see [`docs/licensing.md`](docs/licensing.md). What *is*
 declared are the third-party components and their licences (Qt LGPLv3 modules,
-MinGW runtime, ESP-IDF, esp32-camera, …), recorded component by component in
-`docs/licensing.md`. Shipping those notices alongside the binaries is an LGPLv3
-obligation and is part of the packaging work tracked as G-2.
+MinGW runtime, Mesa/D3Dcompiler, ESP-IDF, esp32-camera, …), recorded component
+by component in `docs/licensing.md`. Shipping those notices alongside the
+binaries (an LGPLv3 obligation, tracked as G-2) is done: both zips carry
+`THIRD_PARTY_NOTICES.txt` and the full texts under `licenses\`.
