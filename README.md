@@ -17,9 +17,11 @@ owns it lives in [`docs/audits/PHASE7_REMEDIATION.md`](docs/audits/PHASE7_REMEDI
 The audit itself ([`GEMINI_PHASE6_AUDIT_2026-09-29.md`](docs/audits/GEMINI_PHASE6_AUDIT_2026-09-29.md))
 is frozen and never modified.
 
-Gates that are still open: the ≥1 h soak (D1) and the rest of Phase 8 need the
-camera on the softAP; several firmware findings are `fixed` and stay `fixed`
-until they have been proved on hardware.
+The Phase-7 acceptance gate (audit §19) has been run and stands at **9 of 10**:
+item 4 — camera recovery preserves the operating point — needs the camera, so
+**Phase 7 is not called done yet**. Open for the same reason: the ≥1 h soak
+(D1), the rest of Phase 8, and the firmware findings that stay `fixed` until
+they have been proved on hardware.
 
 ## Prerequisites (verified 2026-09-23 on this machine)
 
