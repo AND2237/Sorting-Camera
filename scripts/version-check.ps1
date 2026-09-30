@@ -38,7 +38,7 @@ function Get-ExeVersionLine {
         throw "'$ExePath --version' exited $($proc.ExitCode)"
     }
     if ([string]::IsNullOrWhiteSpace($line)) {
-        throw "'$ExePath --version' produced no output"
+        throw "'$ExePath --version' produced no output (exit code: $($proc.ExitCode)) - the Qt runtime is usually missing from PATH"
     }
     return $line
 }

@@ -110,9 +110,9 @@ if ($Firmware) {
 }
 
 # 7. Optional: package. The script itself refuses a stale exe; this run has
-#    already refused a red suite above.
+#    already refused a red suite above, so it is told not to rebuild (G-8/G-9).
 if ($Package) {
-    Step 'package' { & (Join-Path $PSScriptRoot 'package-release.ps1') }
+    Step 'package' { & (Join-Path $PSScriptRoot 'package-release.ps1') -SkipBuild }
 }
 
 Write-Host ""

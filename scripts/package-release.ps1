@@ -1,10 +1,28 @@
 param(
     [string]$Version = "",
-    [string]$OutDir = ""
+    [string]$OutDir = "",
+    # G-8: packaging builds and tests first, so an archive can never hold a
+    # stale exe or one from a red suite. ci.ps1 -Package passes -SkipBuild
+    # because it has already run those exact steps itself.
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+
+if (-not $SkipBuild) {
+    Write-Host "==> building and testing before packaging (scripts\ci.ps1 -Firmware)"
+    & (Join-Path $PSScriptRoot 'ci.ps1') -Firmware
+    if ($LASTEXITCODE -ne 0) { throw "ci.ps1 failed (exit $LASTEXITCODE) - nothing was packaged" }
+}
+
+# G-9: the commit recorded in both archives is the one the binaries were just
+# built from - the build above runs on this checkout - and it says so when the
+# tree is not clean, which a local packaging run usually is not.
+$commit = (& git -C $root rev-parse --short HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or -not $commit) { $commit = "unknown" }
+$dirty = (& git -C $root status --porcelain 2>$null)
+if ($LASTEXITCODE -eq 0 -and $dirty) { $commit = "$commit-dirty" }
 
 if (-not $Version) {
     # Single source (G-10): the repository VERSION file, the same one
@@ -39,6 +57,10 @@ if ($built -lt $src) { throw "SortingCamera.exe is older than main.cpp - rebuild
 # G-10: the binary must report the version this archive is named for. The flag
 # is handled by QCommandLineParser before any window, QML or network work; the
 # helper waits with a timeout so packaging can never hang on it.
+# env.ps1 first: the build above dot-sources ESP-IDF's export.ps1, which
+# rewrites PATH and leaves the Qt runtime off it - and the exe cannot start
+# without Qt6Core.dll beside it or on PATH.
+. (Join-Path $PSScriptRoot 'env.ps1')
 . (Join-Path $PSScriptRoot 'version-check.ps1')
 $reportedLine = Get-ExeVersionLine -ExePath $exe
 if ($reportedLine -notmatch [regex]::Escape($Version)) {
@@ -87,6 +109,7 @@ if ($leftover) { throw "restricted Qt modules still present: $($leftover.Name -j
 
 @(
     "SortingCamera $Version (Windows x64, Qt 6.11 / MinGW 13.1)",
+    "source commit: $commit",
     "",
     "Run SortingCamera.exe - no Qt or MinGW installation required on this PC.",
     "Windows 10 or later, x64.",
@@ -119,8 +142,8 @@ Copy-Item (Join-Path $fwBuild "esp32_cam_stream.bin") $fwStage
 Copy-Item (Join-Path $fwBuild "bootloader\bootloader.bin") $fwStage
 Copy-Item (Join-Path $fwBuild "partition_table\partition-table.bin") $fwStage
 
-$commit = (& git -C $root rev-parse --short HEAD 2>$null)
-if ($LASTEXITCODE -ne 0) { $commit = "unknown" }
+# $commit was computed once, before anything was staged (see the top of this
+# script), so both archives name the same checkout.
 
 @(
     'param([string]$Port = "COM6")',
