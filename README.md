@@ -53,10 +53,14 @@ otherwise, so a normal `ctest` run stays hermetic. Details:
 Run it all in one step:
 
 ```powershell
-.\scripts\ci.ps1              # configure (if needed) + build + ctest
+.\scripts\ci.ps1              # configure (if needed) + build + ctest + contract smoke
+.\scripts\ci.ps1 -SkipSmoke   # ... without the Python config-contract smoke
 .\scripts\ci.ps1 -Firmware    # ... and build the ESP-IDF project
 .\scripts\ci.ps1 -Package     # ... and package a release (after a green run)
 ```
+
+The smoke step starts `tools/fake_camera.py` and drives the camera's config
+contract (ADR-0017) without hardware, so it needs Python 3 and no Qt, no camera.
 
 ## Build the firmware
 
