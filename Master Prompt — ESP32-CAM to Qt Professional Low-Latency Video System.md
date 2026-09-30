@@ -162,6 +162,15 @@ The final application must remain adaptable to a different Windows HMI with unkn
 
 # 5. NETWORK TOPOLOGY
 
+> **Superseded (2026-09-30, ADR-0006 / DD-2).** The router topology below is **not**
+> what was built. The system ships with the ESP32-CAM running a **softAP**: the
+> camera broadcasts its own SSID (`ESP32-CAM`), the PC joins that network
+> directly, and the camera is fixed at `192.168.4.1`. Station+router mode was
+> considered and superseded by ADR-0006; every benchmark in this project was
+> measured over that direct link. Consequence: one radio network per camera, so
+> scaling out means one AP per device — a trade-off accepted with the ADR.
+> This section is kept for provenance only; do not design from it.
+
 The ESP32-CAM and PC/HMI connect to the same Wi-Fi router.
 
 Expected topology:
