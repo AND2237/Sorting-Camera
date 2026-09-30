@@ -8,6 +8,7 @@
 #include <QColor>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QJsonObject>
 #include <QObject>
@@ -213,6 +214,7 @@ private slots:
     void aChunkedStreamDecodesTheBytesTheFirmwareSends();
     void malformedStreamsFailWithTheNamedError();
     void aForeignBoundaryNeverMatchesAndTheStallWatchdogEndsTheStream();
+    void teardownOfALiveStreamStaysWithinTheGuiBudget();
     void liveCameraBytesAreStoredVerbatim();
 };
 
@@ -877,6 +879,47 @@ void TestCapture::aForeignBoundaryNeverMatchesAndTheStallWatchdogEndsTheStream()
     QCOMPARE(stream.framesReceived(), 0u);
     QCOMPARE(stream.framesDropped(), 0u);
     QVERIFY(stream.bytesReceived() > 0);
+}
+
+// DX-17: ~CameraDevice destroys MjpegClient and DeviceStatus on the caller's
+// thread, and both do a BlockingQueuedConnection stop plus QThread::wait().
+// The structure is deliberate - the worker owns the socket and the parser, so
+// it has to be stopped before the object goes away - and the audit's concern is
+// that such a wait can freeze the GUI. What makes it acceptable is that the
+// wait is bounded: the worker's stop() only stops timers and aborts a socket,
+// so the caller waits for the event handler already in progress and nothing
+// else. This measures the worst case that exists - parts still arriving when
+// the destructor runs - and pins the budget that docs/architecture.md states.
+void TestCapture::teardownOfALiveStreamStaysWithinTheGuiBudget()
+{
+    const QList<QByteArray> payloads = realJpegs(4);
+    QVERIFY(payloads.size() == 4);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+
+    auto *stream = new MjpegClient;
+    stream->start(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(stream->framesReceived() >= 2, 8000);
+
+    // More parts in flight at the instant the destructor runs, so the worker is
+    // asked to stop while it is parsing rather than while it is idle.
+    stub.sendMore(payloads);
+    stub.sendMore(payloads);
+
+    QElapsedTimer timer;
+    timer.start();
+    delete stream;
+    const qint64 teardownMs = timer.elapsed();
+    qInfo("MjpegClient teardown under live traffic took %lld ms",
+          static_cast<long long>(teardownMs));
+
+    constexpr qint64 kBudgetMs = 200;
+    QVERIFY2(teardownMs <= kBudgetMs,
+             qPrintable(QStringLiteral("teardown took %1 ms; the caller-thread budget "
+                                       "is %2 ms (DX-17)")
+                            .arg(teardownMs)
+                            .arg(kBudgetMs)));
 }
 
 QTEST_GUILESS_MAIN(TestCapture)

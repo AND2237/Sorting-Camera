@@ -48,6 +48,10 @@ qt_add_library(scamcore STATIC
     src/UserPreferences.h
     src/AppMetrics.cpp
     src/AppMetrics.h
+    # DX-12: the image provider lives in the library, not the executable, so a
+    # test can link it. It needs Qt6::Quick, which every consumer inherits.
+    src/FrameImageProvider.cpp
+    src/FrameImageProvider.h
 )
 
 target_include_directories(scamcore PUBLIC src)
@@ -56,6 +60,7 @@ target_link_libraries(scamcore PUBLIC
     Qt6::Core
     Qt6::Gui
     Qt6::Network
+    Qt6::Quick
 )
 
 if(WIN32)
@@ -64,8 +69,6 @@ endif()
 
 qt_add_executable(SortingCamera
     main.cpp
-    src/FrameImageProvider.cpp
-    src/FrameImageProvider.h
 )
 
 target_link_libraries(SortingCamera PRIVATE

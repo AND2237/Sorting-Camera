@@ -6,6 +6,7 @@
 // and a device switch cannot leave stale controls on screen.
 #include "DeviceStatus.h"
 
+#include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
@@ -244,6 +245,7 @@ private slots:
     void aStaleNotConnectedErrorClearsWhenTheCameraAnswers();
     void aConfigWriteRejectedWith401IsReplayedAfterSignIn();
     void aConfigWriteRejectedWith401FailsHonestlyWhenSignInCannotStart();
+    void teardownWhilePollingStaysWithinTheGuiBudget();
 };
 
 void TestDeviceStatus::capabilitiesArriveAfterAStatusPoll()
@@ -614,6 +616,37 @@ void TestDeviceStatus::aConfigWriteRejectedWith401FailsHonestlyWhenSignInCannotS
     QCOMPARE(stub.configRequests, 1);
     QCOMPARE(stub.loginRequests, 0);
     status.stopPolling();
+}
+
+// DX-17, second half: ~CameraDevice destroys DeviceStatus on the same thread,
+// and its destructor stops the polling thread with the same
+// BlockingQueuedConnection + wait() shape as the stream client. The wait is
+// bounded by the worker's stopPolling() (stop a timer, abort three replies), so
+// this measures it with a poll in flight and pins the budget that
+// docs/architecture.md states.
+void TestDeviceStatus::teardownWhilePollingStaysWithinTheGuiBudget()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+
+    auto *status = new DeviceStatus;
+    QSignalSpy caps(status, &DeviceStatus::capabilitiesChanged);
+    status->startPolling(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    QElapsedTimer timer;
+    timer.start();
+    delete status;
+    const qint64 teardownMs = timer.elapsed();
+    qInfo("DeviceStatus teardown while polling took %lld ms",
+          static_cast<long long>(teardownMs));
+
+    constexpr qint64 kBudgetMs = 200;
+    QVERIFY2(teardownMs <= kBudgetMs,
+             qPrintable(QStringLiteral("teardown took %1 ms; the caller-thread budget "
+                                       "is %2 ms (DX-17)")
+                            .arg(teardownMs)
+                            .arg(kBudgetMs)));
 }
 
 QTEST_MAIN(TestDeviceStatus)
