@@ -77,6 +77,11 @@ The first build copies `config_secrets.example.h` to `config_secrets.h`, which i
 git-ignored — set the AP SSID/WPA2 password and the device control password
 there and never commit that file.
 
+In VS Code, run `.\scripts\vscode-idf-setup.ps1` once: the current ESP-IDF
+extension release no longer reads `idf.espIdfPath`/`idf.toolsPath`, so without
+that step it finds no ESP-IDF and refuses to build or flash. Details:
+[`docs/deployment.md`](docs/deployment.md) → *VS Code (ESP-IDF extension)*.
+
 ## Package a release
 
 ```powershell

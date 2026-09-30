@@ -80,8 +80,17 @@ Desktop-only build/test without packaging: the commands in the root
   outline promised one; the commands above are the supported path.
 - Flash: use the `flash.ps1` inside the firmware zip (board on USB), or
   `idf.py -p <PORT> flash` from a checkout. `flash.ps1` calls
-  `esptool.py`/`python -m esptool`, which is an external tool
+  `esptool.py`/`esptool`/`python -m esptool`, which is an external tool
   (GPL-2.0-or-later, **not bundled** — `pip install esptool`).
+  - Two independent esptool installations are in play and both are needed:
+    the ESP-IDF python environment already carries **esptool 4.12.0** (the
+    version ESP-IDF 5.5.4 pins), which is what `idf.py flash` and the VS Code
+    extension use through `IDF_PATH` + `IDF_PYTHON_ENV_PATH`; and a standalone
+    `esptool` for the *shipped* `flash.ps1`, which must be on `PATH`.
+  - `pip install "esptool==4.12.0"` into the Python whose `Scripts` directory
+    (e.g. `%LOCALAPPDATA%\Programs\Python\Python313\Scripts`) is already on
+    `PATH` is enough — no environment-variable surgery. Keep it on the same
+    version line as the toolchain so the flash arguments stay identical.
 - NVS holds the device's own AP credentials (SSID/WPA2 from the git-ignored
   `config_secrets.h`) + device password + last camera settings
   (schema-versioned, like the reference prototype's `SETTINGS_SCHEMA_VERSION`
@@ -91,6 +100,58 @@ Desktop-only build/test without packaging: the commands in the root
   the viewer (the PC loses internet while connected).
 - Per-unit identity: stable device ID derived from MAC/efuse-derived UID,
   independent of DHCP IP.
+
+## VS Code (ESP-IDF extension)
+
+The command-line environment above is not enough for the extension: the current
+release (`espressif.esp-idf-extension` 2.x) **removed** the settings
+`idf.espIdfPath`, `idf.toolsPath` and `idf.pythonInstallPath`. It resolves ESP-IDF
+from one of three places only:
+
+1. an Espressif Installation Manager profile (`eim_idf.json`),
+2. a legacy `esp_idf.json` in `IDF_TOOLS_PATH`,
+3. the `IDF_PATH` / `IDF_TOOLS_PATH` / `IDF_PYTHON_ENV_PATH` environment
+   variables.
+
+None of them exist on a fresh classic install (`scripts\install-idf.ps1`,
+ADR-0005): the variables live only inside the session `scripts\idf-env.ps1`
+creates. The extension then reports *"ESP-IDF path or Python path is not
+configured"* and refuses to build or flash (`cmake executable not found`,
+`esptool.py is missing or not accessible`) — it is not a broken toolchain, only
+an unconfigured extension.
+
+One command fixes that, derived from the installation above and writing nothing
+but the project's (git-ignored) `.vscode\settings.json`:
+
+```powershell
+.\scripts\vscode-idf-setup.ps1
+```
+
+It sets `idf.currentSetup` plus `idf.customExtraVars`
+(`IDF_PATH`, `IDF_TOOLS_PATH`, `IDF_PYTHON_ENV_PATH`, `ESP_IDF_VERSION`, `PATH`),
+keeps any other entry already in that file, backs it up to `settings.json.bak`,
+and prints what it wrote. Then reload the window (`Developer: Reload Window`) and
+check with the **Doctor** command (`ESP-IDF: Doctor Command`): ESP-IDF, Python,
+CMake and Ninja should all pass. Build/flash are the extension's *Build your
+project* / *Flash your project* commands; the build directory is the usual
+`build\`, so it reuses the artefacts `idf.py build` already produced.
+
+Nothing is downloaded, no second ESP-IDF appears, and the build stays exactly the
+one `scripts\ci.ps1 -Firmware` produces. Re-run the script after
+upgrading/reinstalling the toolchain (it also fails loudly if a path it is about
+to write no longer exists). Flashing still needs the board plugged in with its
+USB-serial driver installed — with no COM port present the extension can only
+report that it found no serial port.
+
+**After a clean, build before you flash.** `ESP-IDF: Set Espressif device
+target` and `Full clean project` both delete the build directory *and*
+`sdkconfig` — IDF's `set-target` is a full clean plus a reconfigure — so
+`esp32_cam_stream.elf` disappears and flash/monitor then refuse with *"Project
+ELF file not found ... Build your project first"*. That message is literal: run
+*Build your project* once, then flash or monitor. The target of this camera
+never changes, so `set-target` is not needed here at all, and `sdkconfig` is
+regenerated from `sdkconfig.defaults` — which is why the rebuild comes back with
+exactly the same settings and image size.
 
 ## Installer (G-4 — deferred)
 
