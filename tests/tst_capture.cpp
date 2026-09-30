@@ -9,6 +9,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QImage>
 #include <QJsonObject>
 #include <QObject>
@@ -202,6 +203,7 @@ class TestCapture : public QObject
 private slots:
     void rawBytesSurviveTheStream();
     void snapshotMatchesWhatTheCameraSent();
+    void snapshotFailuresAreReportedNotSwallowed();
     void recordingRoundTripsTheStreamedBytes();
     void bitrateAndFrameAgeReportLiveValues();
     void unreadFramesAreCountedAsOverwritten();
@@ -272,6 +274,63 @@ void TestCapture::snapshotMatchesWhatTheCameraSent()
     const QByteArray written = out.readAll();
     QCOMPARE(sha256(written), sha256(payloads.last()));
     QCOMPARE(written, payloads.last());
+}
+
+// Audit section 14: the failure paths SnapshotWriter can report had no test,
+// so a regression that turned an unwritable directory into a silent success -
+// a "saved" notice with no file behind it - would have gone green. Each case
+// asserts the reason the writer gives (that is what proves the right branch
+// fired) and that the error clears the moment a save works again: a stale
+// fault on a working button is how users learn to ignore error messages. A
+// short write (disk full) is not portably reproducible, so that branch remains
+// covered by reading the code rather than by a test.
+void TestCapture::snapshotFailuresAreReportedNotSwallowed()
+{
+    const QList<QByteArray> payloads = realJpegs(1);
+    QVERIFY(payloads.size() == 1);
+    const QByteArray raw = payloads.first();
+    QImage img;
+    QVERIFY2(img.loadFromData(raw), "the fixture is not a JPEG Qt can decode");
+
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString sub = tmp.filePath(QStringLiteral("shots"));
+
+    FrameBus bus;
+    SnapshotWriter writer(&bus);
+
+    // Nothing has arrived yet: the save must refuse with the reason instead
+    // of creating an empty file and calling it a snapshot.
+    QVERIFY(!writer.isAvailable());
+    QCOMPARE(writer.save(sub, QStringLiteral("dev")), QString());
+    QCOMPARE(writer.errorString(), QStringLiteral("no frame has been received yet"));
+
+    bus.setFrame(img, raw, 1000);
+    QVERIFY(writer.isAvailable());
+
+    // A path that cannot become a directory - there is a plain file in the
+    // way - so mkpath fails and the failure surfaces.
+    const QString blocker = tmp.filePath(QStringLiteral("not-a-dir"));
+    {
+        QFile f(blocker);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("x");
+    }
+    QCOMPARE(writer.save(blocker, QStringLiteral("dev")), QString());
+    QVERIFY2(writer.errorString().startsWith(QStringLiteral("cannot create directory")),
+             qPrintable(writer.errorString()));
+    QVERIFY2(!QFileInfo::exists(writer.lastPath()),
+             "a failed save still recorded a path as saved");
+
+    // And the error clears the instant a save succeeds - otherwise the panel
+    // keeps showing the old fault after the user fixed the cause.
+    const QString path = writer.save(sub, QStringLiteral("dev"));
+    QVERIFY2(!path.isEmpty(), qPrintable(writer.errorString()));
+    QCOMPARE(writer.errorString(), QString());
+
+    QFile out(path);
+    QVERIFY(out.open(QIODevice::ReadOnly));
+    QCOMPARE(out.readAll(), raw);
 }
 
 void TestCapture::recordingRoundTripsTheStreamedBytes()

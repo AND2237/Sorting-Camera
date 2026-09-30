@@ -44,6 +44,7 @@ public:
         QString method;
         QString path;
         QString contentType;
+        QByteArray authorization;
         QByteArray body;
     };
 
@@ -137,12 +138,21 @@ private:
         req.method = QString::fromUtf8(first.value(0));
         req.path = QString::fromUtf8(first.value(1));
         req.contentType = QString::fromUtf8(headerValue(head, "content-type"));
+        req.authorization = headerValue(head, "authorization");
         req.body = body;
         requests.append(req);
 
+        // The flag stands in for the camera's auth mode. A camera that has
+        // turned auth on accepts nothing but Authorization: Bearer <token>,
+        // so the stub demands the same header - which is also the only way
+        // the Bearer header itself can ever be proved to exist (audit section
+        // 14: the flag shipped with no test at all). The sign-in endpoints
+        // stay open: a session can only be created before one exists.
         if (authRequired && !req.path.startsWith(QStringLiteral("/api/v1/auth/"))) {
-            respond(sock, 401, QByteArray("{\"error\":\"unauthorized\"}"));
-            return;
+            if (req.authorization != QByteArrayLiteral("Bearer stub-token")) {
+                respond(sock, 401, QByteArray("{\"error\":\"unauthorized\"}"));
+                return;
+            }
         }
         if (req.path == QStringLiteral("/api/v1/capabilities")) {
             if (capabilitiesStatus != 200) {
@@ -245,6 +255,7 @@ private slots:
     void aStaleNotConnectedErrorClearsWhenTheCameraAnswers();
     void aConfigWriteRejectedWith401IsReplayedAfterSignIn();
     void aConfigWriteRejectedWith401FailsHonestlyWhenSignInCannotStart();
+    void controlRequestsCarryTheBearerTokenWhenTheCameraRequiresIt();
     void teardownWhilePollingStaysWithinTheGuiBudget();
 };
 
@@ -615,6 +626,57 @@ void TestDeviceStatus::aConfigWriteRejectedWith401FailsHonestlyWhenSignInCannotS
     QTest::qWait(500);
     QCOMPARE(stub.configRequests, 1);
     QCOMPARE(stub.loginRequests, 0);
+    status.stopPolling();
+}
+
+// Audit section 14 and the last sub-item of Task B2: when the camera demands
+// auth, every non-auth request on the control plane must carry
+// Authorization: Bearer <token>. The stub's authRequired flag had shipped
+// without a single test, so the header was the one part of the session
+// contract nothing ever proved - an auth-required camera would have been an
+// invisible endless 401 loop in the only configuration that exercises it.
+void TestDeviceStatus::controlRequestsCarryTheBearerTokenWhenTheCameraRequiresIt()
+{
+    ControlApiStub stub;
+    QVERIFY(stub.listen());
+    stub.authRequired = true;
+
+    DeviceStatus status;
+    QSignalSpy caps(&status, &DeviceStatus::capabilitiesChanged);
+    status.startPolling(QStringLiteral("127.0.0.1"), stub.port());
+
+    // Before any sign-in the poll goes out with no session at all: the very
+    // first request must be the status poll, and it must not pretend to hold
+    // a token the desktop does not have.
+    QTRY_VERIFY_WITH_TIMEOUT(!stub.requests.isEmpty(), 8000);
+    const ControlApiStub::Request first = stub.requests.first();
+    QCOMPARE(first.path, QStringLiteral("/api/v1/status"));
+    QVERIFY2(first.authorization.isEmpty(),
+             "the pre-session status poll carried an Authorization header");
+
+    // Signing in is what creates the session; from then on the 401-accepting
+    // stub only answers 200 to requests that present the token it issued.
+    status.signIn(QStringLiteral("control-password"), false);
+    QTRY_VERIFY_WITH_TIMEOUT(status.isAuthenticated(), 8000);
+    QTRY_VERIFY_WITH_TIMEOUT(caps.count() >= 1, 8000);
+
+    bool statusWithBearer = false;
+    bool capabilitiesWithBearer = false;
+    for (const ControlApiStub::Request &r : stub.requests) {
+        if (r.authorization != QByteArrayLiteral("Bearer stub-token")) {
+            continue;
+        }
+        if (r.path == QStringLiteral("/api/v1/status")) {
+            statusWithBearer = true;
+        }
+        if (r.path == QStringLiteral("/api/v1/capabilities")) {
+            capabilitiesWithBearer = true;
+        }
+    }
+    QVERIFY2(statusWithBearer,
+             "the status poll never carried Authorization: Bearer after sign-in");
+    QVERIFY2(capabilitiesWithBearer,
+             "the capabilities fetch never carried Authorization: Bearer after sign-in");
     status.stopPolling();
 }
 

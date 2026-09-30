@@ -30,6 +30,9 @@ scam_add_test(tst_recorder)
 scam_add_test(tst_capture)
 scam_add_test(tst_configwritesequence)
 scam_add_test(tst_capabilities)
+# Section 33 / audit section 14: the metric arithmetic behind every published
+# frame-rate figure had no coverage until this suite.
+scam_add_test(tst_appmetrics)
 scam_add_test(tst_accessibility)
 # Source-level accessibility tripwire (section 25 / gap G-12): it reads the QML
 # itself, the way the provenance tests read benchmarks/results.
