@@ -1,6 +1,6 @@
 # Protocol
 
-_Status: selected 2026-09-25 — TCP framed is the primary transport (ADR-0007); HTTP MJPEG retained as compatibility path; UDP packetized implemented but secondary. Framing below is normative for TCP/UDP._
+_Status: **HTTP MJPEG (port 81) is the shipped video transport.** ADR-0007 chose TCP framed as primary on 2026-09-25 from Phase 3 measurements; that decision was never implemented (DD-1 — amendment in `docs/decisions/0007-transport-selection.md`), so the framing below stays **normative for TCP/UDP** (the harness and any future client need a defined wire format) while everything the app does runs over HTTP multipart._
 
 ## Control plane (decided)
 
@@ -68,7 +68,25 @@ Tradeoffs to measure: CPU on ESP32, loss behavior on the direct AP link, multi-c
 
 - `protocol version` in every custom frame/header; control API uses `/api/v1/` prefix.
 - Desktop rejects major-version mismatch with a clear UI error; minor additions are backward-compatible (header_len / flags reserved bits).
-- Firmware version, protocol version, app version each reported in status/discovery and recorded in benchmark results (req. §39, §13).
+- Firmware version and protocol version are reported by the device in status and discovery, and recorded in benchmark results (req. §39, §13). The **app version is desktop-side only**: a camera cannot know the version of the program driving it, so the device does not report one (CP-20 — the earlier claim that it did was wrong, not the code). The desktop records its own version in the recording header and in benchmark results.
+
+## Device identity & discovery
+
+The camera broadcasts its own network: softAP SSID **`ESP32-CAM`** (WPA2, fixed IP
+`192.168.4.1`), and the PC joins that network — no router in the path (ADR-0006,
+which supersedes the station+router topology of ADR-0001). One camera is
+therefore one radio network; that scale-out cost was accepted with the ADR. This
+line was missing here (DD-11) — the SSID was only stated in `docs/architecture.md`,
+which is where the topology claim lives.
+
+Discovery is UDP, not mDNS. The PC broadcasts `{"scam":1,"op":"discover"}` to
+port **48888** every 2 s; the camera answers with a unicast announce containing
+`device_id`, `device_name`, `ip`, `fw_version`, `proto_version`, `sensor`,
+`control_port`, `stream_port` and `auth_required` — rate-limited to one reply
+every 250 ms (`DISCOVERY_REPLY_MIN_MS`). Replies are deduplicated by **device id,
+never by address**, so a camera that renumbers keeps its session. Announces carry
+a firmware version and no app version: the camera cannot know what program is
+driving it (CP-20).
 
 ## Freshness policy (all transports)
 
@@ -109,7 +127,9 @@ The OV2640's JPEG size is chosen by the sensor and depends on **scene content**,
 
 ## HTTP transport behaviour (observed, normative for clients)
 
-Verified against firmware `0.1.0` / proto v1 on 2026-09-26.
+Verified against firmware `0.1.0` / proto v1 on 2026-09-26 — the note records
+**which build the observation was taken on**, not the current release (the
+release line has since moved past 0.1.0; see CP-24 for what a version bump owes).
 
 - **`Connection: close` is not honoured.** `esp_http_server` keeps the session open after a complete response and only closes it on idle timeout (control server: `recv_wait_timeout=2` s) or LRU purge. Clients **must** frame responses by `Content-Length` (all control endpoints send it) and must not wait for EOF. A client that reads until close will always see a spurious timeout even though the response arrived complete. Only the 404 path and the MJPEG stream end with a close.
 - **MJPEG framing:** `Transfer-Encoding: chunked` with `Content-Length` per part; every part is preceded by the `--FRAME` boundary. The stream ends only when the client goes away or the camera fails the frame — and at that point the multipart body is closed with the RFC 2046 close-delimiter `\r\n--FRAME--\r\n` followed by the terminating zero-length chunk of the transfer. (It previously ended abruptly between two boundaries; `MjpegClient` tolerates that, but a stricter reader stalls waiting for a boundary that never comes.)

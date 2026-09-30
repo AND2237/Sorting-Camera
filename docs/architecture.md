@@ -1,6 +1,6 @@
 # Architecture
 
-_Status: Phase 2 baseline implemented — firmware + desktop both build (2026-09-23); hardware bring-up pending._
+_Status: living document. Phase 2 baseline landed 2026-09-23; Phases 3–6 are complete and their measurements live in `docs/benchmark-results.md`; the Phase-6/7 audit remediation is in Stage 4 as of 2026-09-30 (every finding's status in `docs/audits/PHASE7_REMEDIATION.md`), with hardware bring-up and the Phase 7/8 gates still pending._
 
 ## System overview
 
@@ -21,11 +21,19 @@ Modules (each a small cohesive unit under `firmware/esp32_cam_stream/main/`):
 |---|---|
 | `camera` | esp32-camera init, JPEG-only pipeline, PSRAM framebuffers, `CAMERA_GRAB_LATEST`, runtime reconfig (resolution/quality/sensor controls) |
 | `wifi` | softAP start (WPA2, fixed IP, channel/max-clients policy), connected-station RSSI, power-save policy |
-| `transport` | frame delivery. Three server-pull senders, each a task/handler that fetches frames from the camera driver and reports to `metrics`: HTTP MJPEG (stream handler), TCP framed + UDP packetized (`frame_transport.c`, selected/primary per ADR-0007) |
+| `transport` | frame delivery. Three server-pull senders, each a task/handler that fetches frames from the camera driver and reports to `metrics`: HTTP MJPEG (stream handler) — **the one that ships**; TCP framed + UDP packetized (`frame_transport.c`, compiled in but never started: `CONFIG_SORTING_CAM_FRAME_TRANSPORT` defaults to `n`, and enabling it exceeds the socket budget). ADR-0007 chose TCP as primary and was **never implemented** (DD-1; amendment in the ADR) |
 | `control_api` | authenticated JSON control/status endpoints (HTTP) |
 | `discovery` | UDP broadcast announce on 48888 (no mDNS — see Discovery) |
 | `metrics` | capture/tx FPS, bytes, heap/PSRAM, RSSI counters, plus lost/near-budget frames and snapshots served — exported through the status API and mirrored in the rate-limited serial log |
 | `app` | wiring, task/core affinity, watchdogs |
+
+The table names logical modules; the code has files, and the two vocabularies
+have to map onto each other or the table rots (DD-6): `camera` → `camera.c`
+(+ `camera_control.c` for the sensor controls), `wifi` → `wifi.c`, `transport`
+→ `http_servers.c` (the MJPEG stream handler) plus `frame_transport.c` (compiled
+in, started only by Kconfig), `control_api` → `http_servers.c`, `discovery` →
+`discovery.c`, `metrics` → `metrics.c`, `app` → `app_main.c`, and authentication
+→ `auth.c`.
 
 Pipeline: OV2640 JPEG → PSRAM fb → (optional early send during DMA where measurable) → transport. No RGB/YUV conversion on device. No recording/transcoding on device.
 
@@ -59,7 +67,7 @@ Three independent recovery layers, because a wedged OV2640 is otherwise a brick 
 |---|---|---|---|
 | Frame-budget guard | config with quality below the measured floor | **400**, nothing is touched | none — request refused |
 | Capture recovery (stream/snapshot handler) | `camera_fb_get()` returns NULL (driver frame timeout, e.g. after an overflow) | `camera_recover()`: deinit → PWDN power-cycle → SCCB bus recovery → init; up to 2 attempts, then the client is closed | the stream pauses ~1–5 s and resumes on the same connection |
-| Watchdogs (`app_main.c`) | delivery stalled 15 s with a client attached, or no frame captured for 30 s with a client attached | `camera_recover()`; `esp_restart()` only if recovery itself fails | stream resumes, or a reboot if the sensor is unrecoverable |
+| Watchdogs (`app_main.c`) | delivery stalled 15 s with a client attached, or no frame captured for 30 s with a client attached | stall: `camera_recover()`, which re-arms the 15 s window; no-capture: `camera_recover()` at most `CAMERA_NO_CAPTURE_RECOVERY_LIMIT` (3) times, one full 30 s window apart, then the camera is left down and said so; `esp_restart()` only if a recovery itself fails | stream resumes, a bounded number of power-cycles, or a camera left down that `/status` still reports |
 
 Design constraints this imposes:
 
@@ -78,6 +86,7 @@ Design constraints this imposes:
   completes, and **a caller must never hold a frame buffer while it asks for a
   teardown** — it would wait for itself. See ADR-0016.
 - The operating point (framesize, quality, fb_count, grab mode, fb location, xclk) is persisted in NVS (`camcfg`/`v1`, CRC-checked) and restored before the first driver init, so a watchdog reboot returns to the user's chosen settings instead of silently reverting to the compiled defaults.
+- **A watchdog must not be able to power-cycle the sensor at 1 Hz (FW-8).** The no-capture branch used to call `camera_recover()` on every 1 s tick, because the clock it reads (`metrics_us_since_last_capture`) is advanced only by a real capture — so a camera that re-initialised cleanly but never delivered a frame was reset forever, silently. Recovery on that branch is now bounded and spaced: at most 3 attempts, one `CAMERA_DEAD_TIMEOUT_US` window apart, then the camera is **left down with an error log**. Leaving it down is the decision: the control plane stays up, `/status` still reports `camera_up=0` and `camera_recoveries`, and a config apply re-runs the recovery path, so a camera that stays dead is something an operator can see and act on rather than watch rebooting a thousand times.
 
 ## Operating profiles and their frame-rate floors
 
@@ -177,6 +186,20 @@ is future work and is **not** claimed.
 `QHostAddress` is a `Q_GADGET` and cannot cross a queued connection, so the
 discovery worker passes the sender as a `QString` and resolves it on the
 receiving side. Passing it directly delivers nothing and then faults.
+
+**Teardown is synchronous and bounded (DX-17).** `CameraDevice` is destroyed on
+the GUI thread, and with it `MjpegClient` and `DeviceStatus`, whose destructors
+stop their worker with a `BlockingQueuedConnection` followed by `QThread::wait()`.
+That structure is deliberate — the worker owns the socket, the timers and the
+parser, so it must be stopped before the object goes away — and what makes it
+acceptable is that the wait is bounded: `stop()`/`stopPolling()` only stop timers
+and abort a socket, so the caller waits for the event handler already in progress
+and nothing more. Measured 2026-09-30 with frames still in flight: **2 ms**
+(`MjpegClient`) and **1 ms** (`DeviceStatus`). `tst_capture` and
+`tst_devicestatus` assert a **200 ms** ceiling — the point at which a block like
+this stops being invisible and starts reading as a frozen UI — so the bound is a
+tested claim rather than a comment. Moving teardown off the GUI thread stays
+future work for the day a measurement ever crosses that ceiling.
 
 
 ## Protocol candidates (Phase 3 decides)

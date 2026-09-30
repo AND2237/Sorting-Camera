@@ -1,6 +1,6 @@
 # Performance
 
-_Status: targets defined; numbers pending Phase 3/4 measurement._
+_Status: targets fixed, and measured — the results live in `docs/benchmark-results.md` (Phase 3 transport selection, Phase 4 configuration envelope, Phase 5 tuning ladder) with raw JSON under `benchmarks/results/`. Everything below this line is a **target**, not a measurement; do not quote it as an achieved number._
 
 ## Targets (from Master Prompt §1, §34)
 

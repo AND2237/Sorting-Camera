@@ -26,7 +26,7 @@ All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
 |---|---|
 | `tst_authclient` | PBKDF2 proof vector against a reference, nonce/password dependence, missing-credential and live-device paths |
 | `tst_configwritesequence` | the ordered config write chain: every requested setting is emitted in order, an unset option does not truncate what follows, an empty run writes nothing, `takeNext()` stops at the end |
-| `tst_credentialstore` | DPAPI round-trip, wrong-password rejection, storage-unavailable fallback |
+| `tst_credentialstore` | DPAPI round-trip, overwrite, clear, move, ciphertext-not-plaintext, empty-key guard — **not** covered: wrong-password rejection and the storage-unavailable fallback, both genuinely untested code paths (DD-10) |
 | `tst_discovery` | announce parsing, dedupe by device id not address, ageing, subnet broadcast targets, live-device test gated on `SCAM_DISCOVERY_PORT` |
 | `tst_sessionstate` | all eight §24 states, branch ordering, severity mapping — pure, no event loop |
 | `tst_userprefs` | defaults, full round-trip, write de-duplication, survival across instances; QSettings redirected to a scratch dir so it never touches the real credential file |
@@ -61,7 +61,7 @@ stays hermetic:
 |---|---|---|
 | `SCAM_TEST_HOST` + `SCAM_TEST_PASSWORD` | `tst_authclient` | the real PBKDF2 verifier, login and token path |
 | `SCAM_DISCOVERY_PORT` | `tst_discovery` | real UDP announce parsing and dedupe |
-| `SCAM_TEST_HOST` (+ optional `SCAM_STREAM_PORT`, default 81) | `tst_capture` | **byte identity on the wire** |
+| `SCAM_TEST_HOST` (+ optional `SCAM_STREAM_PORT`, default 81) | `tst_capture` | byte-for-byte preservation of the bytes the client's own receive path delivered — no packet capture is involved, so the reference is what the parser handed the app, not a tap on the wire (DD-10) |
 
 `liveCameraBytesAreStoredVerbatim` exists because the stub in `tst_capture`
 cannot prove the rule AGENTS.md states outright — a snapshot and a recording
