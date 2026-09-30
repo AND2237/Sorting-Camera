@@ -1,0 +1,75 @@
+SortingCamera - third-party notices
+===================================
+
+This repository builds two release artifacts (scripts\package-release.ps1).
+Both ship this file plus full license texts under "licenses\". The exact
+version and source commit of a given archive are recorded in its README.txt.
+
+--------------------------------------------------------------------------
+APP: SortingCamera-<version>-win64.zip  (Windows x64)
+--------------------------------------------------------------------------
+
+1. Qt 6.11.2 libraries and plugins
+   License: LGPL-3.0-only (Qt is offered as commercial OR LGPL-3.0-only OR
+   GPL-2.0-only OR GPL-3.0-only; this deployment takes the LGPL-3.0-only
+   option and links Qt dynamically).
+   Shipped: Qt6Core, Qt6Gui, Qt6Network, Qt6OpenGL, Qt6Qml*, Qt6Quick*,
+   Qt6Svg, the windeployqt plugins (platforms\qwindows.dll,
+   imageformats\qgif/qico/qjpeg/qsvg.dll, tls\qcertonlybackend/
+   qschannelbackend.dll, plus iconengines/generic/networkinformation/
+   platforminputcontexts/vectorimageformats) and the qml\ imports.
+   Evidence: the Qt installation's own SBOMs
+   (C:\Qt\6.11.2\mingw_64\sbom\*.spdx.json) list the qtbase, qtdeclarative
+   and qtsvg packages as
+   "LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only",
+   and the installer recorded "License type [Opensource]"
+   (C:\Qt\licenseInfo.txt).
+   Full texts: licenses\LGPL-3.0.txt and licenses\GPL-3.0.txt - LGPLv3 is
+   additional terms on top of GPLv3, so both texts ship together.
+   The Qt libraries are ordinary replaceable DLLs next to the executable;
+   Qt is not modified and not statically linked, so a user or site can
+   substitute its own compatible Qt build (LGPLv3 relink/replace model).
+
+2. Mesa llvmpipe software OpenGL renderer - opengl32sw.dll
+   License: MIT and Boost Software License 1.0, per Qt's own attribution
+   page for this DLL ("Shipped as part of the binary packages for Windows
+   (opengl32sw.dll)").
+   Full text: licenses\mesa-llvmpipe-attribution.html
+
+3. D3Dcompiler_47.dll
+   Microsoft "Direct3D HLSL Compiler for Redistribution" (file version
+   6.3.9600.16384, CompanyName: Microsoft Corporation). Not an open-source
+   component; windeployqt copies it from the Qt installation. Redistributed
+   under Microsoft's terms for this binary.
+
+4. MinGW-w64 runtime DLLs: libgcc_s_seh-1.dll, libstdc++-6.dll and
+   libwinpthread-1.dll (MinGW 13.1.0, added by scripts\package-release.ps1)
+   - GCC Runtime Library Exception (GPL-3.0 with the runtime exception, so
+     linking this application does not impose copyleft on it):
+     licenses\GCC-RUNTIME-LIBRARY-EXCEPTION.txt
+   - MinGW-w64 runtime: licenses\mingw-w64-runtime.txt
+   - winpthreads: licenses\winpthreads.txt
+
+Nothing else third-party is bundled: there are no font, image or icon files
+(the UI uses system fonts and shapes drawn by QML), and no Qt GPL-only module
+(HTTP Server, MQTT, COAP, Quick3D, Lottie, Virtual Keyboard, Graphs) is
+linked or shipped - the release script fails if one ever appears.
+
+--------------------------------------------------------------------------
+FIRMWARE: esp32_cam_stream-<version>-fw.zip  (ESP32-CAM)
+--------------------------------------------------------------------------
+
+5. ESP-IDF v5.5.4 - the framework the firmware is built with
+   License: Apache License 2.0. Full text: licenses\Apache-2.0.txt
+
+6. espressif/esp32-camera 2.1.7 - the OV2640 driver component
+   License: Apache License 2.0. Full text: licenses\Apache-2.0.txt
+
+7. esptool - used only to FLASH the firmware (flash.ps1 calls esptool.py,
+   "esptool" or "python -m esptool"). It is NOT included in this archive.
+   License: GPL-2.0-or-later (from the esptool 4.12.0 package metadata).
+   Install it separately, e.g. "pip install esptool".
+
+--------------------------------------------------------------------------
+
+Dependency table and redistribution notes: docs/licensing.md

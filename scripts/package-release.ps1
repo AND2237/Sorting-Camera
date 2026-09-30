@@ -111,6 +111,8 @@ if ($leftover) { throw "restricted Qt modules still present: $($leftover.Name -j
     "SortingCamera $Version (Windows x64, Qt 6.11 / MinGW 13.1)",
     "source commit: $commit",
     "",
+    "Third-party licences: THIRD_PARTY_NOTICES.txt (full texts in licenses\).",
+    "",
     "Run SortingCamera.exe - no Qt or MinGW installation required on this PC.",
     "Windows 10 or later, x64.",
     "",
@@ -121,6 +123,22 @@ if ($leftover) { throw "restricted Qt modules still present: $($leftover.Name -j
     "Snapshots and recordings save the exact received JPEG bytes.",
     "Recordings land in a 'recordings' folder next to the executable."
 ) | Set-Content -Path (Join-Path $appStage "README.txt") -Encoding utf8
+
+# G-2: the archive carries its third-party notices and the full license texts
+# (LGPLv3 + GPLv3 for Qt, the GCC runtime exception for the MinGW DLLs, and
+# Qt's own attribution page for the Mesa software renderer).
+$licSrc = Join-Path $root "third_party\licenses"
+$notices = Join-Path $root "THIRD_PARTY_NOTICES.txt"
+if (-not (Test-Path -LiteralPath $notices)) { throw "missing notices file: $notices" }
+Copy-Item -LiteralPath $notices -Destination $appStage
+$licDst = Join-Path $appStage "licenses"
+New-Item -ItemType Directory -Force -Path $licDst | Out-Null
+foreach ($f in "LGPL-3.0.txt", "GPL-3.0.txt", "GCC-RUNTIME-LIBRARY-EXCEPTION.txt",
+               "mingw-w64-runtime.txt", "winpthreads.txt", "mesa-llvmpipe-attribution.html") {
+    $src = Join-Path $licSrc $f
+    if (-not (Test-Path -LiteralPath $src)) { throw "missing license text: $src" }
+    Copy-Item -LiteralPath $src -Destination $licDst
+}
 
 $appZip = Join-Path $OutDir "$appName.zip"
 if (Test-Path $appZip) { Remove-Item -Force $appZip }
@@ -168,6 +186,7 @@ Copy-Item (Join-Path $fwBuild "partition_table\partition-table.bin") $fwStage
     "  bootloader.bin          bootloader,            offset 0x1000"
     "  partition-table.bin     partition table,       offset 0x8000"
     "  flash.ps1               flashes all three to a connected board"
+    "  THIRD_PARTY_NOTICES.txt third-party licences (full texts in licenses\)"
     ""
     "Flash (Windows, board on USB)"
     "  powershell -ExecutionPolicy Bypass -File flash.ps1 -Port COM6"
@@ -181,6 +200,12 @@ Copy-Item (Join-Path $fwBuild "partition_table\partition-table.bin") $fwStage
     ""
     "This firmware requires protocol version 1 with the matching desktop app."
 ) | Set-Content -Path (Join-Path $fwStage "README.txt") -Encoding utf8
+
+# G-2: same notices file, with the texts the firmware actually embeds.
+Copy-Item -LiteralPath $notices -Destination $fwStage
+$fwLicDst = Join-Path $fwStage "licenses"
+New-Item -ItemType Directory -Force -Path $fwLicDst | Out-Null
+Copy-Item -LiteralPath (Join-Path $licSrc "Apache-2.0.txt") -Destination $fwLicDst
 
 $fwZip = Join-Path $OutDir "$fwName.zip"
 if (Test-Path $fwZip) { Remove-Item -Force $fwZip }
