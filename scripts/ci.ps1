@@ -4,8 +4,9 @@
 # what a fresh clone is documented to do, so "it builds and passes on my machine"
 # is a command rather than a claim.
 #
-#   .\scripts\ci.ps1                 configure (if needed) + build + ctest
+#   .\scripts\ci.ps1                 configure (if needed) + build + ctest + config-contract smoke
 #   .\scripts\ci.ps1 -Configure      force a fresh configure
+#   .\scripts\ci.ps1 -SkipSmoke      skip the Python config-contract smoke
 #   .\scripts\ci.ps1 -Firmware       ... and build the ESP-IDF project
 #   .\scripts\ci.ps1 -Package        ... and package a release (needs a green run)
 #
@@ -13,6 +14,7 @@
 
 param(
     [switch]$Configure,
+    [switch]$SkipSmoke,
     [switch]$Firmware,
     [switch]$Package,
     [string]$BuildDir = ""
@@ -52,7 +54,29 @@ Step 'build (desktop)' { & cmake --build $BuildDir }
 # 3. Tests: exit code is authoritative (Qt Test prints nothing to stdout here).
 Step 'test (ctest)' { & ctest --test-dir $BuildDir --output-on-failure }
 
-# 4. Optional: the firmware, in its own ESP-IDF environment.
+# 4. Config-contract smoke (G-13): the only layer that exercises the camera's
+#    HTTP surface without hardware - tools/fake_camera.py driven through the
+#    ADR-0017 contract, including the chunked stream the firmware sends. It
+#    resolves tools/fake_camera.py relative to the repository root, so it runs
+#    from there. Python is a documented prerequisite; -SkipSmoke is the escape
+#    hatch for a machine that has none.
+if ($SkipSmoke) {
+    Write-Host ""
+    Write-Host '==> smoke (config contract) SKIPPED (-SkipSmoke)' -ForegroundColor Yellow
+} else {
+    Step 'smoke (config contract)' {
+        if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+            Write-Host 'python.exe is not on PATH - install Python 3 or pass -SkipSmoke' -ForegroundColor Red
+            $global:LASTEXITCODE = 1
+            return
+        }
+        Push-Location $root
+        try { & python (Join-Path $root 'tools\config_contract_smoke.py') }
+        finally { Pop-Location }
+    }
+}
+
+# 5. Optional: the firmware, in its own ESP-IDF environment.
 if ($Firmware) {
     $fw = Join-Path $root 'firmware\esp32_cam_stream'
     if (-not (Test-Path (Join-Path $fw 'CMakeLists.txt'))) { throw "firmware project missing: $fw" }
@@ -63,7 +87,7 @@ if ($Firmware) {
     }
 }
 
-# 5. Optional: package. The script itself refuses a stale exe; this run has
+# 6. Optional: package. The script itself refuses a stale exe; this run has
 #    already refused a red suite above.
 if ($Package) {
     Step 'package' { & (Join-Path $PSScriptRoot 'package-release.ps1') }
