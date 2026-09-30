@@ -1252,7 +1252,9 @@ Stage 4 closes with the five rows that were still `open`, plus the two audit IDs
 that had never been given a row here at all. Everything else in this pass is
 documentation: the drift table (DD-*), the ADR-0009 number the firmware review
 caught, and the triage of every remaining ID so that **no audit finding is
-untracked** — 42 IDs were missing from this table and are dispositioned in
+untracked** — 42 IDs were missing from this table by table-scan, 44 counting the
+two a prose scan surfaced afterwards (`FW-15` = S-1's alias, `DX-2` = named once
+and never detailed), and all of them are dispositioned in
 [Finding status](#finding-status) below.
 
 #### Firmware: bounds that were missing (FW-2, FW-4, FW-8, FW-14)
@@ -1389,6 +1391,14 @@ where they landed:
 
 ## Finding status
 
+`Sev` is the audit's **finding group** for CP / DX / FW / A0 rows (A = must-fix before
+Phase 7 continues, B = during Phase 7, C = before Phase 8, D = Phase 8 soak), and the
+audit's **own priority** for `G-*`, `S-*` and `FW-21…FW-27`, which the audit tabulates
+outside those groups (P1/P2/P3). `—` marks rows the audit gives no severity (the
+documentation-drift and design-correctness tables). The distinction matters: an
+**A** row must not be left `open` while a **P1** gap can legitimately be owned by a
+later stage.
+
 | ID | Sev | Area | Summary | Status | Evidence |
 |---|---|---|---|---|---|
 | CP-1 | A | desktop | Test suites never registered | closed | Stage 1: `ctest -N` 12, `ctest` 12/12 |
@@ -1419,6 +1429,7 @@ where they landed:
 | DX-1 | C | QML | Severity conflated for sign-in failure | **closed** | Stage 4 g4: `SessionState::notificationLevel()` consulted by `CameraDevice`; new test, mutation caught |
 | DX-12 | D | desktop | `FrameImageProvider` outside `scamcore` | **closed** | Stage 4 g9: provider moved into `qt_add_library(scamcore)` + `Qt6::Quick` linked there; full rebuild exit 0 (85 steps) |
 | DX-17 | D | desktop | `~CameraDevice` blocking-queued across threads | **closed** | Stage 4 g9: bound **measured**, 2 tests — `MjpegClient` teardown 2 ms, `DeviceStatus` teardown 1 ms against a 200 ms budget; written up in `architecture.md` → *Threading* |
+| DX-2 | — | desktop | Named once as a "data/lifecycle defect" beside CP-1, never detailed | deferred | The audit's only mention is the phase-status table (`GEMINI…:251`); no finding body exists anywhere — DX-1 is the only elaborated `DX-*` finding. Nothing to act on; recorded so the ID is not silently lost, and re-open if a second lifecycle defect was actually meant |
 | A0 | A | firmware | PSRAM config unreproducible | **closed** | ADR-0015: clean config == measured config; generated `sdkconfig` diff IDENTICAL |
 | FW-1 | A | firmware | Control reset on re-init (alias of CP-4) | **fixed** | Stage 4 g3 (CP-4); build-verified, hardware pending g5 |
 | FW-2 | C | firmware | Discovery accepts oversized query | **fixed** | Stage 4 g9: `json_depth_within()` refuses nesting > 8 (iterative, string-aware, refuses unbalanced closers) before `cJSON_Parse`, logs and drops; `idf.py build` exit 0; hardware pending |
@@ -1433,50 +1444,84 @@ where they landed:
 | FW-12 | C | firmware | Sensor endpoint lacks lock and debounce | **fixed** | Stage 4 g6: shared `refuse_while_streaming()` 409 + exported `camera_lock()`/`camera_unlock()`; build-verified, hardware pending. The NVS-per-request half is FW-21, still open |
 | FW-13 | B | firmware | Config accepts GET, spec says POST | **fixed** | Stage 4 g7: `config_get_handler` (read-only) + `config_post_handler` (JSON body, 415 on wrong content type, 400 on query/unknown key); desktop, both harnesses and the fake moved in the same change; ADR-0017; build-verified, hardware pending |
 | FW-14 | C | firmware | `to_hex()` ignored its output length | **fixed** | Stage 4 g9: `static bool to_hex(..., size_t out_len)` refuses a short buffer; `auth_verify_login` checks `token_len` before `esp_fill_random` and clears `slot->used`; sole caller passes `char token[64]` so no behaviour change; `idf.py build` exit 0; hardware pending |
+| FW-15 | P2 | security | PBKDF2 at 8192 iterations (audit cites "(FW-15 on iteration count)") | deferred | **alias of S-1** — same finding, named twice in the audit (§4.1 table and the security table); disposition lives on the S-1 row |
 | FW-16 | C | firmware | Path cited for secrets check is wrong | **fixed** | Stage 4 g6: example password emptied **and** `provision()` refuses the old literal; the copy step is in the project-root `CMakeLists.txt`, not `main/`; build-verified, hardware pending |
 | FW-17 | C | firmware | Socket budget in three places, three answers | **fixed** | Stage 4 g6: Kconfig help + `architecture.md` corrected to 15 of 16 at baseline, 18 with the transport (it does not fit); docs-only |
 | FW-18 | D | firmware | Video stream unauthenticated; snapshot is not (disclosed) | **closed** | Stage 4 g8: written rationale in `docs/protocol.md` (*Stream authentication posture*) and `docs/architecture.md` → *Authentication*, with revisit triggers; audit states no code change required |
 | FW-19 | D | firmware | Counter definition undocumented | **fixed** | Stage 4 g6: `frames_send_failures` / `frames_near_budget` / `snapshots_served` counted and defined in `docs/protocol.md`; build-verified, hardware pending |
 | FW-20 | D | firmware | Documented counter not implemented | **fixed** | Stage 4 g6: all three exported in the status JSON, `fake_camera.py` parity, `architecture.md` metrics row matches; hardware pending |
-| FW-21 | E | firmware | `save_nvs` on every successful sensor apply, outside any lock | deferred | P3, audit §*Remaining firmware findings*; NVS write per slider event in the single-threaded control httpd — needs hardware to profile |
-| FW-22 | E | firmware | `hdr_len` = unchecked `snprintf` return used as send length for `part_hdr[128]` | deferred | P3; currently maxes ~93 B so no truncation today |
-| FW-23 | E | firmware | No PSRAM check before `fb_location = CAMERA_FB_IN_PSRAM` | deferred | P3; failure mode is a boot loop with no HTTP surface — needs hardware to observe |
-| FW-24 | E | firmware | `client_slot(ip, true)` evicts by fewest fails (backwards policy) | deferred | P3; same policy as S-3, 4 slots |
-| FW-25 | E | firmware | `strlen` after `strncpy(…,31)`; password checked `< 8` but not `> 63` | deferred | P3; config-path input validation, needs hardware |
-| FW-26 | E | firmware | Discovery reply rate limit is one global `last_reply_us`, not per-source | deferred | P3; one client can suppress discovery for others |
-| FW-27 | E | firmware | `atoi()` on caller-supplied strings in three places | deferred | P3; overflow is UB, impact low, no error channel |
-| G-1 | A | desktop | §28 hardware capability detection entirely absent | open | Stage 5 (Phase 7 completion): capability probe + UI |
-| G-2 | A | release | No licence/notice in the shipped package | open | Stage 5 (B5 packaging) |
-| G-3 | A | hardware | ≥1 h soak gate never run (longest 293 s; one 145 s aborted) | deferred | **Phase 8 / D1** — the mandatory ≥60 min production-default soak, needs the camera on the softAP |
-| G-4 | B | release | No installer (zips only) | open | Stage 5 (B5 packaging) |
-| G-5 | B | release | `licensing.md` unclosed; dependency set understated | open | Stage 5 (B5 packaging) |
-| G-6 | B | release | No CI — nothing ever builds or runs the tests | open | Stage 5 (C7): local `scripts/ci.ps1` only, no `.github` (AGENTS.md) |
-| G-7 | B | release | No root README | open | Stage 5 (C7) |
-| G-8 | B | release | `package-release.ps1` neither builds nor tests | open | Stage 5 (B5 packaging) |
-| G-9 | B | release | Release script stamps the wrong commit as firmware provenance | open | Stage 5 (B5 packaging) |
-| G-10 | B | release | Version split across four places, already inconsistent | open | Stage 5 (B5 packaging), with CP-24 |
-| G-11 | B | release | `docs/deployment.md` stale for a shipped release | open | Stage 5 (B5 packaging) |
-| G-12 | C | QML | Zero `Accessible.*` properties in the QML | open | Stage 5 |
-| G-13 | C | tests | `tools/fake_camera.py` wired to nothing | open | Stage 5 (C7); partially addressed — the fake is now driven by `tools/config_contract_smoke.py` (g7/g8) |
-| DD-1 | B | docs | Transport: ADR-0007/`protocol.md`/`architecture.md` said TCP primary | **closed** | Stage 4 g9: ADR-0007 status + amendment (*decided, not implemented*, measured basis preserved); `architecture.md` `transport` row and `protocol.md` status line say HTTP MJPEG ships |
-| DD-2 | B | docs | Master Prompt §5 (router) contradicts ADR-0006 (softAP) | **closed** | Stage 4 g9: superseded banner on §5, original kept for provenance, one-network-per-camera consequence recorded |
-| DD-3 | B | docs | Thread-model table claimed net-thread frame bus/recorder | **closed** | Stage 4 g9: verified **true** after CP-3 — `CameraDevice.cpp:184` uses `Qt::DirectConnection`, `FrameBus::setFrame` and `Recorder::appendFrame` run on the net thread |
-| DD-4 | B | docs | Socket count said 4 → 7, source had 6 → 9 | **closed** | Stage 4 g6 (FW-17): corrected to 15 of 16 baseline, 18 with the transport |
-| DD-5 | C | docs | `architecture.md:3` status line stuck at Phase 2 | **closed** | Stage 4 g9: rewritten to current phase with pointers to results and this tracker |
-| DD-6 | C | docs | Module table names do not match source files | **closed** | Stage 4 g9: table now maps every module to its file (`camera.c`, `http_servers.c`, `frame_transport.c`, …) |
-| DD-7 | C | docs | HD called "not the production default" after ADR-0010 chose it | **closed** | verified Stage 4 g9: `benchmark-results.md` §*Consequence* now says HD/q12 **is** the production default on a provisional floor, with ADR-0010 pointers |
-| DD-8 | C | docs | `performance.md:3` still "numbers pending Phase 3/4" | **closed** | Stage 4 g9: status says targets vs measurements and points at `benchmark-results.md` |
-| DD-9 | C | docs | `licensing.md` ESP-IDF "pin TBD" | **closed** | Stage 4 g9: pinned **v5.5.4**, 2026-09-23, ADR-0005, `scripts/install-idf.ps1` |
-| DD-10 | C | docs | `testing.md` claims tests that do not exist | **closed** | Stage 4 g9: `tst_credentialstore` row lists its five real tests and names wrong-password/storage-unavailable as **not covered**; `tst_capture` row no longer claims "byte identity on the wire" |
-| DD-11 | D | docs | SoftAP SSID missing from `protocol.md` | **closed** | Stage 4 g9: new *Device identity & discovery* section (SSID, IP, 48888, 2 s query, 250 ms reply, dedupe by id) |
-| DD-12 | D | docs | "Verified against firmware 0.1.0" while release is 0.2.0 | **closed** | Stage 4 g9: note now says which build the observation came from and points at CP-24 |
-| DD-13 | D | docs | Two byte-identical Master Prompt files | **closed** | Stage 4 g9: hyphen copy `git rm`'d (hashes matched after CRLF normalisation); AGENTS.md's em-dash file is the only one left |
-| DD-14 | D | docs | `.gitignore` `*.dll`/`*.exe`/`*.map` unanchored | deferred | owner's own uncommitted `.gitignore` edit in the working tree — never staged from here; re-evaluate when that lands |
-| S-1 | E | security | PBKDF2 at 8192 iterations (~2 orders below guidance) | deferred | Group E, P2 by the audit's own severity; softAP adversary is a joined client; a bump must move firmware and desktop together |
-| S-2 | E | security | No timestamp/replay window on state-changing requests (`security.md:4` claims one) | deferred | Group E, P2; nonce single-use covers login only; accepted residual on a trusted LAN — the doc overclaims, revisit with S-1 |
-| S-3 | E | security | `client_slot()` evicts by fewest fails | deferred | Group E, P3; same policy as FW-24, 4 slots |
-| S-4 | E | security | `savePassword` never zeroes its plaintext copy | deferred | Group E, P3; defence-in-depth asymmetry, not a leak |
-| S-5 | E | security | Video stream unauthenticated by design | **closed** | same finding as FW-18 — rationale and revisit triggers in `protocol.md` → *Stream authentication posture* |
+| FW-21 | P3 | firmware | `save_nvs` on every successful sensor apply, outside any lock | deferred | P3, audit §*Remaining firmware findings*; NVS write per slider event in the single-threaded control httpd — needs hardware to profile |
+| FW-22 | P3 | firmware | `hdr_len` = unchecked `snprintf` return used as send length for `part_hdr[128]` | deferred | P3; currently maxes ~93 B so no truncation today |
+| FW-23 | P3 | firmware | No PSRAM check before `fb_location = CAMERA_FB_IN_PSRAM` | deferred | P3; failure mode is a boot loop with no HTTP surface — needs hardware to observe |
+| FW-24 | P3 | firmware | `client_slot(ip, true)` evicts by fewest fails (backwards policy) | deferred | P3; same policy as S-3, 4 slots |
+| FW-25 | P3 | firmware | `strlen` after `strncpy(…,31)`; password checked `< 8` but not `> 63` | deferred | P3; config-path input validation, needs hardware |
+| FW-26 | P3 | firmware | Discovery reply rate limit is one global `last_reply_us`, not per-source | deferred | P3; one client can suppress discovery for others |
+| FW-27 | P3 | firmware | `atoi()` on caller-supplied strings in three places | deferred | P3; overflow is UB, impact low, no error channel |
+| G-1 | P1 | desktop | §28 hardware capability detection entirely absent | open | Stage 5 (Phase 7 completion): capability probe + UI |
+| G-2 | P1 | release | No licence/notice in the shipped package | open | Stage 5 (B5 packaging) |
+| G-3 | P1 | hardware | ≥1 h soak gate never run (longest 293 s; one 145 s aborted) | deferred | **Phase 8 / D1** — the mandatory ≥60 min production-default soak, needs the camera on the softAP |
+| G-4 | P2 | release | No installer (zips only) | open | Stage 5 (B5 packaging) |
+| G-5 | P2 | release | `licensing.md` unclosed; dependency set understated | open | Stage 5 (B5 packaging) |
+| G-6 | P2 | release | No CI — nothing ever builds or runs the tests | open | Stage 5 (C7): local `scripts/ci.ps1` only, no `.github` (AGENTS.md) |
+| G-7 | P2 | release | No root README | open | Stage 5 (C7) |
+| G-8 | P2 | release | `package-release.ps1` neither builds nor tests | open | Stage 5 (B5 packaging) |
+| G-9 | P2 | release | Release script stamps the wrong commit as firmware provenance | open | Stage 5 (B5 packaging) |
+| G-10 | P2 | release | Version split across four places, already inconsistent | open | Stage 5 (B5 packaging), with CP-24 |
+| G-11 | P2 | release | `docs/deployment.md` stale for a shipped release | open | Stage 5 (B5 packaging) |
+| G-12 | P2 | QML | Zero `Accessible.*` properties in the QML | open | Stage 5 |
+| G-13 | P3 | tests | `tools/fake_camera.py` wired to nothing | open | Stage 5 (C7); partially addressed — the fake is now driven by `tools/config_contract_smoke.py` (g7/g8) |
+| DD-1 | — | docs | Transport: ADR-0007/`protocol.md`/`architecture.md` said TCP primary | **closed** | Stage 4 g9: ADR-0007 status + amendment (*decided, not implemented*, measured basis preserved); `architecture.md` `transport` row and `protocol.md` status line say HTTP MJPEG ships |
+| DD-2 | — | docs | Master Prompt §5 (router) contradicts ADR-0006 (softAP) | **closed** | Stage 4 g9: superseded banner on §5, original kept for provenance, one-network-per-camera consequence recorded |
+| DD-3 | — | docs | Thread-model table claimed net-thread frame bus/recorder | **closed** | Stage 4 g9: verified **true** after CP-3 — `CameraDevice.cpp:184` uses `Qt::DirectConnection`, `FrameBus::setFrame` and `Recorder::appendFrame` run on the net thread |
+| DD-4 | — | docs | Socket count said 4 → 7, source had 6 → 9 | **closed** | Stage 4 g6 (FW-17): corrected to 15 of 16 baseline, 18 with the transport |
+| DD-5 | — | docs | `architecture.md:3` status line stuck at Phase 2 | **closed** | Stage 4 g9: rewritten to current phase with pointers to results and this tracker |
+| DD-6 | — | docs | Module table names do not match source files | **closed** | Stage 4 g9: table now maps every module to its file (`camera.c`, `http_servers.c`, `frame_transport.c`, …) |
+| DD-7 | — | docs | HD called "not the production default" after ADR-0010 chose it | **closed** | verified Stage 4 g9: `benchmark-results.md` §*Consequence* now says HD/q12 **is** the production default on a provisional floor, with ADR-0010 pointers |
+| DD-8 | — | docs | `performance.md:3` still "numbers pending Phase 3/4" | **closed** | Stage 4 g9: status says targets vs measurements and points at `benchmark-results.md` |
+| DD-9 | — | docs | `licensing.md` ESP-IDF "pin TBD" | **closed** | Stage 4 g9: pinned **v5.5.4**, 2026-09-23, ADR-0005, `scripts/install-idf.ps1` |
+| DD-10 | — | docs | `testing.md` claims tests that do not exist | **closed** | Stage 4 g9: `tst_credentialstore` row lists its five real tests and names wrong-password/storage-unavailable as **not covered**; `tst_capture` row no longer claims "byte identity on the wire" |
+| DD-11 | — | docs | SoftAP SSID missing from `protocol.md` | **closed** | Stage 4 g9: new *Device identity & discovery* section (SSID, IP, 48888, 2 s query, 250 ms reply, dedupe by id) |
+| DD-12 | — | docs | "Verified against firmware 0.1.0" while release is 0.2.0 | **closed** | Stage 4 g9: note now says which build the observation came from and points at CP-24 |
+| DD-13 | — | docs | Two byte-identical Master Prompt files | **closed** | Stage 4 g9: hyphen copy `git rm`'d (hashes matched after CRLF normalisation); AGENTS.md's em-dash file is the only one left |
+| DD-14 | — | docs | `.gitignore` `*.dll`/`*.exe`/`*.map` unanchored | deferred | owner's own uncommitted `.gitignore` edit in the working tree — never staged from here; re-evaluate when that lands |
+| S-1 | P2 | security | PBKDF2 at 8192 iterations (~2 orders below guidance) | deferred | Group E, P2 by the audit's own severity; softAP adversary is a joined client; a bump must move firmware and desktop together |
+| S-2 | P2 | security | No timestamp/replay window on state-changing requests (`security.md:4` claims one) | deferred | Group E, P2; nonce single-use covers login only; accepted residual on a trusted LAN — the doc overclaims, revisit with S-1 |
+| S-3 | P3 | security | `client_slot()` evicts by fewest fails | deferred | Group E, P3; same policy as FW-24, 4 slots |
+| S-4 | P3 | security | `savePassword` never zeroes its plaintext copy | deferred | Group E, P3; defence-in-depth asymmetry, not a leak |
+| S-5 | — | security | Video stream unauthenticated by design | **closed** | same finding as FW-18 — rationale and revisit triggers in `protocol.md` → *Stream authentication posture* |
+
+---
+
+### Remediation gate (Stage 4 → Stage 5), run 2026-09-30
+
+Criteria, so the result is checkable rather than asserted:
+
+1. **Every audit finding has a row.** Scanning the frozen audit for every
+   `CP-/FW-/DX-/DD-/G-/S-` identifier **anywhere** (table or prose) plus `A0`, against
+   this file's *Finding status* section: **88 IDs in the audit, 88 rows here, 0 missing,
+   0 extra**, and no malformed row in the table. Two of those (`FW-15` = S-1's alias,
+   `DX-2` = named once and never detailed) were found only by the prose scan and are
+   recorded with their disposition rather than dropped.
+2. **No group-A row is `open`.** The eleven A rows are `closed` (CP-1, CP-2, CP-3,
+   CP-5, CP-6, A0, FW-3) or `fixed` with hardware pending (CP-4, CP-19, FW-1, FW-7).
+3. **Every `open` row names its owner.** 13 open rows: CP-24 and G-1, G-2, G-4 … G-13,
+   all pointing at Stage 5 (B5 packaging / C7 release tooling / Phase 7 completion).
+   Nothing is `open` with a `—` evidence cell.
+4. **Desktop suite green at HEAD.** `cmake --build desktop\build` exit 0; `ctest`
+   **13/13**, 83.42 s.
+5. **Firmware builds clean at HEAD.** `idf.py build` **exit 0** (ESP-IDF v5.5.4).
+6. **Contract smoke green.** `tools/config_contract_smoke.py` exit 0, `FAILURES=0`.
+7. **The frozen audit is untouched.** `git status` clean for
+   `GEMINI_PHASE6_AUDIT_2026-09-29.md`; its only commit is `93138ed` (the baseline).
+8. **Every behaviour change is written down.** FW-8's leave-it-down policy and DX-17's
+   teardown bound are in `architecture.md`; the transport/topology/claim fixes are in
+   the DD rows of the sweep table above.
+
+**Result: pass.** Carried condition, explicitly *not* satisfied here: the 19 `fixed`
+rows are firmware findings whose regression proof needs the camera, so they become
+`closed` only when Stage 6 (and D1 for the soak) has run on hardware. The gate
+therefore admits Stage 5 on the desktop/docs/build axis while the hardware axis
+stays open — that split is recorded rather than averaged away.
 
 ---
 
@@ -1498,5 +1543,5 @@ where they landed:
 | Stage 4 g7 FW-13 / FW-10 POST-only config | 2026-09-30 | **pass (build + desktop + fake only)** | `idf.py build` exit 0 (split GET/POST handlers); `ctest` **13/13**, 62.08 s; 2 desktop mutations caught then restored green; fake-camera contract smoke **15/15** (script later committed as `tools/config_contract_smoke.py`); `py_compile` clean; **firmware refusal paths need the camera, hardware validation not run** |
 | Stage 4 g8 CP-7/8/9 stream matrices, FW-18 rationale | 2026-09-30 | **pass (desktop + docs)** | `ctest` **13/13**, 84.37 s; `tst_capture` **16/0/1** (5 new slots, was 11); 4 mutations caught by their own test then restored green; `tools/config_contract_smoke.py` **18/18**; `idf.py build` not run (no firmware change); hardware not run |
 | Stage 4 g9 FW-2/4/8/14, DX-12/17, CP-20 + documentation sweep | 2026-09-30 | **pass (build + desktop + docs)** | `idf.py build` exit 0 (bin 0xf80a0, no warnings); desktop full rebuild exit 0 (85 steps); `ctest` **13/13**, 83.15 s; `tst_capture` **17/0/1**, `tst_devicestatus` **14/0**; teardown measured **2 ms / 1 ms** against a 200 ms budget; all 42 untracked audit IDs dispositioned; **firmware findings stay `fixed` — the camera was never joined to the softAP** |
-| Remediation gate | — | not run | — |
+| Remediation gate | 2026-09-30 | **pass** | 8 criteria above: 0 audit IDs without a row; no group-A row open; 13 open rows each name Stage 5; `ctest` **13/13** (83.42 s) + smoke `FAILURES=0` + `idf.py build` exit 0 at HEAD; frozen audit untouched. Condition carried: 19 `fixed` rows await Stage 6/D1 hardware |
 | Phase-7 acceptance | — | not run | — |
