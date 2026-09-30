@@ -47,7 +47,7 @@ cmake --build desktop\build
 ctest --test-dir desktop\build --output-on-failure
 ```
 
-15 suites; they must all pass. Three of them talk to real hardware only when
+16 suites; they must all pass. Three of them talk to real hardware only when
 `SCAM_TEST_HOST` / `SCAM_TEST_PASSWORD` / `SCAM_DISCOVERY_PORT` are set and skip
 otherwise, so a normal `ctest` run stays hermetic. Details:
 [`docs/testing.md`](docs/testing.md).
@@ -109,7 +109,7 @@ decode → re-encode.
 ```
 firmware/    ESP-IDF project (esp32_cam_stream)
 desktop/     Qt 6.11 application (scamcore library + Quick UI)
-tests/       15 Qt Test suites, registered with CTest
+tests/       16 Qt Test suites, registered with CTest
 docs/        architecture, protocol, benchmarks, security, deployment, licensing,
              testing, decisions/ (ADRs), audits/
 tools/       fake camera, contract smoke, benchmark helpers

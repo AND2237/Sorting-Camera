@@ -1374,6 +1374,75 @@ where they landed:
   lower severity"* table: **deferred, P3**, several needing hardware to observe.
   They keep rows so the deferral is visible; none of them is claimed fixed.
 
+#### Group E (§17 prose items) and the INV questions — dispositioned 2026-09-30
+
+*Group E — Optional P2/P3* is a prose list with no ID rows, so each item is
+answered here (overlapping `S-*` items keep their rows below):
+
+- **S-1 (PBKDF2 bound)** → the bound is now documented: `security.md` records
+  PBKDF2-HMAC-SHA256 at 8192 iterations with the iteration count stored beside
+  the salt (`auth.c:28`). The iteration bump itself stays deferred with S-1.
+- **S-2 (replay/timestamp window)** → the document was corrected rather than
+  the window built: `security.md` item 4 now states there is **no** ±30 s
+  request timestamp window — the 30 s is the single-use nonce TTL
+  (`AUTH_NONCE_TTL_US`), and *Verification* splits automated coverage from
+  Phase 8. The window itself stays accepted residual with S-2.
+- **S-3 / S-4** → unchanged decisions, deferred with their rows.
+- **900 ms heuristic timer** → read and kept: `profileApplyTimer`
+  (`Main.qml:1548`) is the UI-side nudge after `stream.stop()`; if it ever
+  outruns the `stream_clients == 0` barrier the firmware answers 409 and
+  `DeviceStatus` replays once after 1000 ms (`DeviceStatus.cpp`), so the worst
+  case is one honest error, not a wedge. "Never the binding constraint" needs
+  hardware (D1) before the timer may be removed.
+- **dead `qmlRegisterUncreatableType` (3)** → removed with their comment
+  (`f889ea3`); the `ProfileEngine.h`/`NotificationCenter.h` includes stay
+  because `setContextProperty` needs complete types for `QVariant`. QML never
+  names the three types (0 hits in `desktop/qml/`) — exposure is context
+  properties only.
+- **`CMAKE_CXX_STANDARD 17` vs the "C++20 project"** → no-op: the C++20 claim
+  exists only inside the audit itself (its line 1355); no repository document
+  makes it. 17 stands; there was nothing to align.
+- **unvalidated `--bench` integer** → fixed (`f889ea3`): `toInt(&ok)` and exit 2
+  on an unparseable or non-positive window instead of a zero-second benchmark.
+- **`advice()` unguarded null deref** → fixed (`f889ea3`): the
+  `!m_activeProfile` guard hoisted above the shortfall sentence that
+  dereferenced it; every non-crashing path keeps its exact previous message.
+- **misindented `Label`** → fixed (`f889ea3`): the bitrate label aligned to its
+  siblings (whitespace only).
+- **6 unused QuickControls2 styles (~98 MB staged)** → fixed in packaging
+  (`f889ea3`): after `windeployqt`, `package-release.ps1` deletes the
+  FluentWinUI3/Fusion/Imagine/Material/Universal/Windows style dirs,
+  `qml\QtQuick\NativeStyle` and the ten non-Basic root DLLs — **18.2 MB
+  uncompressed, measured on the 0.2.0 staging tree** 2026-09-30 (the audit's
+  ~98 MB did not match this artifact). Keep-set verified with `objdump -p` on
+  the deployed DLLs, `Controls\impl` retained because Basic's QML imports it at
+  run time, and the keep-set re-checked after the prune so packaging throws if
+  a Qt release renames anything. Exercised end-to-end at the next package run.
+
+And the §18 investigation backlog (questions, not defects):
+
+- **INV-1** → `G-13`, row below (fake camera wired into CI). **INV-2 / INV-3 /
+  INV-4** → the Phase-8 experiment table. **INV-5…INV-10** answered here.
+- **INV-5 (`requestImage` off-thread?)** → statically answered: `Main.qml:1096`
+  sets `asynchronous: false`, so the resolver runs on the item's (GUI) thread —
+  the same thread as `setActive`. No race under the shipped QML; a future edit
+  that turns `asynchronous` on re-opens this.
+- **INV-6 (`activeIndex()` sentinel)** → today's only consumer is
+  `ProfileEngine::advice()`, bounds-checked at the `here < 0 || here + 1 >=
+  l.size()` guard; no QML call sites (0 hits). No dereferenceable path exists;
+  a named `CustomIndex` constant stays a future nicety, not a fix.
+- **INV-7 (900 ms timer vs the real barrier)** → answered with Group E above:
+  kept, observed at D1.
+- **INV-8 (fallback timer can fire mid-config?)** → traced: `main.cpp:301-306`
+  does not consult `configBusy`, so it *can*; coverage is the firmware 409 plus
+  the single 1000 ms replay and an honest failure message. It is last-resort
+  only — the normal path is the `configBusyChanged` chain at `main.cpp:287-300`.
+- **INV-9 (are the build trees tracked?)** → answered: `git check-ignore -v`
+  matches both paths to `.gitignore:2:build/`, and `git ls-files desktop/build`
+  is empty. Not tracked; A1 was never masked.
+- **INV-10 (the 4–5 fps report's frame size)** → needs the owner's footer
+  reading from the failing session; Phase 8, alongside INV-2/INV-3.
+
 #### Evidence
 
 | Check | Result |
@@ -1404,6 +1473,8 @@ the camera on the softAP.
 | B4 | G-1 | `54dc096` | `desktop/src/Capabilities.{h,cpp}` answers all eight §28 bullets, each with a stated fallback and no invented value; F12 diagnostics panel re-probes on open (the scene-graph backend only exists once a window does); `tst_capabilities` **7/7**; documented in `architecture.md` → *Hardware capability detection* |
 | G-12 | G-12 | `cee45d9` | 30 controls and surfaces carry `Accessible.role` + `Accessible.name` (101 `Accessible.*` lines, 11 descriptions); `tst_accessibility` **6/6** and both seeded mutations caught (a deleted name, `Accessible.Image`); `qmllint` exit 0 with the same 6 pre-existing layout warnings; app offscreen start clean, no `QAccessible` or binding errors; documented in `architecture.md` → *Accessibility* and `testing.md` |
 | B5 | G-2, G-4, G-5, G-8, G-9, G-10, G-11, CP-24, G-13 | `dd5bbf0`, `5d7ad4d`, `40bcb32`, `2f2a2ef`, `afe2bfc`, `9bd90f7`, `b94ae90`, `97db992` | version single-sourced from the root `VERSION`: desktop `project(VERSION …)` → manifest `0.2.0.0` → `SortingCamera --version` → `setApplicationVersion` → recording `app_version` + the diagnostics header label; firmware `PROJECT_VER` **and** `FW_VERSION` (the image now carries `0.2.0`, not the `git describe` string); zip names; a `scripts\ci.ps1` step asserting `VERSION 0.2.0 = binary 'SortingCamera 0.2.0'`, and the packager refuses a mismatch. `package-release.ps1` **builds and tests before staging** (`ci.ps1 -Firmware`; `ci.ps1 -Package` passes `-SkipBuild` to avoid the round trip) and refuses a red suite or a stale exe. Both archives stamp the same `source commit` (computed before staging) with `-dirty` when the tree is not clean. `THIRD_PARTY_NOTICES.txt` + `licenses\` staged into **both** zips (app: LGPL-3.0, GPL-3.0, GCC runtime exception, MinGW-w64/winpthreads, Mesa llvmpipe attribution; fw: Apache-2.0). `licensing.md` table completed (shipped Qt plugins, the three MinGW DLLs, `opengl32sw.dll`, `D3Dcompiler_47.dll`, esptool external) and all four checkboxes closed with named evidence; `deployment.md` rewritten to the shipped artifacts, no `build-firmware.ps1`, real (in-memory) logging story, installer deferred with an owner (G-4). Verified: full `package-release.ps1` run exit 0 → `dist\SortingCamera-0.2.0-win64.zip` (35 MB) + `dist\esp32_cam_stream-0.2.0-fw.zip` (0.6 MB), zip listings read back (notices + 6 licence texts in the app, notices + Apache-2.0 in the firmware), both READMEs showing the same commit |
+| B2 (remainder) | §33 metric calculations, §14 snapshot failure paths, Task B2's `authRequired` sub-item | `dd37dd5` | `tst_appmetrics` (new suite: percentiles against a hand-computable distribution, the 200 000-sample cap losing no count, every counter, rate fields, `writeJson` merge + failure, monotonic clock); `tst_devicestatus::controlRequestsCarryTheBearerTokenWhenTheCameraRequiresIt` — the stub now records `Authorization` and answers 401 unless `Bearer stub-token` when `authRequired` (the flag existed with no test at all); `tst_capture::snapshotFailuresAreReportedNotSwallowed` (no frame, uncreatable directory, error clears on success; short-write not portably reproducible and says so). **Written and compiled clean, deliberately not run** — the owner's test pass runs them; `docs/testing.md` and `README.md` now record 16 suites |
+| Group E | §17's prose items: S-1, S-2, the 900 ms timer, dead registrations, the C++20 claim, `--bench`, `advice()`, the misindent, 6 unused styles | `f889ea3` + this stage's docs commit | dispositions above (*Group E (§17) prose items…*): `security.md` corrected (the ±30 s claim retracted, the PBKDF2 8192 bound recorded, automated vs Phase 8 verification split), `main.cpp` validates `--bench` (exit 2) and lost the three dead registrations, `advice()`'s null guard hoisted, `Main.qml` label re-indented, `package-release.ps1` prunes the unused QuickControls2 styles (18.2 MB measured, keep-set `objdump`-verified and re-checked after the prune) |
 
 Checks held at this point: `scripts\ci.ps1` **CI PASS** (exit 0) over desktop
 build **exit 0**, the version step (`VERSION 0.2.0 = binary 'SortingCamera
@@ -1515,8 +1586,8 @@ later stage.
 | DD-12 | — | docs | "Verified against firmware 0.1.0" while release is 0.2.0 | **closed** | Stage 4 g9: note now says which build the observation came from and points at CP-24 |
 | DD-13 | — | docs | Two byte-identical Master Prompt files | **closed** | Stage 4 g9: hyphen copy `git rm`'d (hashes matched after CRLF normalisation); AGENTS.md's em-dash file is the only one left |
 | DD-14 | — | docs | `.gitignore` `*.dll`/`*.exe`/`*.map` unanchored | deferred | owner's own uncommitted `.gitignore` edit in the working tree — never staged from here; re-evaluate when that lands |
-| S-1 | P2 | security | PBKDF2 at 8192 iterations (~2 orders below guidance) | deferred | Group E, P2 by the audit's own severity; softAP adversary is a joined client; a bump must move firmware and desktop together |
-| S-2 | P2 | security | No timestamp/replay window on state-changing requests (`security.md:4` claims one) | deferred | Group E, P2; nonce single-use covers login only; accepted residual on a trusted LAN — the doc overclaims, revisit with S-1 |
+| S-1 | P2 | security | PBKDF2 at 8192 iterations (~2 orders below guidance) | deferred | Group E, P2 by the audit's own severity; softAP adversary is a joined client; a bump must move firmware and desktop together. The *documented bound* Group E asked for landed 2026-09-30: `security.md` records PBKDF2-HMAC-SHA256 at 8192 with the iteration count stored beside the salt (`auth.c:28`) |
+| S-2 | P2 | security | No timestamp/replay window on state-changing requests (`security.md:4` claims one) | deferred | Group E, P2; nonce single-use covers login only; accepted residual on a trusted LAN. **Doc half corrected 2026-09-30:** `security.md` item 4 now says there is **no** ±30 s request window (the 30 s is the single-use nonce TTL, `AUTH_NONCE_TTL_US`) and *Verification* splits automated coverage from Phase 8; the window itself stays declined with this row |
 | S-3 | P3 | security | `client_slot()` evicts by fewest fails | deferred | Group E, P3; same policy as FW-24, 4 slots |
 | S-4 | P3 | security | `savePassword` never zeroes its plaintext copy | deferred | Group E, P3; defence-in-depth asymmetry, not a leak |
 | S-5 | — | security | Video stream unauthenticated by design | **closed** | same finding as FW-18 — rationale and revisit triggers in `protocol.md` → *Stream authentication posture* |
@@ -1603,3 +1674,4 @@ exercised on the camera.
 | Stage 4 g9 FW-2/4/8/14, DX-12/17, CP-20 + documentation sweep | 2026-09-30 | **pass (build + desktop + docs)** | `idf.py build` exit 0 (bin 0xf80a0, no warnings); desktop full rebuild exit 0 (85 steps); `ctest` **13/13**, 83.15 s; `tst_capture` **17/0/1**, `tst_devicestatus` **14/0**; teardown measured **2 ms / 1 ms** against a 200 ms budget; all 42 untracked audit IDs dispositioned; **firmware findings stay `fixed` — the camera was never joined to the softAP** |
 | Remediation gate | 2026-09-30 | **pass** | 8 criteria above: 0 audit IDs without a row; no group-A row open; 13 open rows each name Stage 5; `ctest` **13/13** (83.42 s) + smoke `FAILURES=0` + `idf.py build` exit 0 at HEAD; frozen audit untouched. Condition carried: 19 `fixed` rows await Stage 6/D1 hardware |
 | Phase-7 acceptance | 2026-09-30 | **9/10 met; item 4 open (hardware)** | items 1–3 and 5–10 met at HEAD (table above): `ctest` **15/15**, `scripts\ci.ps1` **CI PASS** including the version step, `package-release.ps1` run exit 0 with notices + licence texts read back out of both zips, firmware build `version: 0.2.0`; item 4 = CP-4 on the camera → Stage 6. **Phase 7 is not called done** until item 4 closes |
+| Stage 5 B2 remainder + Group E/INV dispositions | 2026-09-30 | **pass (build + docs only; suites not run)** | desktop configure + build **exit 0** (`tst_appmetrics` linked, `tst_devicestatus`/`tst_capture` rebuilt, `main.cpp`/`ProfileEngine`/`Main.qml` recompiled); `qmllint` exit 0 with the same 6 pre-existing layout warnings; **no suite executed** — owner directive: the test pass runs them first; `g9_full.py` **88/88**, 0 missing, 0 extra |

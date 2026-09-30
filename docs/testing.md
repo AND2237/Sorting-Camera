@@ -20,9 +20,15 @@ _Status: harnesses added incrementally from Phase 2 onward._
 ## Host unit test suites (desktop)
 
 All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
-`desktop/build`. Fifteen suites, all green as of 2026-09-30 (two were added
+`desktop/build`. Sixteen suites. The first fifteen were green in the last full
+`scripts\ci.ps1` run (2026-09-30, `ctest` 15/15); two of those were added
 during Phase 7 completion: `tst_capabilities` for the §28 machine probe, and
-`tst_accessibility` for the §25 QML annotation sweep).
+`tst_accessibility` for the §25 QML annotation sweep. The sixteenth,
+`tst_appmetrics`, plus new tests inside `tst_devicestatus` and `tst_capture`
+(Task B2's remainder — §33 metric arithmetic, §14 snapshot failure paths, and
+the `authRequired` Bearer header), were written the same day and are recorded
+in `audits/PHASE7_REMEDIATION.md` as **written, not yet run**: the owner's
+test pass runs them first.
 
 | Suite | Covers |
 |---|---|
@@ -32,15 +38,16 @@ during Phase 7 completion: `tst_capabilities` for the §28 machine probe, and
 | `tst_discovery` | announce parsing, dedupe by device id not address, ageing, subnet broadcast targets, live-device test gated on `SCAM_DISCOVERY_PORT` |
 | `tst_sessionstate` | all eight §24 states, branch ordering, severity mapping — pure, no event loop |
 | `tst_userprefs` | defaults, full round-trip, write de-duplication, survival across instances; QSettings redirected to a scratch dir so it never touches the real credential file |
-| `tst_devicestatus` | capabilities not requested before a status poll, one control per write, unknown control produces **no** request, 409 surfaces the camera's message, device switch drops and re-asks, reset applies supported defaults in one write, concurrent writes serialise |
+| `tst_devicestatus` | capabilities not requested before a status poll, one control per write, unknown control produces **no** request, 409 surfaces the camera's message, device switch drops and re-asks, reset applies supported defaults in one write, concurrent writes serialise, and — with `authRequired` on the stub — the first poll goes out **without** an `Authorization` header while every status/capabilities request after sign-in carries `Bearer <token>` |
 | `tst_deviceregistry` | two devices with separate pipelines, one id surviving an address change, announce not stealing the view, unknown id harmless, stale release sparing the active device, port validation |
 | `tst_profileengine` | ladder ordered by quality first, every entry cites a measurement, **floors only lowered by a recorded decision**, automatic follows the rule rather than a hard-coded id, three-window shortfall rule, manual mode never advises |
 | `tst_diagnostics` | level/category vocabulary, rate limiting, suppression counted and preserved across a limit change, counter spread, ring-buffer bounds |
 | `tst_notificationcenter` | ordering, info expiry vs sticky warnings, per-key dedup, dismissal, counting |
 | `tst_recorder` | SHA-256 byte-identity of recorded frames, header survival, sidecar flush timing, truncated-tail recovery, double-start refusal, snapshot identity |
-| `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream on **both** wire formats (identity, and chunked split inside the `Content-Length` digits the way the firmware sends it), snapshot hashes equal the source, recording round-trip equal, the 5-step reconnect ladder with both watchdogs, and a 7-case malformed-input matrix that asserts the *named* failure reason. Plus a **live-device** byte-identity test (below) |
+| `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream on **both** wire formats (identity, and chunked split inside the `Content-Length` digits the way the firmware sends it), snapshot hashes equal the source, recording round-trip equal, the 5-step reconnect ladder with both watchdogs, a 7-case malformed-input matrix that asserts the *named* failure reason, and the snapshot failure paths (no frame yet, directory that cannot be created, the error clearing on the next successful save). Plus a **live-device** byte-identity test (below) |
 | `tst_capabilities` | §28 machine probe: every bullet answered (CPU, memory, graphics backend and acceleration, decode path, display, interfaces, touch), every value an observation rather than a guess (build architecture, measured memory on Windows, the honest no-hardware-decode line), the flags agreeing with the list, and `refresh()` re-probing |
 | `tst_accessibility` | §25 source tripwire over `Main.qml`: every `Button`/`Slider`/`ComboBox`/`TextField`/`CheckBox`/`ToolButton` carries an `Accessible` name **and** role inside its own block (a neighbour's annotation cannot stand in), every `Accessible.role` value exists in `QAccessible::Role`, the non-control surfaces are named, and the count of named surfaces cannot quietly shrink |
+| `tst_appmetrics` | §33 metric arithmetic: percentiles against a hand-computable distribution (p50/p95/p99/min/max/mean), the 200 000-sample cap that drops no count, every counter and series, rate fields finite and non-negative, CPU/working-set sanity bounds, `writeJson` merging benchmark metadata without replacing metrics and failing on an unopenable path, monotonic `nowMs`/`nowUs` |
 
 Two defects were caught by these suites that no QML error would have explained:
 `QVariantList::append(QVariantList)` flattens the inner list, and a
