@@ -678,6 +678,10 @@ ApplicationWindow {
     Rectangle {
         id: diagPanel
         visible: root.diagnosticsOpen
+        // Re-probe on open so the panel shows the machine as it is now - the
+        // scene-graph backend name only exists after a window is up, and the
+        // camera-AP flag only exists once the PC has joined it.
+        onVisibleChanged: if (visible) capabilities.refresh()
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 44
@@ -743,6 +747,49 @@ ApplicationWindow {
                 font.pixelSize: Theme.fontMicro
                 font.family: Theme.fontMonoFamily
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            }
+
+            // Section 28's hardware capabilities, one row per bullet, read from
+            // C++ (detection lives in Capabilities, never in QML). Refreshed when
+            // the panel opens: the scene-graph backend and the interfaces are only
+            // meaningful once a window exists and the network is up.
+            Label {
+                Layout.fillWidth: true
+                text: "system capabilities"
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontCaption
+                font.bold: true
+            }
+
+            ListView {
+                Layout.fillWidth: true
+                Layout.maximumHeight: Math.max(96, diagPanel.height * 0.45)
+                implicitHeight: contentHeight
+                clip: true
+                interactive: contentHeight > height
+                model: capabilities.entries
+                spacing: 2
+
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.preferredWidth: 118
+                        text: modelData.label
+                        color: Theme.textFaint
+                        font.pixelSize: Theme.fontMicro
+                        font.family: Theme.fontMonoFamily
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: modelData.value
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontMicro
+                        font.family: Theme.fontMonoFamily
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                }
             }
 
             ListView {

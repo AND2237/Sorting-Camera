@@ -308,6 +308,33 @@ exist only where the workload justified one — decode is **not** on a separate
 thread, because feed-and-run inside the network thread measured 19–36 % of one
 core and a hand-off cost more than it saved.
 
+## Hardware capability detection (§28)
+
+The final HMI hardware is unknown (§28), so the app reads the machine's
+capabilities at startup instead of assuming the dev box. `Capabilities`
+(`desktop/src/Capabilities.{h,cpp}`, library-side so a test can link it) answers
+the eight bullets:
+
+| §28 bullet | Probe | Fallback when it cannot be measured |
+|---|---|---|
+| CPU characteristics | Windows `ProcessorNameString` registry value, `QSysInfo::buildCpuArchitecture()`, `QThread::idealThreadCount()` | architecture only, core count reported as `unknown` |
+| available memory | `GlobalMemoryStatusEx` | `unknown (not probed on this platform)` |
+| graphics backend | `QGuiApplication::platformName()` + `QQuickWindow::sceneGraphBackend()` once a window exists (`graphicsApi()` before that) | `default` — it does not invent a name it does not have |
+| graphics acceleration | the backend above, plus the documented `QT_QUICK_BACKEND=software` override | software backend → *software fallback*, `hardwareGraphics = false` |
+| video decode acceleration | none exists to probe | stated as **none**: JPEG is decoded by Qt on the CPU, and that software path is the fallback §28 asks to keep safe |
+| display resolution | `QGuiApplication::primaryScreen()`: geometry, refresh rate, DPI, manufacturer/model | `unknown (no screen attached)` |
+| network interface | `QNetworkInterface::allInterfaces()` filtered to up, non-loopback, IPv4 | `no IPv4 interface is up` |
+| touch capability | `QInputDevice::devices()` (`TouchScreen`/`TouchPad`) and `QPointingDevice::primaryPointingDevice()` | `none detected (mouse/keyboard only)` |
+
+Nothing branches on these values **yet**. §28's "use capability-based behavior"
+is a later step, deliberately: while the probe is reporting-only, a probe that is
+wrong about an exotic machine cannot change what the app does, only what the
+panel says. The list is re-probed when the F12 diagnostics panel opens — which is
+also the first moment the scene-graph backend name is real — and two derived flags
+travel with it: `hardwareGraphics`, and `onCameraAccessPoint` (some interface holds
+`192.168.4.x`, i.e. the PC has joined the camera's softAP, which is the most common
+reason a viewer shows nothing). Covered by `tst_capabilities`.
+
 ## Diagnostics (38, ADR-0014)
 
 `Diagnostics::Facility` is one per process and installs a Qt message handler, so

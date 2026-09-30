@@ -52,6 +52,9 @@ qt_add_library(scamcore STATIC
     # test can link it. It needs Qt6::Quick, which every consumer inherits.
     src/FrameImageProvider.cpp
     src/FrameImageProvider.h
+    # §28 / G-1: capability probe, library-side so a test can call it.
+    src/Capabilities.cpp
+    src/Capabilities.h
 )
 
 target_include_directories(scamcore PUBLIC src)

@@ -9,7 +9,7 @@ _Status: outline; finalize after Phase 7 packaging._
 - Config/user prefs: `QSettings` (org = product name) — no secrets in settings; device control password entered at runtime, cached only in OS-appropriate protected storage if at all.
 - Logs: rotating file under `%LOCALAPPDATA%\<app>\logs`, level from settings; never log tokens/passwords.
 - Installer: to be selected (Qt Installer Framework vs alternative) after app stabilizes; include version + protocol compatibility metadata.
-- Final HMI hardware unknown → no machine-specific assumptions; capability detection at startup (CPU/GPU RAM/touch/display) with software fallbacks (documented in `docs/architecture.md`).
+- Final HMI hardware unknown → no machine-specific assumptions; capability detection runs at startup (`Capabilities`, §28/G-1) and reports CPU, memory, graphics backend, acceleration, decode path, display, network interfaces and touch, with a fallback for each — see `docs/architecture.md` → *Hardware capability detection*.
 
 ## Firmware
 

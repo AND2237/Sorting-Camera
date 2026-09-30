@@ -1,5 +1,6 @@
 #include "src/AppMetrics.h"
 #include "src/CameraDevice.h"
+#include "src/Capabilities.h"
 #include "src/ConfigWriteSequence.h"
 #include "src/DeviceRegistry.h"
 #include "src/DeviceStatus.h"
@@ -116,6 +117,10 @@ int main(int argc, char *argv[])
     Diagnostics::Facility diagnostics;
     diagnostics.setMaxEntries(800);
 
+    // Section 28: what this machine is, read once at startup and re-read when
+    // the diagnostics panel asks. Detection only - nothing branches on it yet.
+    Capabilities capabilities;
+
     DiscoveryService discovery;
     DeviceRegistry registry(&discovery);
     UserPreferences prefs;
@@ -186,6 +191,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("discovery"), &discovery);
     engine.rootContext()->setContextProperty(QStringLiteral("captureRoot"), captureRoot);
     engine.rootContext()->setContextProperty(QStringLiteral("prefs"), &prefs);
+    engine.rootContext()->setContextProperty(QStringLiteral("capabilities"), &capabilities);
     exposeActiveDevice();
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
