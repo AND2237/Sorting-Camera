@@ -414,6 +414,31 @@ the settings panel arriving and leaving. Both are short (90 / 160 ms) and the
 panel's `visible` binding is untouched, because that binding is what keeps the
 panel available at the moment a user needs it.
 
+### Accessibility (section 25, gap G-12)
+
+Every interactive control in `Main.qml` declares `Accessible.role` and
+`Accessible.name`, plus `Accessible.description` where the visible label is an
+abbreviation ("×", "Use") or where the tooltip already carries what a sighted
+user takes from context. Two rules keep it honest:
+
+- **The name says what the control does, not what it looks like.** The
+  notification close button is *Dismiss notification*, not `×`; the capture
+  folder's button is *Use this folder as the capture directory*, not `Use`.
+- **Role values come from `QAccessible::Role`.** An unknown value is not a
+  compile error: QML logs `Unable to assign [undefined] to QAccessible::Role`
+  once and the item keeps no role — which is how `Accessible.Image` was found
+  and rejected (the role for a picture is `Graphic`).
+
+Dynamic evidence: `qmllint` on `Main.qml` is unchanged by the sweep (6
+pre-existing layout warnings, exit 0) and the app starts clean, with no
+`QAccessible` or binding errors. The durable guard is `tst_accessibility`: it
+reads `Main.qml` as source and fails if a control loses its name or role —
+scoped to that control's own block, so one control cannot pass on its
+neighbour's annotation — if a role value is outside the known set, if a surface
+(the two panes, the video image, the capability list) goes unnamed, or if the
+count of named surfaces drops below the one this UI is known to have. Both
+seeded mutations (delete a name, use `Accessible.Image`) are caught.
+
 ## Risks / open questions
 
 - **The HD frame-rate ceiling is a hardware fact, not a gap.** 1280×720 tops out

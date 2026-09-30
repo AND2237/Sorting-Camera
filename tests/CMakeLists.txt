@@ -30,3 +30,8 @@ scam_add_test(tst_recorder)
 scam_add_test(tst_capture)
 scam_add_test(tst_configwritesequence)
 scam_add_test(tst_capabilities)
+scam_add_test(tst_accessibility)
+# Source-level accessibility tripwire (section 25 / gap G-12): it reads the QML
+# itself, the way the provenance tests read benchmarks/results.
+target_compile_definitions(tst_accessibility PRIVATE
+    SCAM_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../desktop/qml")

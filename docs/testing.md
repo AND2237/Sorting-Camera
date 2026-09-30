@@ -20,7 +20,9 @@ _Status: harnesses added incrementally from Phase 2 onward._
 ## Host unit test suites (desktop)
 
 All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
-`desktop/build`. Thirteen suites, all green as of the 0.2.0 release.
+`desktop/build`. Fifteen suites, all green as of 2026-09-30 (two were added
+during Phase 7 completion: `tst_capabilities` for the §28 machine probe, and
+`tst_accessibility` for the §25 QML annotation sweep).
 
 | Suite | Covers |
 |---|---|
@@ -37,6 +39,8 @@ All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
 | `tst_notificationcenter` | ordering, info expiry vs sticky warnings, per-key dedup, dismissal, counting |
 | `tst_recorder` | SHA-256 byte-identity of recorded frames, header survival, sidecar flush timing, truncated-tail recovery, double-start refusal, snapshot identity |
 | `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream on **both** wire formats (identity, and chunked split inside the `Content-Length` digits the way the firmware sends it), snapshot hashes equal the source, recording round-trip equal, the 5-step reconnect ladder with both watchdogs, and a 7-case malformed-input matrix that asserts the *named* failure reason. Plus a **live-device** byte-identity test (below) |
+| `tst_capabilities` | §28 machine probe: every bullet answered (CPU, memory, graphics backend and acceleration, decode path, display, interfaces, touch), every value an observation rather than a guess (build architecture, measured memory on Windows, the honest no-hardware-decode line), the flags agreeing with the list, and `refresh()` re-probing |
+| `tst_accessibility` | §25 source tripwire over `Main.qml`: every `Button`/`Slider`/`ComboBox`/`TextField`/`CheckBox`/`ToolButton` carries an `Accessible` name **and** role inside its own block (a neighbour's annotation cannot stand in), every `Accessible.role` value exists in `QAccessible::Role`, the non-control surfaces are named, and the count of named surfaces cannot quietly shrink |
 
 Two defects were caught by these suites that no QML error would have explained:
 `QVariantList::append(QVariantList)` flattens the inner list, and a

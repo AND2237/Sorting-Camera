@@ -424,6 +424,12 @@ ApplicationWindow {
             ComboBox {
                 implicitHeight: Theme.touchTarget
                 id: devicePicker
+                // Accessibility (section 25 / gap G-12): every control below
+                // carries an explicit name and role. Where the visible label is
+                // an icon or an abbreviation ("×", "Use") the name says what the
+                // control actually does, which is what a screen reader reads out.
+                Accessible.role: Accessible.ComboBox
+                Accessible.name: "Discovered camera"
                 Layout.preferredWidth: 250
                 Layout.preferredHeight: 30
                 model: discovery
@@ -475,6 +481,9 @@ ApplicationWindow {
             TextField {
                 implicitHeight: Theme.touchTarget
                 id: hostField
+                Accessible.role: Accessible.EditableText
+                Accessible.name: "Camera access point IP address"
+                Accessible.description: "The camera's own access point; 192.168.4.1 by default"
                 text: prefs.host
                 placeholderText: "Camera AP IP (default 192.168.4.1)"
                 color: Theme.text
@@ -494,12 +503,17 @@ ApplicationWindow {
                 text: stream.active ? "Disconnect"
                      : stream.reconnecting ? "Cancel (" + stream.retryAttempt + "/5)"
                      : stream.connecting ? "Connecting…" : "Connect"
+                Accessible.role: Accessible.Button
+                Accessible.name: text
                 onClicked: root.toggleConnection()
             }
 
             Button {
                 implicitHeight: Theme.touchTarget
                 text: "Snapshot"
+                Accessible.role: Accessible.Button
+                Accessible.name: "Snapshot"
+                Accessible.description: "Save the current frame exactly as the camera sent it"
                 enabled: snapshotWriter.available
                 onClicked: {
                     const p = snapshotWriter.save(captureRoot + "/snapshots",
@@ -516,6 +530,9 @@ ApplicationWindow {
                 implicitHeight: Theme.touchTarget
                 text: recorder.recording ? "Stop recording" : "Record"
                 enabled: stream.active || recorder.recording
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.description: "Record the incoming JPEGs without re-encoding"
                 onClicked: {
                     if (recorder.recording) {
                         console.log("[qml] stop recording ->", recorder.path)
@@ -546,6 +563,9 @@ ApplicationWindow {
             Button {
                 implicitHeight: Theme.touchTarget
                 text: "Zoom reset"
+                Accessible.role: Accessible.Button
+                Accessible.name: "Zoom reset"
+                Accessible.description: "Back to fit-to-window"
                 visible: root.zoom > 1
                 onClicked: {
                     root.zoom = 1.0
@@ -559,6 +579,9 @@ ApplicationWindow {
             Button {
                 implicitHeight: Theme.touchTarget
                 text: root.visibility === Window.FullScreen ? "Windowed" : "Fullscreen"
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.description: "F11 toggles full screen"
                 onClicked: root.toggleFullScreen()
                 ToolTip.visible: hovered
                 ToolTip.text: "F11"
@@ -567,6 +590,9 @@ ApplicationWindow {
             Button {
                 implicitHeight: Theme.touchTarget
                 text: Theme.dark ? "Light theme" : "Dark theme"
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.description: "Switch between the dark and light palettes (Ctrl+T)"
                 onClicked: root.toggleTheme()
                 ToolTip.visible: hovered
                 ToolTip.text: "Switch between the dark and light palettes (Ctrl+T)"
@@ -575,6 +601,9 @@ ApplicationWindow {
             Button {
                 implicitHeight: Theme.touchTarget
                 text: "Recover camera"
+                Accessible.role: Accessible.Button
+                Accessible.name: "Recover camera"
+                Accessible.description: "Re-initialise the camera (fixes a wedged sensor)"
                 visible: deviceStatus.online && !stream.active
                 onClicked: deviceStatus.requestCameraRecovery()
                 ToolTip.visible: hovered
@@ -656,6 +685,8 @@ ApplicationWindow {
                     width: 22
                     height: 22
                     text: "×"
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Dismiss notification"
                     // By identity, not by index: between this delegate being
                     // created and the operator pressing ×, a postOnce refresh
                     // or the 500 ms sweep may have shifted the rows, and the
@@ -677,6 +708,8 @@ ApplicationWindow {
     // ---- diagnostics (section 38) ----
     Rectangle {
         id: diagPanel
+        Accessible.role: Accessible.Pane
+        Accessible.name: "Diagnostics"
         visible: root.diagnosticsOpen
         // Re-probe on open so the panel shows the machine as it is now - the
         // scene-graph backend name only exists after a window is up, and the
@@ -711,6 +744,8 @@ ApplicationWindow {
                     implicitHeight: Theme.touchTarget
                     text: "×"
                     onClicked: root.diagnosticsOpen = false
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Close diagnostics"
                 }
             }
 
@@ -724,6 +759,8 @@ ApplicationWindow {
                 ComboBox {
                     implicitHeight: Theme.touchTarget
                     id: levelCombo
+                    Accessible.role: Accessible.ComboBox
+                    Accessible.name: "Minimum log level"
                     Layout.fillWidth: true
                     model: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
                     currentIndex: 0
@@ -769,6 +806,9 @@ ApplicationWindow {
                 interactive: contentHeight > height
                 model: capabilities.entries
                 spacing: 2
+                Accessible.role: Accessible.List
+                Accessible.name: "System capabilities"
+                Accessible.description: "Properties of this computer as measured at runtime"
 
                 delegate: RowLayout {
                     required property var modelData
@@ -1035,6 +1075,9 @@ ApplicationWindow {
 
                 Image {
                     id: frameImage
+                    Accessible.role: Accessible.Graphic
+                    Accessible.name: "Live camera video"
+                    Accessible.description: "JPEG stream from the camera; the mouse wheel zooms"
                     anchors.fill: parent
                     fillMode: Image.PreserveAspectFit
                     cache: false
@@ -1100,6 +1143,8 @@ ApplicationWindow {
 
             Rectangle {
                 id: configPanel
+                Accessible.role: Accessible.Pane
+                Accessible.name: "Camera configuration"
                 Layout.fillHeight: true
                 Layout.preferredWidth: 250
                 // Settings exist to be used while the picture is stopped: the
@@ -1180,6 +1225,8 @@ ApplicationWindow {
                         TextField {
                             implicitHeight: Theme.touchTarget
                             id: passwordField
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: "Control password"
                             Layout.fillWidth: true
                             Layout.preferredHeight: 34
                             visible: !deviceStatus.authenticated
@@ -1199,6 +1246,8 @@ ApplicationWindow {
                             Button {
                                 implicitHeight: Theme.touchTarget
                                 id: signInButton
+                                Accessible.role: Accessible.Button
+                                Accessible.name: text
                                 text: deviceStatus.authBusy ? "Signing in…" : "Sign in"
                                 enabled: passwordField.text.length > 0 && !deviceStatus.authBusy
                                 onClicked: deviceStatus.signIn(passwordField.text,
@@ -1208,6 +1257,8 @@ ApplicationWindow {
                             CheckBox {
                                 implicitHeight: Theme.touchTarget
                                 id: rememberCheck
+                                Accessible.role: Accessible.CheckBox
+                                Accessible.name: "Remember this camera's password"
                                 text: "Remember"
                                 enabled: deviceStatus.credentialStorageAvailable
                                 checked: true
@@ -1250,6 +1301,8 @@ ApplicationWindow {
                     ComboBox {
                         implicitHeight: Theme.touchTarget
                         id: resCombo
+                        Accessible.role: Accessible.ComboBox
+                        Accessible.name: "Resolution"
                         Layout.fillWidth: true
                         Layout.preferredHeight: 40
                         model: resModel
@@ -1287,6 +1340,9 @@ ApplicationWindow {
                     Slider {
                         implicitHeight: Theme.touchTarget
                         id: qualitySlider
+                        Accessible.role: Accessible.Slider
+                        Accessible.name: "JPEG quality"
+                        Accessible.description: "Lower is a better image and larger files"
                         Layout.fillWidth: true
                         Layout.preferredHeight: 36
                         from: deviceStatus.status["quality_floor"] !== undefined
@@ -1362,6 +1418,8 @@ ApplicationWindow {
                         ComboBox {
                             implicitHeight: Theme.touchTarget
                             id: profileCombo
+                            Accessible.role: Accessible.ComboBox
+                            Accessible.name: "Operating profile"
                             Layout.fillWidth: true
                             Layout.preferredHeight: 40
                             // Automatic plus the measured ladder, best image
@@ -1444,6 +1502,9 @@ ApplicationWindow {
                             Button {
                                 implicitHeight: Theme.touchTarget
                                 text: "Stop and apply"
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Stop and apply"
+                                Accessible.description: "The camera refuses configuration changes while streaming, so this restarts the stream"
                                 onClicked: {
                                     root.profilePendingApply = root.profilePending
                                     root.profilePending = 0
@@ -1458,6 +1519,8 @@ ApplicationWindow {
                             Button {
                                 implicitHeight: Theme.touchTarget
                                 text: "Cancel"
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Cancel the pending profile change"
                                 onClicked: {
                                     root.profilePending = 0
                                     profileCombo.currentIndex = profiles.mode
@@ -1514,6 +1577,8 @@ ApplicationWindow {
                                 implicitHeight: Theme.touchTarget
                                 text: "Defaults"
                                 enabled: !deviceStatus.sensorBusy
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Reset camera controls to defaults"
                                        && deviceStatus.online
                                 onClicked: deviceStatus.resetSensorControls()
                             }
@@ -1586,6 +1651,8 @@ ApplicationWindow {
                                         Slider {
                                             implicitHeight: Theme.touchTarget
                                             id: ctrlSlider
+                                            Accessible.role: Accessible.Slider
+                                            Accessible.name: cname.replace(/_/g, " ")
                                             Layout.fillWidth: true
                                             Layout.preferredHeight: 30
                                             from: modelData.min
@@ -1665,6 +1732,8 @@ ApplicationWindow {
                             TextField {
                                 implicitHeight: Theme.touchTarget
                                 id: captureField
+                                Accessible.role: Accessible.EditableText
+                                Accessible.name: "Capture folder"
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 32
                                 text: prefs.captureDirectory.length > 0
@@ -1675,6 +1744,8 @@ ApplicationWindow {
                             Button {
                                 implicitHeight: Theme.touchTarget
                                 text: "Use"
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Use this folder as the capture directory"
                                 enabled: captureField.text.length > 0
                                 onClicked: {
                                     prefs.captureDirectory = captureField.text
@@ -1684,6 +1755,8 @@ ApplicationWindow {
                             Button {
                                 implicitHeight: Theme.touchTarget
                                 text: "Reset"
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Reset the capture folder to the default"
                                 onClicked: {
                                     prefs.captureDirectory = ""
                                     captureField.text = captureRoot
@@ -1724,6 +1797,8 @@ ApplicationWindow {
                                 implicitHeight: Theme.touchTarget
                                 text: "Defaults"
                                 enabled: !deviceStatus.configBusy && !stream.active
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Reset frame buffers, XCLK and grab mode to defaults"
                                 // fb2 measured faster than fb3 at svga/q12 (15.91
                                 // vs 11.15) but ADR-0010 kept fb3 as the default
                                 // for latency; the user can still ask for it.
