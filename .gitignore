@@ -57,5 +57,5 @@ Thumbs.db
 __pycache__/
 *.pyc
 
-/audits/
+PCB/
 session-*.md
