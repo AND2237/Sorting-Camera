@@ -461,6 +461,11 @@ MjpegClient::MjpegClient(QObject *parent)
             return;
         }
         const bool noResponse = err.startsWith(QStringLiteral("no response from camera"));
+        // Recorded before the retry path clears errorString: this is the only
+        // place the reason for a given attempt exists, and a test - or an
+        // operator reading diagnostics - has to be able to see which branch
+        // fired while the ladder is still running.
+        setLastErrorString(err);
         if (noResponse) {
             setNoResponseStreak(m_noResponseStreak + 1);
             if (m_noResponseStreak == 2 && m_recoveriesTriggered < 2) {
@@ -557,6 +562,11 @@ QString MjpegClient::errorString() const
     return m_errorString;
 }
 
+QString MjpegClient::lastErrorString() const
+{
+    return m_lastErrorString;
+}
+
 bool MjpegClient::isReconnecting() const
 {
     return m_reconnecting;
@@ -605,6 +615,14 @@ void MjpegClient::setError(const QString &err)
     if (m_errorString != err) {
         m_errorString = err;
         emit errorStringChanged();
+    }
+}
+
+void MjpegClient::setLastErrorString(const QString &err)
+{
+    if (m_lastErrorString != err) {
+        m_lastErrorString = err;
+        emit lastErrorStringChanged();
     }
 }
 
@@ -680,6 +698,7 @@ void MjpegClient::start(const QString &host, quint16 port)
     setNoResponseStreak(0);
     setRecoveryHint(QString());
     setError(QString());
+    setLastErrorString(QString());
     m_recoveriesTriggered = 0;
     invokeStart();
 }

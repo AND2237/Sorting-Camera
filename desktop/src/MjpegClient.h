@@ -18,6 +18,12 @@ class MjpegClient : public QObject
     Q_PROPERTY(quint32 framesDropped READ framesDropped NOTIFY statsChanged)
     Q_PROPERTY(qint64 bytesReceived READ bytesReceived NOTIFY statsChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
+    // The last failure, kept while the retry ladder is running. errorString is
+    // deliberately cleared between attempts so the UI does not show a stale
+    // fault under the reconnect counter; this is the record that does not get
+    // erased, so a failure reason is never hidden just because it is being
+    // retried (AGENTS.md: every failure is counted, never hidden).
+    Q_PROPERTY(QString lastErrorString READ lastErrorString NOTIFY lastErrorStringChanged)
     Q_PROPERTY(bool reconnecting READ isReconnecting NOTIFY reconnectingChanged)
     Q_PROPERTY(bool connecting READ isConnecting NOTIFY connectingChanged)
     Q_PROPERTY(int retryAttempt READ retryAttempt NOTIFY retryAttemptChanged)
@@ -36,6 +42,7 @@ public:
     quint32 framesDropped() const;
     qint64 bytesReceived() const;
     QString errorString() const;
+    QString lastErrorString() const;
     bool isReconnecting() const;
     bool isConnecting() const;
     int retryAttempt() const;
@@ -52,6 +59,7 @@ signals:
     void activeChanged();
     void statsChanged();
     void errorStringChanged();
+    void lastErrorStringChanged();
     void reconnectingChanged();
     void connectingChanged();
     void retryAttemptChanged();
@@ -63,6 +71,7 @@ signals:
 
 private:
     void setError(const QString &err);
+    void setLastErrorString(const QString &err);
     void setReconnecting(bool reconnecting);
     void setConnecting(bool connecting);
     void setRetryAttempt(int attempt);
@@ -79,6 +88,7 @@ private:
     quint32 m_framesDropped = 0;
     qint64 m_bytesReceived = 0;
     QString m_errorString;
+    QString m_lastErrorString;
     QString m_host;
     quint16 m_port = 0;
     bool m_userConnected = false;

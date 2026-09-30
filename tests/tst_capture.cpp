@@ -72,6 +72,19 @@ public:
     // "the body just stops", which is the case it is actually about.
     bool sendCloseDelimiter = false;
 
+    // CP-8: the firmware writes every part with httpd_resp_send_chunk, so the
+    // device's stream is Transfer-Encoding: chunked - a shape no test used to
+    // produce, which left the whole ChunkSize/ChunkData/ChunkEnd path dead to
+    // CI. The body is framed the way a chunked server writes it, and split
+    // *inside* the Content-Length digits of each part, because a chunked body
+    // that happens to parse identically as identity would prove nothing.
+    bool chunked = false;
+
+    // CP-9: the whole response, status line included, written exactly as the
+    // test spelled it. A malformed-input case is then a byte string rather
+    // than another stub with another knob.
+    QByteArray rawResponse;
+
     // Pushes more parts onto an already-open connection, so a test can create
     // traffic inside a measurement window rather than only before it.
     void sendMore(const QList<QByteArray> &payloads)
@@ -79,7 +92,7 @@ public:
         if (!m_socket) {
             return;
         }
-        m_socket->write(encode(payloads));
+        m_socket->write(chunked ? encodeChunked(payloads) : encode(payloads));
         m_socket->flush();
     }
 
@@ -92,6 +105,29 @@ private:
             out += "Content-Length: " + QByteArray::number(p.size()) + "\r\n\r\n";
             out += p;
         }
+        return out;
+    }
+
+    static QByteArray chunk(const QByteArray &piece)
+    {
+        return QByteArray::number(piece.size(), 16) + "\r\n" + piece + "\r\n";
+    }
+
+    static QByteArray encodeChunked(const QList<QByteArray> &payloads)
+    {
+        QByteArray out;
+        for (const QByteArray &p : payloads) {
+            const QByteArray head = "--FRAME\r\nContent-Length: "
+                                    + QByteArray::number(p.size()) + "\r\n\r\n";
+            // One digit into the number: an identity reader would then see
+            // "Content-Length: 1" followed by a chunk-size line, take one byte
+            // as the whole frame and fail to decode it.
+            const int cut = head.indexOf("Content-Length: ") + 17;
+            out += chunk(head.left(cut));
+            out += chunk(head.mid(cut));
+            out += chunk(p);
+        }
+        out += "0\r\n\r\n";
         return out;
     }
 
@@ -110,12 +146,21 @@ private:
                 return;
             }
             m_sent = true;
+            if (!rawResponse.isEmpty()) {
+                sock->write(rawResponse);
+                sock->flush();
+                return;
+            }
             QByteArray out;
             out += "HTTP/1.1 200 OK\r\n";
             out += "Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n";
-            out += "Cache-Control: no-cache\r\n\r\n";
-            out += encode(m_payloads);
-            if (sendCloseDelimiter) {
+            out += "Cache-Control: no-cache\r\n";
+            if (chunked) {
+                out += "Transfer-Encoding: chunked\r\n";
+            }
+            out += "\r\n";
+            out += chunked ? encodeChunked(m_payloads) : encode(m_payloads);
+            if (sendCloseDelimiter && !chunked) {
                 out += "\r\n--FRAME--\r\n";
             }
             sock->write(out);
@@ -163,6 +208,11 @@ private slots:
     void framesAreDeliveredOffTheGuiThread();
     void aCloseDelimiterEndsTheBodyCleanly();
     void recoveryBudgetRearmsAfterTheStreamIsHealthyAgain();
+    void theRetryLadderSpendsEveryStepThenGivesUp();
+    void aDecodedFrameResetsTheRetryLadder();
+    void aChunkedStreamDecodesTheBytesTheFirmwareSends();
+    void malformedStreamsFailWithTheNamedError();
+    void aForeignBoundaryNeverMatchesAndTheStallWatchdogEndsTheStream();
     void liveCameraBytesAreStoredVerbatim();
 };
 
@@ -609,6 +659,224 @@ void TestCapture::recoveryBudgetRearmsAfterTheStreamIsHealthyAgain()
 
     QCOMPARE(recoveries, 3);
     stream.stop();
+}
+
+// CP-7: the reconnect ladder is what keeps a dead camera from masquerading as
+// a live stream (§24, "no reconnect storms"). The implementation was correct
+// and nothing exercised it: a regression that advanced the counter on TCP
+// connect, or that shipped a different delay table, went green. Every constant
+// asserted here is the shipped one - the test does not shorten them, it just
+// makes each attempt fail immediately instead of after a watchdog.
+void TestCapture::theRetryLadderSpendsEveryStepThenGivesUp()
+{
+    const QList<QByteArray> payloads = realJpegs(2);
+    QVERIFY(payloads.size() == 2);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+    // Response headers that never terminate, so every attempt fails for the
+    // same reason and as fast as the parser allows.
+    stub.rawResponse = "HTTP/1.1 200 OK\r\n" + QByteArray(9000, 'X');
+
+    MjpegClient stream;
+    QList<int> attempts;
+    QList<int> delays;
+    connect(&stream, &MjpegClient::retryAttemptChanged, &stream, [&]() {
+        attempts.append(stream.retryAttempt());
+        delays.append(stream.retryDelayMs());
+    });
+
+    QCOMPARE(stream.maxRetries(), 5);
+    // The shipped ladder: five retries at 500/1000/2000/3000/5000 ms after the
+    // initial attempt, so six connections in total.
+    const QList<int> expectedDelays{500, 1000, 2000, 3000, 5000};
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+
+    QTRY_VERIFY_WITH_TIMEOUT(stream.retryAttempt() == 5, 30000);
+    // Five retries are scheduled by the first five failures; it is the sixth
+    // connection's failure - the one after the 5000 ms delay - that must not
+    // schedule a seventh. If it had, reconnecting would still be true and the
+    // reason would have been cleared for the next attempt.
+    QTRY_VERIFY(!stream.isReconnecting());
+    QTRY_VERIFY(!stream.lastErrorString().isEmpty());
+    QVERIFY2(stream.errorString().contains(QStringLiteral("malformed HTTP response headers")),
+             qPrintable(stream.errorString()));
+    QTest::qWait(600);
+    QCOMPARE(stream.retryAttempt(), 5);
+    QCOMPARE(attempts.size(), expectedDelays.size());
+    QCOMPARE(delays.size(), expectedDelays.size());
+    for (int i = 0; i < expectedDelays.size(); ++i) {
+        QCOMPARE(attempts.at(i), i + 1);
+        QCOMPARE(delays.at(i), expectedDelays.at(i));
+    }
+    stream.stop();
+}
+
+// The other half of CP-7: the ladder must rewind when a frame actually
+// arrives, or a camera that hiccuped once would be written off after five
+// hiccups spread over a session. The frame is the only thing that hands the
+// ladder back, so the frame is what the test uses.
+void TestCapture::aDecodedFrameResetsTheRetryLadder()
+{
+    const QList<QByteArray> payloads = realJpegs(2);
+    QVERIFY(payloads.size() == 2);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+    stub.rawResponse = "HTTP/1.1 200 OK\r\n" + QByteArray(9000, 'X');
+
+    MjpegClient stream;
+    int frames = 0;
+    connect(&stream, &MjpegClient::frameReady, &stream, [&frames]() { ++frames; },
+            Qt::QueuedConnection);
+
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(stream.retryAttempt() == 1, 8000);
+    QCOMPARE(stream.retryDelayMs(), 500);
+
+    // The next attempt, one delay later, is answered properly. A healthy frame
+    // has to put the ladder back to step zero.
+    stub.rawResponse = QByteArray();
+    QTRY_VERIFY_WITH_TIMEOUT(frames > 0, 8000);
+    QTRY_COMPARE(stream.retryAttempt(), 0);
+
+    // ...and the failure after that starts from step one again rather than
+    // carrying the earlier attempt forward.
+    stub.sendBrokenPart();
+    QTRY_VERIFY_WITH_TIMEOUT(stream.retryAttempt() == 1, 8000);
+    QCOMPARE(stream.retryDelayMs(), 500);
+    QVERIFY2(stream.lastErrorString().contains(QStringLiteral("Content-Length")),
+             qPrintable(stream.lastErrorString()));
+    stream.stop();
+}
+
+// CP-8: the stub used to emit Content-Length parts with no Transfer-Encoding,
+// so the parser ran its Identity branch and the chunked states - the ones the
+// real device uses on every frame, because httpd_resp_send_chunk is chunked -
+// were executed by nothing. The split inside the Content-Length digits is what
+// makes this discriminating: an identity reader would take one byte as the
+// whole frame and fail to decode it.
+void TestCapture::aChunkedStreamDecodesTheBytesTheFirmwareSends()
+{
+    const QList<QByteArray> payloads = realJpegs(4);
+    QVERIFY(payloads.size() == 4);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+    stub.chunked = true;
+
+    MjpegClient stream;
+    QList<QByteArray> raws;
+    connect(&stream, &MjpegClient::frameReady, &stream,
+            [&raws](const QImage &, const QByteArray &raw, qint64) { raws.append(raw); },
+            Qt::QueuedConnection);
+
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_COMPARE_WITH_TIMEOUT(stream.framesReceived(), 4u, 8000);
+    stream.stop();
+
+    QCOMPARE(stream.framesDropped(), 0u);
+    QVERIFY2(stream.lastErrorString().isEmpty(), qPrintable(stream.lastErrorString()));
+    QCOMPARE(raws.size(), payloads.size());
+    for (int i = 0; i < payloads.size(); ++i) {
+        QCOMPARE(sha256(raws.value(i)), sha256(payloads.at(i)));
+    }
+}
+
+// CP-9: the bounds in MjpegClient (8 MiB of buffer, 8 KiB of response headers,
+// 2 KiB of part headers, 128 B of chunk line) were verified by reading the
+// code and then had no regression guard at all. Each case is the byte string
+// that should trip one bound, and the assertion is on the reason the parser
+// gives - which is what proves the right branch fired rather than any branch.
+void TestCapture::malformedStreamsFailWithTheNamedError()
+{
+    const QList<QByteArray> payloads = realJpegs(1);
+    QVERIFY(payloads.size() == 1);
+
+    const QByteArray okHead =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n"
+        "Cache-Control: no-cache\r\n\r\n";
+    const QByteArray chunkHead =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: multipart/x-mixed-replace; boundary=--FRAME\r\n"
+        "Transfer-Encoding: chunked\r\n\r\n";
+
+    struct Case
+    {
+        const char *name;
+        QByteArray response;
+        const char *expect;
+    };
+    const QList<Case> cases{
+        {"response headers over budget",
+         "HTTP/1.1 200 OK\r\n" + QByteArray(9000, 'X'),
+         "malformed HTTP response headers"},
+        {"part headers over budget",
+         okHead + "--FRAME\r\n" + QByteArray(3000, 'X'),
+         "malformed part headers"},
+        {"chunk size line over budget",
+         chunkHead + QByteArray(200, 'A'),
+         "malformed chunk size line"},
+        {"non-numeric chunk size", chunkHead + "xyz\r\n", "bad chunk size"},
+        {"chunk terminator that is not CRLF", chunkHead + "5\r\nHELLOXY",
+         "malformed chunk terminator"},
+        {"garbage Content-Length",
+         okHead + "--FRAME\r\nContent-Length: nope\r\n\r\n",
+         "missing or invalid Content-Length"},
+        {"part over the 8 MiB buffer budget",
+         okHead + "--FRAME\r\nContent-Length: 9000000\r\n\r\n"
+                 + QByteArray(8 * 1024 * 1024 + 512 * 1024, 'Z'),
+         "stream buffer overflow"},
+    };
+
+    for (const Case &c : cases) {
+        MjpegStub stub(payloads);
+        QVERIFY2(stub.listen(), c.name);
+        stub.rawResponse = c.response;
+
+        MjpegClient stream;
+        stream.start(QStringLiteral("127.0.0.1"), stub.port());
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            stream.lastErrorString().contains(QString::fromUtf8(c.expect)),
+            qPrintable(QStringLiteral("%1: got \"%2\"")
+                           .arg(QString::fromUtf8(c.name), stream.lastErrorString())),
+            10000);
+        stream.stop();
+        QTest::qWait(50);
+    }
+}
+
+// CP-9's boundary case and the stall watchdog in one: the boundary parameter
+// is deliberately ignored (the firmware writes --FRAME, and a reader that
+// trusted a camera-supplied boundary would be handing a remote string to a
+// parser), so a stream that declares another one matches nothing. What has to
+// happen then is bounded and finite - the 8 s stall watchdog ends it - rather
+// than a hang or an unbounded buffer.
+void TestCapture::aForeignBoundaryNeverMatchesAndTheStallWatchdogEndsTheStream()
+{
+    const QList<QByteArray> payloads = realJpegs(1);
+    QVERIFY(payloads.size() == 1);
+
+    MjpegStub stub(payloads);
+    QVERIFY(stub.listen());
+    stub.rawResponse =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: multipart/x-mixed-replace; boundary=NOTFRAME\r\n\r\n"
+        + QByteArray(500, 'q');
+
+    MjpegClient stream;
+    stream.start(QStringLiteral("127.0.0.1"), stub.port());
+    QTRY_VERIFY_WITH_TIMEOUT(
+        stream.lastErrorString().contains(QStringLiteral("stream stalled")), 15000);
+    QVERIFY2(stream.lastErrorString().contains(QStringLiteral("8000 ms")),
+             qPrintable(stream.lastErrorString()));
+    stream.stop();
+
+    // Nothing decoded and nothing discarded: the data never became a part.
+    QCOMPARE(stream.framesReceived(), 0u);
+    QCOMPARE(stream.framesDropped(), 0u);
+    QVERIFY(stream.bytesReceived() > 0);
 }
 
 QTEST_GUILESS_MAIN(TestCapture)

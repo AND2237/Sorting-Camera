@@ -6,7 +6,7 @@ _Status: harnesses added incrementally from Phase 2 onward._
 
 1. **Host unit tests (desktop):** protocol header encode/decode, CRC, frame reassembly (incl. truncated/oversized/malformed input), latest-wins drop policy, metric math (FPS/bitrate/latency aggregation), config validation, recorder byte-identity (write → read → SHA-256 equal), discovery packet parse. Framework: Qt Test or Catch2 (pick one and stay with it; Qt Test preferred — no new dependency).
 2. **Firmware host-buildable tests:** pure functions (header build, CRC, config apply validation) compiled on host where feasible; on-device smoke via Unity/`idf.py -T` if enabled.
-3. **Integration (manual/semi-auto scripts):** spin app against firmware (or a PC-side MJPEG/TCP/UDP **fake camera** server under `tools/` for CI without hardware) → verify connect, auth, stream, snapshot, record, reconnect.
+3. **Integration (manual/semi-auto scripts):** spin app against firmware (or a PC-side MJPEG/TCP/UDP **fake camera** server under `tools/` for CI without hardware) → verify connect, auth, stream, snapshot, record, reconnect. `tools/config_contract_smoke.py` is the committed version of that: it starts `tools/fake_camera.py`, drives the ADR-0017 config contract (read-only GET, POST+JSON writes, 400/415 refusals) and reads the stream's raw bytes to prove the fake emits the chunked transfer the firmware sends. Needs Python and no Qt, no hardware.
 4. **Soak (Phase 8):** ≥1 h continuous stream while toggling: resolution changes, snapshot, record start/stop, PC Wi-Fi leave/rejoin (AP disruption), client kill/reconnect, camera reboot. Watch: memory trend, drop counters, stale-frame age, UI responsiveness, thread safety (TSAN on host tests where possible).
 
    _Status: deferred to Phase 8 as a **final validation** activity, designed
@@ -20,11 +20,12 @@ _Status: harnesses added incrementally from Phase 2 onward._
 ## Host unit test suites (desktop)
 
 All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
-`desktop/build`. Twelve suites, all green as of the 0.2.0 release.
+`desktop/build`. Thirteen suites, all green as of the 0.2.0 release.
 
 | Suite | Covers |
 |---|---|
 | `tst_authclient` | PBKDF2 proof vector against a reference, nonce/password dependence, missing-credential and live-device paths |
+| `tst_configwritesequence` | the ordered config write chain: every requested setting is emitted in order, an unset option does not truncate what follows, an empty run writes nothing, `takeNext()` stops at the end |
 | `tst_credentialstore` | DPAPI round-trip, wrong-password rejection, storage-unavailable fallback |
 | `tst_discovery` | announce parsing, dedupe by device id not address, ageing, subnet broadcast targets, live-device test gated on `SCAM_DISCOVERY_PORT` |
 | `tst_sessionstate` | all eight §24 states, branch ordering, severity mapping — pure, no event loop |
@@ -35,7 +36,7 @@ All under `tests/`, Qt Test, built by `scam_add_test` and run with `ctest` from
 | `tst_diagnostics` | level/category vocabulary, rate limiting, suppression counted and preserved across a limit change, counter spread, ring-buffer bounds |
 | `tst_notificationcenter` | ordering, info expiry vs sticky warnings, per-key dedup, dismissal, counting |
 | `tst_recorder` | SHA-256 byte-identity of recorded frames, header survival, sidecar flush timing, truncated-tail recovery, double-start refusal, snapshot identity |
-| `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream, snapshot hashes equal the source, recording round-trip equal. Plus a **live-device** byte-identity test (below) |
+| `tst_capture` | in-process MJPEG stub driving the **real** parser and worker: raw bytes survive the stream on **both** wire formats (identity, and chunked split inside the `Content-Length` digits the way the firmware sends it), snapshot hashes equal the source, recording round-trip equal, the 5-step reconnect ladder with both watchdogs, and a 7-case malformed-input matrix that asserts the *named* failure reason. Plus a **live-device** byte-identity test (below) |
 
 Two defects were caught by these suites that no QML error would have explained:
 `QVariantList::append(QVariantList)` flattens the inner list, and a
