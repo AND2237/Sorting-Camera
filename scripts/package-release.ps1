@@ -7,9 +7,12 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 if (-not $Version) {
-    $m = Select-String -Path (Join-Path $root "firmware\esp32_cam_stream\main\app.h") -Pattern '#define\s+FW_VERSION\s+"([^"]+)"'
-    if (-not $m) { throw "FW_VERSION not found in app.h" }
-    $Version = $m.Matches[0].Groups[1].Value
+    # Single source (G-10): the repository VERSION file, the same one
+    # desktop/CMakeLists.txt and the firmware component read.
+    $versionFile = Join-Path $root "VERSION"
+    if (-not (Test-Path -LiteralPath $versionFile)) { throw "VERSION file missing: $versionFile" }
+    $Version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION must hold MAJOR.MINOR.PATCH, got '$Version'" }
 }
 if (-not $OutDir) { $OutDir = Join-Path $root "dist" }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
@@ -32,6 +35,16 @@ Copy-Item $exe $appStage
 $src = (Get-Item (Join-Path $root "desktop\main.cpp")).LastWriteTime
 $built = (Get-Item $exe).LastWriteTime
 if ($built -lt $src) { throw "SortingCamera.exe is older than main.cpp - rebuild first" }
+
+# G-10: the binary must report the version this archive is named for. The flag
+# is handled by QCommandLineParser before any window, QML or network work; the
+# helper waits with a timeout so packaging can never hang on it.
+. (Join-Path $PSScriptRoot 'version-check.ps1')
+$reportedLine = Get-ExeVersionLine -ExePath $exe
+if ($reportedLine -notmatch [regex]::Escape($Version)) {
+    throw "version mismatch: packaging $Version but the binary reports '$reportedLine'"
+}
+Write-Host "  version $Version (binary reports: $reportedLine)"
 
 # windeployqt writes informational notes to stderr - a missing dxcompiler.dll is
 # explicitly documented as harmless - and the script-wide ErrorActionPreference of

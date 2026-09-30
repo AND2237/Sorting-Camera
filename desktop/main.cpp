@@ -47,12 +47,16 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("SortingCamera"));
     QCoreApplication::setApplicationName(QStringLiteral("SortingCamera"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral(SCAM_VERSION));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
         QStringLiteral("SortingCamera viewer (bench mode records pipeline metrics)"));
     parser.addHelpOption();
+    // The only command-line surface that matters to packaging: it prints the
+    // version the binary was built with, which is how the release script proves
+    // the archive name and the exe agree (G-10).
+    parser.addVersionOption();
     QCommandLineOption benchOpt(QStringLiteral("bench"),
                                 QStringLiteral("Run for <seconds> and write metrics, then exit."),
                                 QStringLiteral("seconds"));

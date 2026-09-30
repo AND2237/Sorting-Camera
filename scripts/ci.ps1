@@ -51,10 +51,32 @@ if ($Configure -or -not (Test-Path -LiteralPath $cache)) {
 
 Step 'build (desktop)' { & cmake --build $BuildDir }
 
-# 3. Tests: exit code is authoritative (Qt Test prints nothing to stdout here).
+# 3. Version identity (G-10): VERSION is the single source, so the binary must
+#    report exactly what the file says. This is the check that would have caught
+#    CMake 0.1.0 / main.cpp 0.2.0 / manifest 0.1.0.0 drifting apart.
+Step 'version (VERSION == binary)' {
+    . (Join-Path $PSScriptRoot 'version-check.ps1')
+    $expected = (Get-Content -LiteralPath (Join-Path $root 'VERSION') -Raw).Trim()
+    $exePath = Join-Path $BuildDir 'SortingCamera.exe'
+    try {
+        $line = Get-ExeVersionLine -ExePath $exePath
+    } catch {
+        Write-Host $_ -ForegroundColor Red
+        $global:LASTEXITCODE = 1
+        return
+    }
+    if ($line -notmatch [regex]::Escape($expected)) {
+        Write-Host "VERSION file says $expected but the binary reports '$line'" -ForegroundColor Red
+        $global:LASTEXITCODE = 1
+        return
+    }
+    Write-Host "  VERSION $expected = binary '$line'"
+}
+
+# 4. Tests: exit code is authoritative (Qt Test prints nothing to stdout here).
 Step 'test (ctest)' { & ctest --test-dir $BuildDir --output-on-failure }
 
-# 4. Config-contract smoke (G-13): the only layer that exercises the camera's
+# 5. Config-contract smoke (G-13): the only layer that exercises the camera's
 #    HTTP surface without hardware - tools/fake_camera.py driven through the
 #    ADR-0017 contract, including the chunked stream the firmware sends. It
 #    resolves tools/fake_camera.py relative to the repository root, so it runs
@@ -76,7 +98,7 @@ if ($SkipSmoke) {
     }
 }
 
-# 5. Optional: the firmware, in its own ESP-IDF environment.
+# 6. Optional: the firmware, in its own ESP-IDF environment.
 if ($Firmware) {
     $fw = Join-Path $root 'firmware\esp32_cam_stream'
     if (-not (Test-Path (Join-Path $fw 'CMakeLists.txt'))) { throw "firmware project missing: $fw" }
@@ -87,7 +109,7 @@ if ($Firmware) {
     }
 }
 
-# 6. Optional: package. The script itself refuses a stale exe; this run has
+# 7. Optional: package. The script itself refuses a stale exe; this run has
 #    already refused a red suite above.
 if ($Package) {
     Step 'package' { & (Join-Path $PSScriptRoot 'package-release.ps1') }

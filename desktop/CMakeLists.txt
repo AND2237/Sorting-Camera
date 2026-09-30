@@ -1,6 +1,16 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(SortingCamera VERSION 0.1.0 LANGUAGES CXX)
+# One version for the app, the firmware and the release archives (G-10 / CP-24):
+# the repository root VERSION file is the only place a version is written. It
+# feeds project() (so the generated exe manifest carries it), SCAM_VERSION (so
+# the binary reports it) and package-release.ps1 (so the archive is named for
+# it); the firmware reads the same file for FW_VERSION.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" SCAM_VERSION LIMIT_COUNT 1)
+string(STRIP "${SCAM_VERSION}" SCAM_VERSION)
+if(NOT SCAM_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must hold MAJOR.MINOR.PATCH, got '${SCAM_VERSION}'")
+endif()
+project(SortingCamera VERSION ${SCAM_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -58,6 +68,9 @@ qt_add_library(scamcore STATIC
 )
 
 target_include_directories(scamcore PUBLIC src)
+# Reported by the binary (`SortingCamera.exe --version`) and checked against the
+# VERSION file by scripts/ci.ps1 and scripts/package-release.ps1.
+target_compile_definitions(scamcore PUBLIC SCAM_VERSION="${PROJECT_VERSION}")
 
 target_link_libraries(scamcore PUBLIC
     Qt6::Core

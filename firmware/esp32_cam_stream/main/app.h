@@ -6,7 +6,12 @@
 
 #include "esp_camera.h"
 
-#define FW_VERSION       "0.2.0"
+// CP-24 / G-10: the real value is -DFW_VERSION=<repo VERSION>, supplied by
+// main/CMakeLists.txt. Nothing here may pin a version: the wire, the log and
+// the release archives all read the one the build system injects.
+#ifndef FW_VERSION
+#define FW_VERSION       "dev"
+#endif
 #define PROTO_VERSION    1
 #define DEVICE_NAME      "sorting-cam-01"
 
