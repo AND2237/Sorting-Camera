@@ -135,20 +135,36 @@ static void tcp_task(void *arg)
         ESP_LOGI(TAG, "tcp client connected");
         seq = 0;
         int fails = 0;
+        int recovery_attempts = 0;
 
         while (true) {
             int64_t t0 = esp_timer_get_time();
             camera_fb_t *fb = camera_fb_get();
             if (!fb) {
                 metrics_capture_failure();
-                if (++fails > 50) {
-                    ESP_LOGE(TAG, "tcp: too many capture failures, closing client");
+                // FW-4: this loop tolerated 50 consecutive failures and never
+                // recovered the camera - ADR-0009's root cause, kept alive
+                // here while the HTTP handler was fixed. The policy is now the
+                // same one the MJPEG handler uses: STREAM_CAPTURE_FAIL_LIMIT
+                // (1) failures trigger a recovery, two recoveries per
+                // connection, then close.
+                if (++fails >= STREAM_CAPTURE_FAIL_LIMIT) {
+                    fails = 0;
+                    if (recovery_attempts < 2) {
+                        recovery_attempts++;
+                        ESP_LOGE(TAG, "tcp: capture failing, recovering camera (attempt %d)",
+                                 recovery_attempts);
+                        camera_recover();
+                        continue;
+                    }
+                    ESP_LOGE(TAG, "tcp: capture unrecoverable, closing client");
                     break;
                 }
                 vTaskDelay(pdMS_TO_TICKS(20));
                 continue;
             }
             fails = 0;
+            recovery_attempts = 0;
             int64_t t_capture = esp_timer_get_time();
             metrics_record_capture(t_capture - t0, fb->len);
 
@@ -203,6 +219,8 @@ static void udp_task(void *arg)
     uint8_t pkt[UDP_MTU];
     uint32_t seq = 0;
     bool peer_was_active = false;
+    int udp_fails = 0;
+    int udp_recovery_attempts = 0;
 
     while (true) {
         fd_set rd;
@@ -252,9 +270,30 @@ static void udp_task(void *arg)
         camera_fb_t *fb = camera_fb_get();
         if (!fb) {
             metrics_capture_failure();
+            // FW-4: the UDP task had no failure limit and no recovery at all -
+            // it spun on a dead camera while holding the peer as active. Same
+            // bound as the TCP and HTTP paths; with no connection to close it
+            // drops the peer instead, so the client has to handshake again.
+            if (++udp_fails >= STREAM_CAPTURE_FAIL_LIMIT) {
+                udp_fails = 0;
+                if (udp_recovery_attempts < 2) {
+                    udp_recovery_attempts++;
+                    ESP_LOGE(TAG, "udp: capture failing, recovering camera (attempt %d)",
+                             udp_recovery_attempts);
+                    camera_recover();
+                    continue;
+                }
+                ESP_LOGE(TAG, "udp: capture unrecoverable, dropping peer");
+                s_udp_peer = 0;
+                peer_was_active = false;
+                udp_recovery_attempts = 0;
+                continue;
+            }
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
+        udp_fails = 0;
+        udp_recovery_attempts = 0;
         int64_t t_capture = esp_timer_get_time();
         metrics_record_capture(t_capture - t0, fb->len);
 

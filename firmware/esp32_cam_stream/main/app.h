@@ -21,6 +21,9 @@
 #define STREAM_STALL_TIMEOUT_US   (15LL * 1000 * 1000)
 #define CAMERA_DEAD_TIMEOUT_US    (30LL * 1000 * 1000)
 #define STREAM_CAPTURE_FAIL_LIMIT 1
+// FW-8: the no-capture watchdog may power-cycle the sensor at most this many
+// times before it leaves the camera down and says so (see stall_watchdog_task).
+#define CAMERA_NO_CAPTURE_RECOVERY_LIMIT 3
 
 #define FRAME_TCP_PORT   82
 #define FRAME_UDP_PORT   8500

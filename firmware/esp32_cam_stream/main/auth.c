@@ -72,14 +72,20 @@ static uint32_t s_iterations;
 static auth_token_t s_tokens[AUTH_MAX_TOKENS];
 static auth_client_t s_clients[AUTH_MAX_CLIENTS];
 
-static void to_hex(const uint8_t *in, size_t len, char *out)
+static bool to_hex(const uint8_t *in, size_t len, char *out, size_t out_len)
 {
     static const char *digits = "0123456789abcdef";
+    // FW-14: the caller's buffer size was accepted and ignored, so the write
+    // was correct only because every caller happened to be large enough.
+    if (out_len < len * 2 + 1) {
+        return false;
+    }
     for (size_t i = 0; i < len; i++) {
         out[i * 2] = digits[in[i] >> 4];
         out[i * 2 + 1] = digits[in[i] & 0x0F];
     }
     out[len * 2] = '\0';
+    return true;
 }
 
 static int hex_value(char c)
@@ -363,8 +369,10 @@ bool auth_issue_challenge(httpd_req_t *req, cJSON *root)
 
     char nonce_hex[AUTH_NONCE_LEN * 2 + 1];
     char salt_hex[AUTH_SALT_LEN * 2 + 1];
-    to_hex(c->nonce, sizeof(c->nonce), nonce_hex);
-    to_hex(s_salt, sizeof(s_salt), salt_hex);
+    if (!to_hex(c->nonce, sizeof(c->nonce), nonce_hex, sizeof(nonce_hex)) ||
+        !to_hex(s_salt, sizeof(s_salt), salt_hex, sizeof(salt_hex))) {
+        return false;
+    }
 
     cJSON_AddStringToObject(root, "nonce", nonce_hex);
     cJSON_AddStringToObject(root, "salt", salt_hex);
@@ -485,11 +493,20 @@ bool auth_verify_login(httpd_req_t *req, const char *nonce_hex, const char *proo
     if (!slot) {
         slot = &s_tokens[0];
     }
+    // FW-14: check the caller's buffer before a token slot is consumed, so an
+    // undersized buffer cannot leave a live token nobody ever received.
+    if (token_len < sizeof(slot->token) * 2 + 1) {
+        snprintf(err, err_len, "token buffer too small");
+        return false;
+    }
     esp_fill_random(slot->token, sizeof(slot->token));
     slot->used = true;
     slot->expires_us = now + AUTH_TOKEN_TTL_US;
-    to_hex(slot->token, sizeof(slot->token), token_out);
-    (void)token_len;
+    if (!to_hex(slot->token, sizeof(slot->token), token_out, token_len)) {
+        slot->used = false;
+        snprintf(err, err_len, "token buffer too small");
+        return false;
+    }
     ESP_LOGI(TAG, "session issued, %d active", auth_active_sessions());
     return true;
 }

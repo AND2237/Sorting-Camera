@@ -26,6 +26,44 @@ static const char *TAG = "discovery";
 #define DISCOVERY_MAX_PACKET 512
 #define DISCOVERY_STACK     4096
 #define DISCOVERY_REPLY_MIN_MS 250
+// A discovery query is one object deep ({"scam":1,"op":"discover"}). Depth is
+// checked before the parser runs for the reason in json_depth_within() below.
+#define DISCOVERY_JSON_MAX_DEPTH 8
+
+// FW-2: iterative depth scan, no recursion of its own. Strings are skipped so a
+// brace inside a value cannot be counted as structure; an unbalanced closer is
+// refused here because it can only be malformed anyway.
+static bool json_depth_within(const char *s, int limit)
+{
+    int depth = 0;
+    bool in_string = false;
+    bool escaped = false;
+    for (const char *p = s; *p != '\0'; p++) {
+        const char c = *p;
+        if (in_string) {
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (c == '"') {
+            in_string = true;
+        } else if (c == '{' || c == '[') {
+            if (++depth > limit) {
+                return false;
+            }
+        } else if (c == '}' || c == ']') {
+            if (--depth < 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 static const char *s_framesize_key(framesize_t fs)
 {
@@ -136,6 +174,17 @@ static void discovery_task(void *arg)
             continue;
         }
         buf[received] = '\0';
+
+        // FW-2: cJSON recurses once per nesting level, and this task's stack is
+        // DISCOVERY_STACK (4 KB). CJSON_NESTING_LIMIT bounds the buffer length,
+        // not this stack, so one unauthenticated 511-byte datagram of open
+        // brackets was enough to drive the parser into the FreeRTOS stack
+        // canary and reboot the device. Refuse deep nesting before parsing.
+        if (!json_depth_within(buf, DISCOVERY_JSON_MAX_DEPTH)) {
+            ESP_LOGW(TAG, "discovery query rejected: nesting deeper than %d",
+                     DISCOVERY_JSON_MAX_DEPTH);
+            continue;
+        }
 
         cJSON *query = cJSON_Parse(buf);
         if (!query) {

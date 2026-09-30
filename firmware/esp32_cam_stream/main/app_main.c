@@ -50,6 +50,22 @@ const char *device_ip(void)
 static void stall_watchdog_task(void *arg)
 {
     (void)arg;
+    // FW-8: the two branches used to escalate differently. The stall branch
+    // re-armed its window with metrics_mark_stream_active() after a successful
+    // recovery; the no-capture branch keyed on a clock only a real capture
+    // advances (metrics_record_capture), so a camera that re-initialised
+    // cleanly but never delivered a frame was power-cycled once a second,
+    // forever. Recovery is now bounded and rate-limited on that branch: each
+    // success buys one CAMERA_DEAD_TIMEOUT_US window for the sensor to produce
+    // a frame, CAMERA_NO_CAPTURE_RECOVERY_LIMIT are tried, and then the camera
+    // is left down with an error log - the control plane stays up, so /status
+    // still reports camera_up=0 and camera_recoveries, and a config apply
+    // re-runs the recovery path. The stall branch is unchanged: it was already
+    // re-armed to 15 s and its own failure path restarts the device.
+    int no_capture_recoveries = 0;
+    bool camera_left_down = false;
+    int64_t cooldown_until_us = 0;
+
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         if (stream_client_count() + frame_transport_client_count() > 0) {
@@ -67,15 +83,37 @@ static void stall_watchdog_task(void *arg)
         }
         const int clients = stream_client_count() + frame_transport_client_count();
         const int64_t since_capture = metrics_us_since_last_capture();
-        if (clients > 0 && since_capture > CAMERA_DEAD_TIMEOUT_US) {
-            ESP_LOGE(TAG, "no frame captured for %lld ms with active client, recovering camera",
-                     (long long)(since_capture / 1000));
-            if (camera_recover() == ESP_OK) {
-                continue;
-            }
-            ESP_LOGE(TAG, "camera recovery failed, restarting");
-            esp_restart();
+        if (clients == 0 || since_capture <= CAMERA_DEAD_TIMEOUT_US) {
+            // No client to serve, or a frame arrived: the camera is healthy
+            // again, so the budget opens up for the next episode.
+            no_capture_recoveries = 0;
+            camera_left_down = false;
+            continue;
         }
+        if (camera_left_down || esp_timer_get_time() < cooldown_until_us) {
+            continue;
+        }
+        if (no_capture_recoveries >= CAMERA_NO_CAPTURE_RECOVERY_LIMIT) {
+            camera_left_down = true;
+            ESP_LOGE(TAG,
+                     "camera still capturing nothing after %d recoveries; leaving it down "
+                     "(status and config apply remain available)",
+                     no_capture_recoveries);
+            continue;
+        }
+        no_capture_recoveries++;
+        ESP_LOGE(TAG, "no frame captured for %lld ms with active client, recovering camera "
+                      "(attempt %d of %d)",
+                 (long long)(since_capture / 1000), no_capture_recoveries,
+                 CAMERA_NO_CAPTURE_RECOVERY_LIMIT);
+        if (camera_recover() == ESP_OK) {
+            // Give the sensor one full dead-timeout to produce a frame before
+            // deciding it is still dead, instead of retrying on the next tick.
+            cooldown_until_us = esp_timer_get_time() + CAMERA_DEAD_TIMEOUT_US;
+            continue;
+        }
+        ESP_LOGE(TAG, "camera recovery failed, restarting");
+        esp_restart();
     }
 }
 
