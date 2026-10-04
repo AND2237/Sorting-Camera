@@ -134,7 +134,7 @@ benchmarks/  benchmark harnesses and raw JSON results
 | [`docs/deployment.md`](docs/deployment.md) | build, package, flash, field update |
 | [`docs/licensing.md`](docs/licensing.md) | dependency and licence report |
 | [`docs/security.md`](docs/security.md) | threat model and controls |
-| [`docs/decisions/`](docs/decisions) | ADRs 0001–0017 |
+| [`docs/decisions/`](docs/decisions) | ADRs 0001–0018 |
 | [`AGENTS.md`](AGENTS.md) | the rules this codebase is built under |
 
 ## Licence

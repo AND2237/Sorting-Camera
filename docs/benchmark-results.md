@@ -631,6 +631,12 @@ more) and ESP-IDF's httpd already sets TCP_NODELAY around every chunk send
 taken. There is no fps headroom for those knobs to win, and latency is already
 1-23 ms p95. Re-open only if the link ever becomes the constraint.)
 
+**Re-opened 2026-10-04 as an unmeasured trial** (project owner's request; ADR-0018):
+`sdkconfig.defaults` now carries a CPU 240 MHz / flash QIO 80 MHz / lwIP 32 KiB windows /
+Wi-Fi dynamic buffers 64 / lwIP IRAM block. No result exists yet. The record above was taken at
+160 MHz / DIO 40 MHz / default buffers and does not apply to the new configuration. ADR-0018
+holds the A/B protocol and the rule to revert the block if it does not win a real metric.
+
 ## Phase 6 — HD/q12 re-measured against the scene (2026-09-29)
 
 The project owner reported that the production default had dropped from
