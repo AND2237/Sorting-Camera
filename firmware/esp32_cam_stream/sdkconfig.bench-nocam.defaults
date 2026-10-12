@@ -1,0 +1,4 @@
+# Diagnostic network-bench build WITHOUT the camera (measures the link alone).
+# Layer on top of a base defaults file, see docs/performance-workplan.md phase 1.
+CONFIG_SORTING_CAM_NET_BENCH=y
+CONFIG_SORTING_CAM_NET_BENCH_NO_CAMERA=y

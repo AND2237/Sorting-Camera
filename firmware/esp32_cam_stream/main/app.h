@@ -81,6 +81,9 @@ esp_err_t start_control_server(void);
 esp_err_t start_stream_server(void);
 int stream_client_count(void);
 
+// Diagnostic only (CONFIG_SORTING_CAM_NET_BENCH). Returns false when compiled out.
+bool net_bench_start(void);
+
 bool frame_transport_start(void);
 int frame_transport_client_count(void);
 int frame_transport_tcp_clients(void);

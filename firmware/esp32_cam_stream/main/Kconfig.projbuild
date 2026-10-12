@@ -17,4 +17,31 @@ menu "Sorting Camera"
             fit: leave this off unless a raw-transport client is being used, and
             raise CONFIG_LWIP_MAX_SOCKETS to at least 19 first.
 
+    config SORTING_CAM_NET_BENCH
+        bool "Diagnostic build: TCP throughput benchmark server on port 83"
+        default n
+        help
+            Starts a raw TCP benchmark server on port 83 and does NOT start the
+            MJPEG stream server or the frame transport (they would not fit in
+            CONFIG_LWIP_MAX_SOCKETS next to it, and a clean measurement wants
+            nothing else competing for the link). The control server (port 80),
+            discovery and the camera are unchanged.
+
+            A client sends one line, "BENCH <mode> <seconds> <chunk>\n", and the
+            device streams data for that long: mode "int" sends a buffer in
+            internal RAM, "psram" walks a 256 KiB buffer in external RAM (what a
+            frame buffer read costs), "cam" sends real JPEG frames from the
+            camera with an 8-byte "FRM1"+length prefix. Use benchmarks/net_bench.py
+            as the client. Leave this OFF in any build that is not a diagnostic.
+
+    config SORTING_CAM_NET_BENCH_NO_CAMERA
+        bool "Bench build: do not initialise the camera"
+        depends on SORTING_CAM_NET_BENCH
+        default n
+        help
+            Skips camera_init() so the link is measured with no camera DMA and no
+            PSRAM frame traffic. Modes "int" and "psram" work; mode "cam" has no
+            frames to send. Turn this off to measure the link while the camera
+            runs, which is the condition the real stream is in.
+
 endmenu

@@ -32,7 +32,7 @@ CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE=262144
 # ---------------------------------------------------------------------------
 # Wi-Fi / TCP throughput tuning (ADR-0018)
 #
-# STATUS: UNMEASURED. Every line below is a candidate, not a result. The
+# STATUS: UNMEASURED (built and linked, never flashed). Every line below is a candidate, not a result. The
 # baseline (before this block) is git commit 5f1ef41; ADR-0018 holds the A/B
 # protocol and the revert rule. ADR-0010 decision 6 recorded that the link was
 # not the binding constraint at the time (peak 4.36 Mbps observed); this block
@@ -78,10 +78,22 @@ CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=64
 #    configuration (esp_wifi/Kconfig: only default n when Bluetooth + PSRAM are
 #    enabled, and Bluetooth is not), so those two lines pin an existing
 #    behaviour and change nothing. LWIP_IRAM_OPTIMIZATION defaults to n, so it
-#    is the real change in this group (about 10 KB of IRAM).
+#    is the real change in this group.
+#
+#    MEASURED BY A REAL BUILD (ESP-IDF v5.5.4, 2026-10-04): LWIP_IRAM_OPTIMIZATION
+#    alone does NOT link on this firmware. Without it IRAM is 118,403 of 131,072
+#    bytes (12,669 free); it needs ~13.1 KB, and the link fails with
+#    "region iram0_0_seg overflowed by 440 bytes". The first version of this
+#    block shipped without that build and was broken for exactly this reason.
+#    FREERTOS_PLACE_FUNCTIONS_INTO_FLASH (Espressif's documented IRAM saver; it
+#    moves only non-ISR FreeRTOS functions to flash) makes it fit: IRAM 121,147
+#    used, 9,925 free. It is a second unmeasured change - task/queue calls now
+#    execute from flash cache - so bisect it together with LWIP_IRAM_OPTIMIZATION
+#    (ADR-0018 step 6), never one without the other.
 CONFIG_ESP_WIFI_IRAM_OPT=y
 CONFIG_ESP_WIFI_RX_IRAM_OPT=y
 CONFIG_LWIP_IRAM_OPTIMIZATION=y
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
 
 # 6. Keep Wi-Fi / lwIP allocations in internal RAM, never PSRAM. This is the
 #    default; stated so that nobody turns it on believing it saves internal RAM

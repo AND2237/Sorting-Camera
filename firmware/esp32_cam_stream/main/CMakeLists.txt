@@ -9,6 +9,7 @@ idf_component_register(
         "http_servers.c"
         "frame_transport.c"
         "metrics.c"
+        "net_bench.c"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -20,6 +21,7 @@ idf_component_register(
         esp_psram
         nvs_flash
         esp_timer
+        spi_flash
         json
         esp_app_format
         mbedtls

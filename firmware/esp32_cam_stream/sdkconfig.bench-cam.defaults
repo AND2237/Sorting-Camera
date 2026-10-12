@@ -1,0 +1,3 @@
+# Diagnostic network-bench build WITH the camera running (modes int/psram/cam).
+# Layer on top of a base defaults file, see docs/performance-workplan.md phase 1.
+CONFIG_SORTING_CAM_NET_BENCH=y

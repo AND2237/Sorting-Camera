@@ -45,6 +45,24 @@ bool wifi_start(const char *ssid, const char *password)
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // Read back what the radio is actually running. This file never calls
+    // esp_wifi_set_protocol / set_bandwidth / set_max_tx_power, so all three are
+    // library defaults, and nothing recorded which. A throughput number without
+    // them next to it cannot be compared with another run (ADR-0018).
+    uint8_t proto = 0;
+    wifi_bandwidth_t bw = 0;
+    int8_t txp = 0;
+    uint8_t pri = 0;
+    wifi_second_chan_t sec = WIFI_SECOND_CHAN_NONE;
+    esp_wifi_get_protocol(WIFI_IF_AP, &proto);
+    esp_wifi_get_bandwidth(WIFI_IF_AP, &bw);
+    esp_wifi_get_max_tx_power(&txp);
+    esp_wifi_get_channel(&pri, &sec);
+    ESP_LOGI(TAG, "radio: protocol_bitmap=0x%02x (b=1 g=2 n=4) bandwidth=%s primary_ch=%u "
+                  "second_ch=%d max_tx_power=%d (units of 0.25 dBm) ps=none",
+             (unsigned)proto, bw == WIFI_BW_HT40 ? "HT40" : "HT20", (unsigned)pri, (int)sec,
+             (int)txp);
+
     s_started = true;
     ESP_LOGI(TAG, "softAP \"%s\" up: ip=%s channel=%d max_conn=%d (WPA2)",
              ssid, AP_IP, AP_CHANNEL, AP_MAX_CLIENTS);

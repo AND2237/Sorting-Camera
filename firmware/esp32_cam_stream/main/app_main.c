@@ -134,6 +134,9 @@ void app_main(void)
         ESP_LOGE(TAG, "softAP not started; streaming unavailable until AP_SSID/AP_PASSWORD are set in config_secrets.h");
     }
 
+#ifdef CONFIG_SORTING_CAM_NET_BENCH_NO_CAMERA
+    ESP_LOGW(TAG, "network bench build: camera NOT initialised");
+#else
     for (int attempt = 1; attempt <= 3; attempt++) {
         if (camera_init()) {
             break;
@@ -146,6 +149,7 @@ void app_main(void)
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+#endif
 
     // Sensor controls are restored by camera_driver_init() on every path that
     // brings the driver up (boot, recovery, a config apply) - see CP-4 / FW-1.
@@ -155,9 +159,19 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(start_control_server());
+#ifdef CONFIG_SORTING_CAM_NET_BENCH
+    // Diagnostic build: the bench server replaces the MJPEG server and the
+    // frame transport (socket budget, and nothing else may touch the link).
+    ESP_LOGW(TAG, "network bench build: MJPEG stream and frame transport NOT started");
+    if (!net_bench_start()) {
+        ESP_LOGE(TAG, "network bench server failed to start");
+    }
+    discovery_start();
+#else
     ESP_ERROR_CHECK(start_stream_server());
     discovery_start();
-#if CONFIG_SORTING_CAM_FRAME_TRANSPORT
+#endif
+#if CONFIG_SORTING_CAM_FRAME_TRANSPORT && !defined(CONFIG_SORTING_CAM_NET_BENCH)
     if (!frame_transport_start()) {
         ESP_LOGE(TAG, "tcp/udp frame transport failed to start (http baseline still available)");
     }
