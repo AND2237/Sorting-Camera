@@ -134,23 +134,27 @@ const cam_ctrl_def_t *camera_control_find(const char *name)
     return NULL;
 }
 
-static void load_nvs(int16_t *out)
+// Returns true only when a valid saved record was found and copied into out.
+// When it returns false, out is untouched: the caller must already hold the
+// defaults, otherwise "nothing saved" is indistinguishable from "all zeros".
+static bool load_nvs(int16_t *out)
 {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
-        return;
+        return false;
     }
     cam_ctrl_nvs_t rec;
     size_t len = sizeof(rec);
     esp_err_t err = nvs_get_blob(h, NVS_KEY, &rec, &len);
     nvs_close(h);
     if (err != ESP_OK || len != sizeof(rec)) {
-        return;
+        return false;
     }
     if (rec.magic != CAM_CTRL_NVS_MAGIC || rec.version != CAM_CTRL_NVS_VERSION) {
-        return;
+        return false;
     }
     memcpy(out, rec.values, sizeof(rec.values));
+    return true;
 }
 
 static void save_nvs(const int16_t *values)
@@ -177,9 +181,29 @@ esp_err_t camera_control_init(void)
         return ESP_FAIL;
     }
 
+    // Start from the documented defaults. This used to be memset(0): with no
+    // saved record (a new or erased chip, or a changed record version) every
+    // control then read 0, and 0 is inside the allowed range of aec, aec2, agc,
+    // awb, awb_gain, aec_value and agc_gain, so the range check below never fell
+    // back to the default. Auto exposure and auto gain came up OFF with a manual
+    // exposure of 0, the sensor streamed black frames, and those zeros were then
+    // saved as if the user had chosen them (ADR-0019).
     int16_t stored[CAM_CTRL_COUNT];
-    memset(stored, 0, sizeof(stored));
-    load_nvs(stored);
+    for (int i = 0; i < CAM_CTRL_COUNT; i++) {
+        stored[i] = (int16_t)s_defs[i].def;
+    }
+    if (!load_nvs(stored)) {
+        ESP_LOGW(TAG, "no saved sensor controls; starting from the defaults (auto exposure and gain on)");
+    } else if (stored[CAM_CTRL_AEC] == 0 && stored[CAM_CTRL_AEC_VALUE] == 0) {
+        // Auto exposure off together with a manual exposure of 0 is a black picture by
+        // definition; nobody chooses it. It is exactly what the old init saved on a
+        // device with no record, so such a record is repaired once instead of kept.
+        for (int i = 0; i < CAM_CTRL_COUNT; i++) {
+            stored[i] = (int16_t)s_defs[i].def;
+        }
+        ESP_LOGW(TAG, "saved sensor controls had auto exposure off and exposure 0 (black picture); "
+                      "reset to defaults");
+    }
 
     int applied = 0;
     for (int i = 0; i < CAM_CTRL_COUNT; i++) {
