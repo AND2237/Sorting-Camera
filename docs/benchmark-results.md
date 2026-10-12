@@ -818,3 +818,188 @@ recovery count, reset reason), application counters (decoded, dropped, decode
 failures, presented fps, thread CPU, peak RSSI age), and the validity report
 that refuses a run when any of them is missing.
 
+## Network bench, Phase 2 (camera off)
+
+Every number below comes from `benchmarks/results/phase2-link-baseline-20261009-121152.json`
+(NBB, `--label baseline --expect baseline`) and
+`benchmarks/results/phase2-link-block-20261009-122431.json`
+(NB, `--label block --expect new`), produced by `benchmarks/phase2_link.py` on
+2026-10-09. Throughput and per-second percentiles are the median over the three
+repetitions of a cell; `stalled s` and `slow_sends` are totals over the three
+repetitions; `max_send ms` is the maximum over repetitions; `min free internal`
+is the minimum over repetitions.
+
+### Firmware NBB — baseline
+
+| cell | valid reps | PC mean Mbps (median) | per-second p5 | per-second p50 | per-second p95 | stalled s | slow_sends | max_send ms | min free internal |
+|---|---|---|---|---|---|---|---|---|---|
+| int / chunk 8192 | 3 / 3 | 11.141 | 7.306 | 11.119 | 11.646 | 3 | 14 | 127.3 | 144287 |
+| int / chunk 1460 | 3 / 3 | 7.502 | 6.624 | 7.717 | 8.129 | 4 | 13 | 563.5 | 144287 |
+| int / chunk 32768 | 3 / 3 | 10.510 | 8.711 | 10.661 | 12.122 | 1 | 35 | 395.0 | 110735 |
+| psram / chunk 8192 | 3 / 3 | 8.129 | 7.483 | 8.513 | 9.110 | 2 | 8 | 94.6 | 110735 |
+
+INFO (before → after): cpu_mhz 160; flash_mode_cfg "not-qio", flash_freq 40m,
+runtime.flash_io dio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 113 → 540.
+
+### Firmware NB — block
+
+| cell | valid reps | PC mean Mbps (median) | per-second p5 | per-second p50 | per-second p95 | stalled s | slow_sends | max_send ms | min free internal |
+|---|---|---|---|---|---|---|---|---|---|
+| int / chunk 8192 | 3 / 3 | 28.735 | 19.772 | 29.418 | 30.759 | 1 | 10 | 124.5 | 62119 |
+| int / chunk 1460 | 3 / 3 | 20.155 | 19.376 | 20.061 | 20.929 | 0 | 0 | 22.0 | 47683 |
+| int / chunk 32768 | 3 / 3 | 29.349 | 27.444 | 29.530 | 30.841 | 0 | 0 | 34.3 | 26259 |
+| psram / chunk 8192 | 3 / 3 | 24.831 | 22.706 | 24.861 | 26.785 | 0 | 0 | 28.1 | 26259 |
+
+INFO (before → after): cpu_mhz 240; flash_mode_cfg "qio", flash_freq 80m,
+runtime.flash_io qio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 101 → 528.
+
+Camera off, 30 s runs, 3 repetitions, all valid, no resets. The block's TCP
+throughput is 2.6x to 3.1x the baseline's. Minimum free internal RAM under
+saturating load was 110,735 B (baseline) and 26,259 B (block). Nothing here
+measures camera fps.
+
+## Network bench, Phase 2 (camera on)
+
+benchmarks/phase2_cam.py in the tree carries a local fix not in patches/phase2-cam-runner.patch: an unauthenticated capabilities probe that answers 401 is treated as 'authentication required' (git hash-object fc7135579033ad5723663f587b5b7b1d3d1b3dc3 after the frame-integrity patch).
+
+Every number below comes from `benchmarks/results/phase2-cam-baseline-20261009-193446.json`
+(run 1, NCB baseline), `benchmarks/results/phase2-cam-block-20261009-195017.json`
+(run 2, NC block) and `benchmarks/results/phase2-cam-baseline-20261009-202150.json`
+(run 3, NCB baseline repeat), produced by `benchmarks/phase2_cam.py` on 2026-10-09,
+in run order NCB, NC, NCB. `fps PC` and `fps device` are the medians over the three
+repetitions of a profile (PC frame accounting and device INFO counter); frame KiB
+p50 / p95 and frame interval p95 are medians over repetitions of the per-repetition
+percentiles; `stalled s` and `slow_sends` are totals over the three repetitions;
+`min free internal` is the minimum over repetitions.
+
+### Run 1 — baseline (NCB)
+
+| profile | valid reps | fps PC | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal |
+|---|---|---|---|---|---|---|---|---|---|
+| svga q12 @18 | 3 / 3 | 19.26 | 19.39 | 9.9 / 9.9 | 97.9 | 1.589 | 1 | 385 | 112003 |
+| xga q24 @18 | 3 / 3 | 7.33 | 7.53 | 37.2 / 37.2 | 235.9 | 2.296 | 3 | 688 | 112003 |
+| sxga q24 @18 | 3 / 3 | 9.00 | 8.95 | 37.2 / 37.2 | 210.1 | 2.728 | 0 | 747 | 111175 |
+| uxga q36 @18 | 3 / 3 | 5.85 | 5.96 | 37.2 / 37.2 | 281.0 | 1.820 | 8 | 539 | 111175 |
+| uxga q16 @18 | 3 / 3 | 7.19 | 6.98 | 37.2 / 37.2 | 261.9 | 2.131 | 0 | 600 | 111019 |
+
+INFO (before → after): cpu_mhz 160; flash_mode_cfg "not-qio", flash_freq 40m,
+runtime.flash_io dio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 115 → 720.
+
+### Run 2 — block (NC)
+
+| profile | valid reps | fps PC | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal |
+|---|---|---|---|---|---|---|---|---|---|
+| svga q12 @18 | 3 / 3 | 22.48 | 22.57 | 9.9 / 10.0 | 69.5 | 1.817 | 3 | 1 | 54395 |
+| xga q24 @18 | 3 / 3 | 11.26 | 11.32 | 37.2 / 37.2 | 114.8 | 3.453 | 0 | 29 | 40783 |
+| sxga q24 @18 | 3 / 3 | 11.26 | 11.32 | 37.2 / 37.2 | 115.4 | 3.457 | 0 | 29 | 40783 |
+| uxga q36 @18 | 3 / 3 | 11.26 | 11.32 | 37.2 / 37.2 | 130.0 | 3.455 | 0 | 110 | 40783 |
+| uxga q16 @18 | 3 / 3 | 11.22 | 11.29 | 37.2 / 37.2 | 126.4 | 3.442 | 1 | 260 | 36771 |
+
+INFO (before → after): cpu_mhz 240; flash_mode_cfg "qio", flash_freq 80m,
+runtime.flash_io qio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 71 → 670.
+
+### Run 3 — baseline repeat (NCB)
+
+| profile | valid reps | fps PC | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal |
+|---|---|---|---|---|---|---|---|---|---|
+| svga q12 @18 | 3 / 3 | 22.48 | 22.52 | 9.9 / 10.0 | 66.7 | 1.824 | 0 | 35 | 112907 |
+| xga q24 @18 | 3 / 3 | 10.52 | 10.58 | 37.2 / 37.2 | 145.7 | 3.227 | 0 | 906 | 112907 |
+| sxga q24 @18 | 3 / 3 | 10.81 | 10.89 | 37.2 / 37.2 | 132.5 | 3.321 | 1 | 888 | 111403 |
+| uxga q36 @18 | 3 / 3 | 10.15 | 10.10 | 37.2 / 37.2 | 155.8 | 3.081 | 2 | 894 | 111403 |
+| uxga q16 @18 | 3 / 3 | 10.41 | 10.41 | 37.2 / 37.2 | 151.7 | 3.177 | 0 | 911 | 111403 |
+
+INFO (before → after): cpu_mhz 160; flash_mode_cfg "not-qio", flash_freq 40m,
+runtime.flash_io dio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 131 → 733.
+
+Camera on, same scene and position, 30 s runs, 3 repetitions, all valid, no resets;
+order NCB, NC, NCB. The two baseline runs differ from each other in median fps by
+1.8 to 4.3 fps. Minimum free internal RAM during the runs: 111,019 B (baseline) and
+36,771 B (block), in a bench build without the MJPEG stream server. Frame size was
+37.2 KiB p50 for XGA q24, SXGA q24, UXGA q36 and UXGA q16 alike; explained:
+the frames were black (verified from saved samples on 2026-10-10), so these
+runs measured trivial frames; see ADR-0019. The camera-off results above are
+not affected.
+
+## Camera-on verification with real frames (2026-10-11)
+
+Source: `benchmarks/results/phase2-cam-verify2-20261011-012921.json`
+(`--label verify2 --expect baseline`), produced by `benchmarks/phase2_cam.py`
+on 2026-10-11. One 10 s run per profile (valid reps 1 / 1 throughout);
+`real size` is the dominant frame size read from the JPEG headers.
+
+| profile | real size | frame KiB p50 | fps | link Mbps |
+|---|---|---|---|---|
+| svga q12 @18 | 800x600 | 16.4 | 9.75 | 1.38 |
+| xga q24 @18 | 1024x768 | 20.3 | 8.25 | 1.45 |
+| hd q24 @18 | 1280x720 | 22.6 | 6.22 | 1.18 |
+| sxga q24 @18 | 1280x1024 | 32.8 | 6.00 | 1.67 |
+| uxga q36 @18 | 1600x1200 | 43.6 | 4.25 | 1.43 |
+| uxga q16 @18 | 1600x1200 | 55.1 | 2.50 | 1.20 |
+
+Scene: plain wall corner (low detail), baseline firmware (NCB), one 10 s run
+per profile. fps was 2.5 to 9.8, far below the black-frame runs, with only
+1.2 to 1.7 Mbps of link in use. Exposure is the suspected limit; to be tested
+(exposure_sweep.py).
+
+## Exposure sweep (2026-10-12)
+
+Source: `benchmarks/results/exposure-sweep-room-20261012-115542.json` (room)
+and `benchmarks/results/exposure-sweep-lamp-20261012-120245.json` (lamp),
+produced by `benchmarks/exposure_sweep.py` on 2026-10-12. Baseline firmware
+(NCB): cpu 160, flash not-qio/40m/dio. XGA q24 @18, 10 s x 2 reps per cell,
+all valid. `longest gap` is the maximum frame interval over repetitions;
+`gap p95` the median of the per-repetition p95 intervals; `brightness` the
+snapshot luma mean / 255.
+
+Sensor controls before the sweep (identical in both files — restored defaults):
+aec 1, aec2 1, aec_value 300, agc 1, agc_gain 0, gainceiling 0, awb 1,
+awb_gain 1, bpc/wpc/raw_gma/lenc/dcw 1,
+brightness/contrast/saturation/ae_level/special_effect/wb_mode/hmirror/vflip/colorbar 0.
+
+### Room (scene with a bright window)
+
+| profile | set | valid reps | fps | longest gap ms | gap p95 ms | frame KiB | link Mbps | brightness |
+|---|---|---|---|---|---|---|---|---|
+| xga q24 @18 | auto-default | 2 / 2 | 11.29 | 150.7 | 112.9 | 27.24 | 2.54 | 106.3 |
+| xga q24 @18 | auto-gain32x | 2 / 2 | 11.29 | 152.3 | 114.0 | 27.23 | 2.54 | 106.6 |
+| xga q24 @18 | auto-gain128x | 2 / 2 | 11.21 | 170.0 | 113.9 | 27.19 | 2.54 | 106.8 |
+| xga q24 @18 | manual-e300-g0 | 2 / 2 | 10.93 | 209.3 | 137.3 | 26.07 | 2.39 | 93.0 |
+| xga q24 @18 | manual-e600-g10 | 2 / 2 | 11.29 | 130.1 | 107.0 | 19.82 | 1.86 | 242.4 |
+| xga q24 @18 | manual-e1000-g20 | 2 / 2 | 11.21 | 121.3 | 106.3 | 15.77 | 1.48 | 253.9 |
+
+INFO (before sweep): cpu_mhz 160; flash_mode_cfg "not-qio", flash_freq 40m,
+runtime.flash_io dio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on); uptime_s 1011.
+
+### Lamp (same scene plus a lamp)
+
+| profile | set | valid reps | fps | longest gap ms | gap p95 ms | frame KiB | link Mbps | brightness |
+|---|---|---|---|---|---|---|---|---|
+| xga q24 @18 | auto-default | 2 / 2 | 11.23 | 147.7 | 109.9 | 25.61 | 2.39 | 105.1 |
+| xga q24 @18 | auto-gain32x | 2 / 2 | 11.29 | 135.1 | 115.7 | 25.81 | 2.42 | 108.6 |
+| xga q24 @18 | auto-gain128x | 2 / 2 | 11.21 | 168.1 | 109.4 | 26.45 | 2.47 | 104.7 |
+| xga q24 @18 | manual-e300-g0 | 2 / 2 | 11.21 | 154.1 | 106.2 | 25.90 | 2.42 | 100.2 |
+| xga q24 @18 | manual-e600-g10 | 2 / 2 | 11.29 | 162.1 | 116.1 | 18.05 | 1.69 | 248.7 |
+| xga q24 @18 | manual-e1000-g20 | 2 / 2 | 11.21 | 156.0 | 113.0 | 15.66 | 1.47 | 254.0 |
+
+INFO (before sweep): cpu_mhz 160; flash_mode_cfg "not-qio", flash_freq 40m,
+runtime.flash_io dio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on); uptime_s 1434.
+
+Baseline firmware (NCB), XGA q24, 10 s x 2 per cell, scene with a bright window,
+restored defaults. Every set reached 10.7 to 11.3 fps in both lighting
+conditions. Manual 600/10 and 1000/20 were overexposed (brightness 242 to 254)
+and gave smaller frames (15.7 to 19.8 KiB against 25.6 to 27.2 KiB). The lamp
+changed brightness by at most 7 points. The low fps of the 2026-10-11
+wall-corner run was not reproduced in this scene; no dim condition was tested.
+

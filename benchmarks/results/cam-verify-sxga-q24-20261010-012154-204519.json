@@ -1,0 +1,186 @@
+{
+  "meta": {
+    "date": "2026-10-10T01:21:53",
+    "label": "verify",
+    "host": "192.168.4.1",
+    "mode": "cam",
+    "seconds_requested": 10,
+    "chunk": 8192,
+    "warmup_s": 2,
+    "pc": {
+      "os": "Windows-11-10.0.26200-SP0",
+      "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+      "python": "3.13.15"
+    },
+    "note": "device-side numbers and the firmware build config are on the serial console"
+  },
+  "received": {
+    "bytes": 4235987,
+    "duration_s": 10.03244369999993,
+    "mean_mbps_whole_run": 3.3778306675172503,
+    "per_second_mbps": {
+      "n": 8,
+      "min": 3.116504,
+      "p5": 3.116504,
+      "p50": 3.35824,
+      "p95": 3.559808,
+      "max": 3.559808,
+      "mean": 3.330905,
+      "stdev": 0.14355157380885789
+    },
+    "stalled_seconds_below_half_median": 0,
+    "error": null
+  },
+  "frames": {
+    "count": 111,
+    "fps_after_warmup": 10.875,
+    "frame_bytes": {
+      "n": 111,
+      "min": 38151,
+      "p5": 38152,
+      "p50": 38154,
+      "p95": 38156,
+      "max": 38157,
+      "mean": 38154.045045045044,
+      "stdev": 1.1019016109132005
+    },
+    "interval_ms": {
+      "n": 110,
+      "min": 41.59830000025977,
+      "p5": 48.54199999999764,
+      "p50": 85.53690000007919,
+      "p95": 150.6226000001334,
+      "max": 190.77919999972437,
+      "mean": 90.51860454545186,
+      "stdev": 31.27867564849861
+    },
+    "protocol_errors": 0,
+    "desynchronised": false,
+    "jpeg": {
+      "frames_checked": 111,
+      "soi_ok_pct": 100.0,
+      "eoi_ok_pct": 100.0,
+      "dims": {
+        "1600x1200": 111
+      },
+      "dominant_dims": "1600x1200",
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-verify-sxga-q24.jpg"
+    }
+  },
+  "device": {
+    "before": {
+      "fw": "netbench",
+      "uptime_s": 565,
+      "reset_reason": 1,
+      "camera_enabled": 1,
+      "build": {
+        "cpu_mhz": 160,
+        "flash_freq": "40m",
+        "flash_mode_cfg": "not-qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 5760,
+        "tcp_wnd": 5760,
+        "wifi_rx_buf": 32,
+        "wifi_tx_buf": 32,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 0,
+        "freertos_in_flash": 0
+      },
+      "runtime": {
+        "flash_io": "dio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 134767,
+        "min_free_internal": 112787,
+        "free_spiram": 3403764
+      },
+      "last": {
+        "runs": 6,
+        "finished": 1,
+        "ok": 1,
+        "mode": "cam",
+        "secs_req": 10,
+        "chunk": 8192,
+        "secs": 10.022,
+        "bytes": 3587221,
+        "mbps": 2.863,
+        "frames": 94,
+        "fps": 9.379,
+        "sends": 188,
+        "slow_sends": 90,
+        "max_send_ms": 229.7,
+        "cam_fail": 0,
+        "free_internal": 134351,
+        "min_free_internal": 112787
+      }
+    },
+    "after": {
+      "fw": "netbench",
+      "uptime_s": 575,
+      "reset_reason": 1,
+      "camera_enabled": 1,
+      "build": {
+        "cpu_mhz": 160,
+        "flash_freq": "40m",
+        "flash_mode_cfg": "not-qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 5760,
+        "tcp_wnd": 5760,
+        "wifi_rx_buf": 32,
+        "wifi_tx_buf": 32,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 0,
+        "freertos_in_flash": 0
+      },
+      "runtime": {
+        "flash_io": "dio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 134555,
+        "min_free_internal": 111419,
+        "free_spiram": 3403764
+      },
+      "last": {
+        "runs": 7,
+        "finished": 1,
+        "ok": 1,
+        "mode": "cam",
+        "secs_req": 10,
+        "chunk": 8192,
+        "secs": 10.033,
+        "bytes": 4235987,
+        "mbps": 3.378,
+        "frames": 111,
+        "fps": 11.063,
+        "sends": 222,
+        "slow_sends": 100,
+        "max_send_ms": 185.5,
+        "cam_fail": 0,
+        "free_internal": 134347,
+        "min_free_internal": 111419
+      }
+    },
+    "before_error": null,
+    "after_error": null
+  },
+  "device_vs_pc_mbps_diff_pct": 0.005012802923323331,
+  "valid": false,
+  "invalid_reasons": [
+    "frames are really {'1600x1200': 111}, not the requested 1280x1024 - the sensor is not producing the requested mode"
+  ],
+  "profile": {
+    "framesize": "sxga",
+    "quality": 24,
+    "xclk": 18
+  }
+}

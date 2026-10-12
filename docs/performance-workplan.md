@@ -107,6 +107,8 @@ not fps. Low priority, step 5.3.
 on the HMI hardware is unknown. Step 6 measures it. If the HMI cannot decode a profile in time, no
 firmware work matters for that profile.
 
+**D8. Frame rate depends on exposure, so on lighting: with real frames fps fell to 2.5-9.8 while the link carried 1.2-1.7 Mbps (verify2 run). Status 2026-10-12: not reproduced in a bright scene (all exposure settings reached the 11.25 fps plateau at XGA q24); the dim-scene case is untested. Next: measure on a detail-rich stand-in scene (the real rice hopper is not available).**
+
 **Not defects (checked and ruled out by arithmetic):**
 - PSRAM speed. The camera produces about 0.5 MB/s of JPEG (F6); PSRAM at 40 MHz moves on the order of
   10 MB/s (general knowledge, not measured here). `SPIRAM_SPEED_80M` remains an unneeded lever.
@@ -148,8 +150,9 @@ lit by one fixed lamp (not daylight; F8 shows scene content moves fps by tens of
 move it for the whole campaign. Record the lamp and distance in the result notes.
 
 0.3 **Power.** Feed the ESP32-CAM 5 V through its 5 V pin from a supply rated 2 A, with the shortest
-cable you have, not from a laptop USB port. Add 470 uF across 5 V/GND at the board. Read the serial
-console for `Brownout detector` lines; any such line invalidates the run.
+cable you have, not from a laptop USB port. Add 470 uF across 5 V/GND at the board. Run
+`python benchmarks/net_bench.py --info-only` before and after; a reset_reason of BROWNOUT,
+or an uptime that dropped, invalidates the run.
 
 0.4 **Wi-Fi environment.** Record the PC adapter (the record says Intel AX201), the distance (keep it
 under 1 m, line of sight), and the other 2.4 GHz networks visible on channels 1, 6 and 11.
@@ -183,31 +186,29 @@ build directory and its own generated `sdkconfig`, so one never inherits another
 
     findstr /R "CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ= CONFIG_ESPTOOLPY_FLASHFREQ= CONFIG_LWIP_TCP_WND_DEFAULT= CONFIG_LWIP_IRAM_OPTIMIZATION CONFIG_SORTING_CAM" build-nb\sdkconfig
 
-Expected: new = `240`, `"80m"`, `32768`, `=y`; baseline = `160`, `"40m"`, `5760`, not set. The bench
-firmware also prints its own `build cfg:` line on the serial console when a client connects; copy it
-into the result record.
+Expected: new = `240`, `"80m"`, `32768`, `=y`; baseline = `160`, `"40m"`, `5760`, not set. After
+flashing, run `python benchmarks/net_bench.py --info-only` and confirm: camera_enabled matches
+the variant (0 for NB/NBB, 1 for NC/NCB); build matches the variant (new: cpu_mhz 240, flash_freq
+80m, tcp_wnd 32768; baseline: 160, 40m, 5760); runtime.flash_io is `qio` for new-block builds and
+`dio` for baseline builds; record protocol_bitmap, bandwidth, channel, max_tx_power_q.
 
-1.2 Flash NBB first. On the serial console confirm `network bench build: camera NOT initialised`,
-`bench server listening on tcp/83` and the `radio:` line (record protocol, bandwidth, channel, power).
+1.2 Flash NBB first. Run the `--info-only` check at the end of step 1.1 and record the fields listed there.
 
 The bench builds do not start the MJPEG server or the frame transport (socket budget and a clean
 link). They keep the control server on port 80, so `/api/v1/status` still works.
 
 ### Phase 2. Link test (answers "is the link the limit?")
 
-Join the camera's Wi-Fi. For each firmware (NBB then NB, no camera) run the matrix below. Each cell
-is 30 s, three repetitions, `--warmup 3`, the PC doing nothing else.
+Join the camera's Wi-Fi. Run one command per firmware: `python benchmarks/phase2_link.py --label baseline
+--expect baseline` (firmware NBB), then `--label block --expect new` (firmware NB).
+It runs the matrix, keeps only VALID runs and writes the summary to benchmarks/results/.
+Camera-on runs: `python benchmarks/phase2_cam.py --label <baseline|block|baseline2> --expect <baseline|new>`; order NCB, NC, NCB (drift check); same scene throughout.
 
-    python benchmarks/net_bench.py --mode int   --chunk 8192  --seconds 30 --warmup 3 --label baseline
-    python benchmarks/net_bench.py --mode int   --chunk 1460  --seconds 30 --warmup 3 --label baseline
-    python benchmarks/net_bench.py --mode int   --chunk 32768 --seconds 30 --warmup 3 --label baseline
-    python benchmarks/net_bench.py --mode psram --chunk 8192  --seconds 30 --warmup 3 --label baseline
+Camera-on profiles are run by benchmarks/phase2_cam.py: svga:12 (control), xga:24, sxga:24, uxga:36, uxga:16 at 18 MHz, 30 s x 3 repetitions each; uxga:16 is the lowest quality the firmware accepts for UXGA.
 
-Then flash NCB and NC (camera running) and run `--mode cam --seconds 60` for each, once at the profile
-under test (set it through the normal config API first) and once at SVGA q12 as a control.
-
-Record, per cell: PC `mean_mbps_whole_run`, per-second p5/p50/p95, `stalled_seconds`, and from the
-serial console the device's `device_mbps`, `slow_sends`, `max_send_ms`, `min_free_internal`.
+Record, per cell: PC `mean_mbps_whole_run`, per-second p5/p50/p95, `stalled_seconds`, and the
+device block saved in each result JSON (`device.after.last`: `mbps`, `slow_sends`, `max_send_ms`,
+`min_free_internal`); a run is valid only if the JSON says `"valid": true`.
 The PC and device Mbps must agree within a few percent; if not, the run is invalid.
 
 Read the result like this:
@@ -223,8 +224,13 @@ Read the result like this:
 | `int` p5 < 0.5 x p50 | Rate is unstable; the mean hides it. | Phase 5.4 channel/bandwidth tests before any camera work. |
 
 **Gate G1.** Write the table into `docs/benchmark-results.md` (new section "Network bench"), with the
-firmware git hash, the `build cfg:` and `radio:` lines, the PC adapter, distance, date and duration.
+firmware git hash, the INFO JSON (build and runtime blocks) saved by net_bench / phase2_link,
+the PC adapter, distance, date and duration.
 Update ADR-0018's status to "kept" or "reverted" with the numbers.
+
+_Filled 2026-10-09:_ the table is in `docs/benchmark-results.md`, section
+"Network bench, Phase 2 (camera off)"; ADR-0018's status was updated from those numbers
+(kept provisionally, camera-on A/B and RAM headroom still open).
 
 ### Phase 3. Attribute the fps ceiling at the target modes
 
@@ -235,7 +241,8 @@ record (`--framesize`, `--quality`, `--xclk`, `--seconds 60`), fixed scene, firm
 `xga q24`, `sxga q24`, `uxga q24`: XCLK 18, 20, 22, 24, 26, 27 MHz. One run per cell first;
 repeat the two best and the first failing cell three times.
 A cell is **valid** only if: recoveries 0, capture failures 0, frame bytes p50 within +-15% of the
-same mode at 18 MHz (inflation is the noise signature, F4), no `Brownout` on the console.
+same mode at 18 MHz (inflation is the noise signature, F4), `reset_reason` from `/api/v1/status`
+is unchanged and `uptime_s` did not drop.
 Stop raising the clock for a mode at its first invalid cell; do not run higher cells of that mode
 (the HD record shows recovery storms and a stuck sensor).
 Compare the fps against the model's prediction `11.25 x XCLK / 18` and note the 20 MHz dip.
@@ -302,7 +309,7 @@ Keep only if latency or CPU improves beyond the run spread.
 **5.4 Wi-Fi tests, each alone, measured with `net_bench --mode cam` and the real stream:**
 a. `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1` (new variable; the camera task stays on core 0);
 b. protocol 11g+11n only (drop 11b): `esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N)`;
-c. bandwidth HT20 vs HT40, set explicitly, with the `radio:` line proving the value;
+c. bandwidth HT20 vs HT40, set explicitly, with the INFO JSON (build and runtime blocks) saved by net_bench / phase2_link proving the value;
 d. channel 1 vs 6 vs 11, picked from the step 0.4 survey;
 e. `CONFIG_LWIP_TCPIP_TASK_PRIO` raised (the iperf example uses 23), only if (a) to (d) showed a link effect.
 Each is kept only if it beats the spread in both `int`/`cam` modes. Do not stack them before each has
@@ -334,7 +341,7 @@ show zero silent drops at the chosen profile.
 
 7.1 Soak each candidate final profile for 20 minutes, three times on different days with the same lamp
 and scene, against section 1.
-7.2 Append to `docs/benchmark-results.md`: firmware hash, `build cfg:`, `radio:`, config, PC and HMI,
+7.2 Append to `docs/benchmark-results.md`: firmware hash, the INFO JSON (build and runtime blocks) saved by net_bench / phase2_link, config, PC and HMI,
 date, duration, raw JSON path under `benchmarks/results/`.
 7.3 One ADR per kept change (0019 and up); one line in `docs/decisions` index; update README counts.
 7.4 Revert anything that did not win, with the numbers that say so.
@@ -342,6 +349,8 @@ date, duration, raw JSON path under `benchmarks/results/`.
 ## 6. What this plan does not know
 
 - Whether the link is a limit at all (phase 2 decides).
+- The Phase 2 camera-on A/B ran on black frames; it is void and must be repeated
+  after exposure is controlled.
 - Whether the UXGA-family clock can be raised cleanly on this board (F5).
 - What the HMI hardware is and how fast it decodes JPEG (not reviewed; step 6.2).
 - The effect of any OV2640 register change (not verified; step 5.5 is labelled research).

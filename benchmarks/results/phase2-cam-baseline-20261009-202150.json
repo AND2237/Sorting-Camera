@@ -1,0 +1,333 @@
+{
+  "label": "baseline",
+  "expect": "baseline",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 131,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 160,
+      "flash_freq": "40m",
+      "flash_mode_cfg": "not-qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 5760,
+      "tcp_wnd": 5760,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 0,
+      "freertos_in_flash": 0
+    },
+    "runtime": {
+      "flash_io": "dio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 138159,
+      "min_free_internal": 131811,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 733,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 160,
+      "flash_freq": "40m",
+      "flash_mode_cfg": "not-qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 5760,
+      "tcp_wnd": 5760,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 0,
+      "freertos_in_flash": 0
+    },
+    "runtime": {
+      "flash_io": "dio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 135835,
+      "min_free_internal": 111403,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 15,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 30,
+      "chunk": 8192,
+      "secs": 30.072,
+      "bytes": 11937993,
+      "mbps": 3.176,
+      "frames": 313,
+      "fps": 10.408,
+      "sends": 626,
+      "slow_sends": 309,
+      "max_send_ms": 263.2,
+      "cam_fail": 0,
+      "free_internal": 135847,
+      "min_free_internal": 111403
+    }
+  },
+  "profiles": [
+    {
+      "profile": "svga q12 @18",
+      "framesize": "svga",
+      "quality": 12,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 22.48148148148148,
+      "fps_all": [
+        22.52,
+        21.96,
+        22.48
+      ],
+      "device_fps_median": 22.522,
+      "frame_bytes_p50": 10186,
+      "frame_bytes_p95": 10196,
+      "interval_ms_p95": 66.7436000003363,
+      "link_mbps_median": 1.8237730434220483,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 35,
+      "min_free_internal_min": 112907,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-svga-q12-20261009-202226-553767.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-svga-q12-20261009-202306-479270.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-svga-q12-20261009-202346-465681.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "framesize": "xga",
+      "quality": 24,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 10.518518518518519,
+      "fps_all": [
+        10.93,
+        10.33,
+        10.52
+      ],
+      "device_fps_median": 10.579,
+      "frame_bytes_p50": 38126,
+      "frame_bytes_p95": 38126,
+      "interval_ms_p95": 145.650200000091,
+      "link_mbps_median": 3.227232067588306,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 906,
+      "min_free_internal_min": 112907,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-xga-q24-20261009-202426-495731.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-xga-q24-20261009-202507-445782.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-xga-q24-20261009-202547-390013.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "sxga q24 @18",
+      "framesize": "sxga",
+      "quality": 24,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 10.814814814814815,
+      "fps_all": [
+        10.81,
+        9.44,
+        11.19
+      ],
+      "device_fps_median": 10.887,
+      "frame_bytes_p50": 38126,
+      "frame_bytes_p95": 38126,
+      "interval_ms_p95": 132.48680000015156,
+      "link_mbps_median": 3.3213316182546206,
+      "stalled_seconds_total": 1,
+      "slow_sends_total": 888,
+      "min_free_internal_min": 111403,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-sxga-q24-20261009-202627-318159.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-sxga-q24-20261009-202707-286917.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-sxga-q24-20261009-202747-198423.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q36 @18",
+      "framesize": "uxga",
+      "quality": 36,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 10.148148148148149,
+      "fps_all": [
+        9.89,
+        10.15,
+        10.26
+      ],
+      "device_fps_median": 10.098,
+      "frame_bytes_p50": 38126,
+      "frame_bytes_p95": 38126,
+      "interval_ms_p95": 155.8078000007299,
+      "link_mbps_median": 3.0805988399860094,
+      "stalled_seconds_total": 2,
+      "slow_sends_total": 894,
+      "min_free_internal_min": 111403,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-uxga-q36-20261009-202827-200366.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-uxga-q36-20261009-202907-163760.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-uxga-q36-20261009-202947-089239.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @18",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 10.407407407407407,
+      "fps_all": [
+        9.93,
+        10.48,
+        10.41
+      ],
+      "device_fps_median": 10.408,
+      "frame_bytes_p50": 38131,
+      "frame_bytes_p95": 38133,
+      "interval_ms_p95": 151.73909999975876,
+      "link_mbps_median": 3.176724912179155,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 911,
+      "min_free_internal_min": 111403,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-uxga-q16-20261009-203026-512394.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-uxga-q16-20261009-203107-434395.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-baseline-uxga-q16-20261009-203147-445100.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,280 @@
+{
+  "label": "block",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 101,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 176571,
+      "min_free_internal": 170467,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 528,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 174251,
+      "min_free_internal": 26259,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 12,
+      "finished": 1,
+      "ok": 1,
+      "mode": "psram",
+      "secs_req": 30,
+      "chunk": 8192,
+      "secs": 30.001,
+      "bytes": 93118464,
+      "mbps": 24.831,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 11367,
+      "slow_sends": 0,
+      "max_send_ms": 23.8,
+      "cam_fail": 0,
+      "free_internal": 174487,
+      "min_free_internal": 26259
+    }
+  },
+  "cells": [
+    {
+      "mode": "int",
+      "chunk": 8192,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "pc_mean_mbps_median": 28.734977615504736,
+      "pc_mean_mbps_all": [
+        28.375,
+        29.077,
+        28.735
+      ],
+      "per_second_p5_median": 19.772416,
+      "per_second_p50_median": 29.417728,
+      "per_second_p95_median": 30.759424,
+      "stalled_seconds_total": 1,
+      "device_mbps_median": 28.73,
+      "slow_sends_total": 10,
+      "max_send_ms_max": 124.5,
+      "min_free_internal_min": 62119,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-8192-20261009-122502-440869.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-8192-20261009-122538-020394.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-8192-20261009-122613-573643.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 1460,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "pc_mean_mbps_median": 20.155124210296513,
+      "pc_mean_mbps_all": [
+        20.243,
+        19.951,
+        20.155
+      ],
+      "per_second_p5_median": 19.375808,
+      "per_second_p50_median": 20.061056,
+      "per_second_p95_median": 20.929248,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 20.153,
+      "slow_sends_total": 0,
+      "max_send_ms_max": 22.0,
+      "min_free_internal_min": 47683,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-1460-20261009-122649-129779.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-1460-20261009-122724-704421.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-1460-20261009-122800-259685.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 32768,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "pc_mean_mbps_median": 29.348669440667333,
+      "pc_mean_mbps_all": [
+        29.232,
+        29.4,
+        29.349
+      ],
+      "per_second_p5_median": 27.44448,
+      "per_second_p50_median": 29.530112,
+      "per_second_p95_median": 30.840832,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 29.35,
+      "slow_sends_total": 0,
+      "max_send_ms_max": 34.3,
+      "min_free_internal_min": 26259,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-32768-20261009-122835-843959.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-32768-20261009-122911-442884.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-int-32768-20261009-122947-013922.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "psram",
+      "chunk": 8192,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "pc_mean_mbps_median": 24.830878084877238,
+      "pc_mean_mbps_all": [
+        24.786,
+        25.599,
+        24.831
+      ],
+      "per_second_p5_median": 22.706432,
+      "per_second_p50_median": 24.861184,
+      "per_second_p95_median": 26.784768,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 24.831,
+      "slow_sends_total": 0,
+      "max_send_ms_max": 28.1,
+      "min_free_internal_min": 26259,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-psram-8192-20261009-123022-633068.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-psram-8192-20261009-123058-244649.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-block-psram-8192-20261009-123133-856373.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

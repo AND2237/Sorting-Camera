@@ -1,0 +1,174 @@
+{
+  "meta": {
+    "date": "2026-10-09T20:23:05",
+    "label": "baseline",
+    "host": "192.168.4.1",
+    "mode": "cam",
+    "seconds_requested": 30,
+    "chunk": 8192,
+    "warmup_s": 3,
+    "pc": {
+      "os": "Windows-11-10.0.26200-SP0",
+      "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+      "python": "3.13.15"
+    },
+    "note": "device-side numbers and the firmware build config are on the serial console"
+  },
+  "received": {
+    "bytes": 6809899,
+    "duration_s": 30.030852500000037,
+    "mean_mbps_whole_run": 1.8141074083727704,
+    "per_second_mbps": {
+      "n": 27,
+      "min": 1.40024,
+      "p5": 1.647488,
+      "p50": 1.84504,
+      "p95": 1.896176,
+      "max": 1.926352,
+      "mean": 1.8062601481481482,
+      "stdev": 0.10557863926203301
+    },
+    "stalled_seconds_below_half_median": 0,
+    "error": null
+  },
+  "frames": {
+    "count": 662,
+    "fps_after_warmup": 21.962962962962962,
+    "frame_bytes": {
+      "n": 662,
+      "min": 10230,
+      "p5": 10252,
+      "p50": 10278,
+      "p95": 10306,
+      "max": 10332,
+      "mean": 10278.856495468279,
+      "stdev": 16.56286053336085
+    },
+    "interval_ms": {
+      "n": 661,
+      "min": 8.922300000449468,
+      "p5": 19.818100000520644,
+      "p50": 43.83169999982783,
+      "p95": 70.23470000058296,
+      "max": 184.39030000081402,
+      "mean": 45.404420726172994,
+      "stdev": 19.298480028483255
+    },
+    "protocol_errors": 0,
+    "desynchronised": false
+  },
+  "device": {
+    "before": {
+      "fw": "netbench",
+      "uptime_s": 177,
+      "reset_reason": 1,
+      "camera_enabled": 1,
+      "build": {
+        "cpu_mhz": 160,
+        "flash_freq": "40m",
+        "flash_mode_cfg": "not-qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 5760,
+        "tcp_wnd": 5760,
+        "wifi_rx_buf": 32,
+        "wifi_tx_buf": 32,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 0,
+        "freertos_in_flash": 0
+      },
+      "runtime": {
+        "flash_io": "dio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 136751,
+        "min_free_internal": 115711,
+        "free_spiram": 3403748
+      },
+      "last": {
+        "runs": 1,
+        "finished": 1,
+        "ok": 1,
+        "mode": "cam",
+        "secs_req": 30,
+        "chunk": 8192,
+        "secs": 30.018,
+        "bytes": 6843781,
+        "mbps": 1.824,
+        "frames": 677,
+        "fps": 22.553,
+        "sends": 1354,
+        "slow_sends": 5,
+        "max_send_ms": 66.8,
+        "cam_fail": 0,
+        "free_internal": 137191,
+        "min_free_internal": 115711
+      }
+    },
+    "after": {
+      "fw": "netbench",
+      "uptime_s": 208,
+      "reset_reason": 1,
+      "camera_enabled": 1,
+      "build": {
+        "cpu_mhz": 160,
+        "flash_freq": "40m",
+        "flash_mode_cfg": "not-qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 5760,
+        "tcp_wnd": 5760,
+        "wifi_rx_buf": 32,
+        "wifi_tx_buf": 32,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 0,
+        "freertos_in_flash": 0
+      },
+      "runtime": {
+        "flash_io": "dio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 136323,
+        "min_free_internal": 112907,
+        "free_spiram": 3403748
+      },
+      "last": {
+        "runs": 2,
+        "finished": 1,
+        "ok": 1,
+        "mode": "cam",
+        "secs_req": 30,
+        "chunk": 8192,
+        "secs": 30.032,
+        "bytes": 6809899,
+        "mbps": 1.814,
+        "frames": 662,
+        "fps": 22.043,
+        "sends": 1324,
+        "slow_sends": 25,
+        "max_send_ms": 140.7,
+        "cam_fail": 0,
+        "free_internal": 136339,
+        "min_free_internal": 112907
+      }
+    },
+    "before_error": null,
+    "after_error": null
+  },
+  "device_vs_pc_mbps_diff_pct": 0.005921078984032285,
+  "valid": true,
+  "invalid_reasons": [],
+  "profile": {
+    "framesize": "svga",
+    "quality": 12,
+    "xclk": 18
+  }
+}

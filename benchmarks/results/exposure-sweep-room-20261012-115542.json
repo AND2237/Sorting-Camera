@@ -1,0 +1,385 @@
+{
+  "label": "room",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 1011,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 160,
+      "flash_freq": "40m",
+      "flash_mode_cfg": "not-qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 5760,
+      "tcp_wnd": 5760,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 0,
+      "freertos_in_flash": 0
+    },
+    "runtime": {
+      "flash_io": "dio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 137631,
+      "min_free_internal": 113775,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 6,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 10,
+      "chunk": 8192,
+      "secs": 10.078,
+      "bytes": 6496360,
+      "mbps": 5.157,
+      "frames": 73,
+      "fps": 7.243,
+      "sends": 146,
+      "slow_sends": 73,
+      "max_send_ms": 186.5,
+      "cam_fail": 0,
+      "free_internal": 134399,
+      "min_free_internal": 113775
+    }
+  },
+  "sensor_before": {
+    "brightness": 0,
+    "contrast": 0,
+    "saturation": 0,
+    "ae_level": 0,
+    "special_effect": 0,
+    "wb_mode": 0,
+    "aec_value": 300,
+    "agc_gain": 0,
+    "gainceiling": 0,
+    "agc": 1,
+    "aec": 1,
+    "aec2": 1,
+    "awb": 1,
+    "awb_gain": 1,
+    "hmirror": 0,
+    "vflip": 0,
+    "bpc": 1,
+    "wpc": 1,
+    "raw_gma": 1,
+    "lenc": 1,
+    "dcw": 1,
+    "colorbar": 0
+  },
+  "rows": [
+    {
+      "profile": "xga q24 @18",
+      "set": "auto-default",
+      "values": {
+        "aec": 1,
+        "aec2": 1,
+        "agc": 1,
+        "gainceiling": 0,
+        "ae_level": 0
+      },
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 11.285714285714286,
+      "fps_all": [
+        11.29,
+        11.29
+      ],
+      "interval_p95_median": 112.94274999988829,
+      "interval_max_max": 150.73539999980312,
+      "frame_kib_median": 27.24462890625,
+      "mbps_median": 2.540979314668375,
+      "luma": 106.29089864095052,
+      "attempts": [
+        {
+          "rep": 1,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.373,
+          "frame_kib_p50": 27.251953125,
+          "interval_p95": 115.54699999987861,
+          "interval_max": 138.5413000000426,
+          "mbps": 2.539612518836994,
+          "luma": 106.29089864095052,
+          "dims": "1024x768"
+        },
+        {
+          "rep": 2,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.383,
+          "frame_kib_p50": 27.2373046875,
+          "interval_p95": 110.33849999989798,
+          "interval_max": 150.73539999980312,
+          "mbps": 2.5423461104997567,
+          "luma": null,
+          "dims": "1024x768"
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "set": "auto-gain32x",
+      "values": {
+        "aec": 1,
+        "aec2": 1,
+        "agc": 1,
+        "gainceiling": 4
+      },
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 11.285714285714286,
+      "fps_all": [
+        11.29,
+        11.29
+      ],
+      "interval_p95_median": 114.03235000000222,
+      "interval_max_max": 152.30369999994764,
+      "frame_kib_median": 27.22509765625,
+      "mbps_median": 2.538213575777794,
+      "luma": 106.63277053833008,
+      "attempts": [
+        {
+          "rep": 1,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.353,
+          "frame_kib_p50": 27.23046875,
+          "interval_p95": 114.65229999998883,
+          "interval_max": 137.11779999994178,
+          "mbps": 2.534914024389932,
+          "luma": 106.63277053833008,
+          "dims": "1024x768"
+        },
+        {
+          "rep": 2,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.392,
+          "frame_kib_p50": 27.2197265625,
+          "interval_p95": 113.41240000001562,
+          "interval_max": 152.30369999994764,
+          "mbps": 2.5415131271656564,
+          "luma": null,
+          "dims": "1024x768"
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "set": "auto-gain128x",
+      "values": {
+        "aec": 1,
+        "aec2": 1,
+        "agc": 1,
+        "gainceiling": 6
+      },
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 11.214285714285715,
+      "fps_all": [
+        11.29,
+        11.14
+      ],
+      "interval_p95_median": 113.93665000002784,
+      "interval_max_max": 170.0309999998808,
+      "frame_kib_median": 27.19189453125,
+      "mbps_median": 2.538340014785109,
+      "luma": 106.84741592407227,
+      "attempts": [
+        {
+          "rep": 1,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.39,
+          "frame_kib_p50": 27.193359375,
+          "interval_p95": 119.79070000006686,
+          "interval_max": 154.62070000012318,
+          "mbps": 2.5387957224449984,
+          "luma": 106.84741592407227,
+          "dims": "1024x768"
+        },
+        {
+          "rep": 2,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.142857142857142,
+          "device_fps": 11.392,
+          "frame_kib_p50": 27.1904296875,
+          "interval_p95": 108.08259999998882,
+          "interval_max": 170.0309999998808,
+          "mbps": 2.53788430712522,
+          "luma": null,
+          "dims": "1024x768"
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "set": "manual-e300-g0",
+      "values": {
+        "aec": 0,
+        "aec2": 0,
+        "aec_value": 300,
+        "agc": 0,
+        "agc_gain": 0
+      },
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 10.928571428571427,
+      "fps_all": [
+        11.14,
+        10.71
+      ],
+      "interval_p95_median": 137.2849499998665,
+      "interval_max_max": 209.29190000015296,
+      "frame_kib_median": 26.07080078125,
+      "mbps_median": 2.390163856770141,
+      "luma": 92.97084299723308,
+      "attempts": [
+        {
+          "rep": 1,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.142857142857142,
+          "device_fps": 11.393,
+          "frame_kib_p50": 26.0634765625,
+          "interval_p95": 109.76659999982985,
+          "interval_max": 142.81530000016573,
+          "mbps": 2.434328587179492,
+          "luma": 92.97084299723308,
+          "dims": "1024x768"
+        },
+        {
+          "rep": 2,
+          "valid": true,
+          "reasons": [],
+          "fps": 10.714285714285714,
+          "device_fps": 10.978,
+          "frame_kib_p50": 26.078125,
+          "interval_p95": 164.80329999990317,
+          "interval_max": 209.29190000015296,
+          "mbps": 2.3459991263607898,
+          "luma": null,
+          "dims": "1024x768"
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "set": "manual-e600-g10",
+      "values": {
+        "aec": 0,
+        "aec2": 0,
+        "aec_value": 600,
+        "agc": 0,
+        "agc_gain": 10
+      },
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 11.285714285714286,
+      "fps_all": [
+        11.29,
+        11.29
+      ],
+      "interval_p95_median": 106.99655000007624,
+      "interval_max_max": 130.0800999999865,
+      "frame_kib_median": 19.81591796875,
+      "mbps_median": 1.856689745566598,
+      "luma": 242.3836530049642,
+      "attempts": [
+        {
+          "rep": 1,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.476,
+          "frame_kib_p50": 19.8193359375,
+          "interval_p95": 104.49540000013258,
+          "interval_max": 130.0800999999865,
+          "mbps": 1.8639527791752268,
+          "luma": 242.3836530049642,
+          "dims": "1024x768"
+        },
+        {
+          "rep": 2,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.384,
+          "frame_kib_p50": 19.8125,
+          "interval_p95": 109.4977000000199,
+          "interval_max": 119.6320999999898,
+          "mbps": 1.8494267119579693,
+          "luma": null,
+          "dims": "1024x768"
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "set": "manual-e1000-g20",
+      "values": {
+        "aec": 0,
+        "aec2": 0,
+        "aec_value": 1000,
+        "agc": 0,
+        "agc_gain": 20
+      },
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 11.214285714285715,
+      "fps_all": [
+        11.29,
+        11.14
+      ],
+      "interval_p95_median": 106.3035500001206,
+      "interval_max_max": 121.31090000002587,
+      "frame_kib_median": 15.7666015625,
+      "mbps_median": 1.4843018685047713,
+      "luma": 253.90996932983398,
+      "attempts": [
+        {
+          "rep": 1,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.285714285714286,
+          "device_fps": 11.479,
+          "frame_kib_p50": 15.7666015625,
+          "interval_p95": 103.52980000016032,
+          "interval_max": 119.71470000003137,
+          "mbps": 1.4837015652498027,
+          "luma": 253.90996932983398,
+          "dims": "1024x768"
+        },
+        {
+          "rep": 2,
+          "valid": true,
+          "reasons": [],
+          "fps": 11.142857142857142,
+          "device_fps": 11.49,
+          "frame_kib_p50": 15.7666015625,
+          "interval_p95": 109.07730000008087,
+          "interval_max": 121.31090000002587,
+          "mbps": 1.48490217175974,
+          "luma": null,
+          "dims": "1024x768"
+        }
+      ]
+    }
+  ],
+  "notes": []
+}

@@ -1,0 +1,333 @@
+{
+  "label": "block",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 71,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 137695,
+      "min_free_internal": 131803,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 670,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 135859,
+      "min_free_internal": 36771,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 15,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 30,
+      "chunk": 8192,
+      "secs": 30.009,
+      "bytes": 10068992,
+      "mbps": 2.684,
+      "frames": 264,
+      "fps": 8.797,
+      "sends": 528,
+      "slow_sends": 207,
+      "max_send_ms": 317.2,
+      "cam_fail": 0,
+      "free_internal": 135663,
+      "min_free_internal": 36771
+    }
+  },
+  "profiles": [
+    {
+      "profile": "svga q12 @18",
+      "framesize": "svga",
+      "quality": 12,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 22.48148148148148,
+      "fps_all": [
+        22.48,
+        20.56,
+        22.52
+      ],
+      "device_fps_median": 22.57,
+      "frame_bytes_p50": 10179,
+      "frame_bytes_p95": 10192,
+      "interval_ms_p95": 69.48310000007041,
+      "link_mbps_median": 1.8170722859135473,
+      "stalled_seconds_total": 3,
+      "slow_sends_total": 1,
+      "min_free_internal_min": 54395,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-svga-q12-20261009-195053-387353.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-svga-q12-20261009-195133-147640.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-svga-q12-20261009-195213-012409.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "framesize": "xga",
+      "quality": 24,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 11.25925925925926,
+      "fps_all": [
+        11.26,
+        11.26,
+        11.26
+      ],
+      "device_fps_median": 11.317,
+      "frame_bytes_p50": 38126,
+      "frame_bytes_p95": 38126,
+      "interval_ms_p95": 114.8496000000705,
+      "link_mbps_median": 3.4525342643900037,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 29,
+      "min_free_internal_min": 40783,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-xga-q24-20261009-195252-977696.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-xga-q24-20261009-195332-835860.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-xga-q24-20261009-195412-600484.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "sxga q24 @18",
+      "framesize": "sxga",
+      "quality": 24,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 11.25925925925926,
+      "fps_all": [
+        11.26,
+        11.26,
+        11.26
+      ],
+      "device_fps_median": 11.323,
+      "frame_bytes_p50": 38126,
+      "frame_bytes_p95": 38126,
+      "interval_ms_p95": 115.37849999967875,
+      "link_mbps_median": 3.4574627401564015,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 29,
+      "min_free_internal_min": 40783,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-sxga-q24-20261009-195452-417335.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-sxga-q24-20261009-195533-020318.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-sxga-q24-20261009-195612-807911.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q36 @18",
+      "framesize": "uxga",
+      "quality": 36,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 11.25925925925926,
+      "fps_all": [
+        11.23,
+        11.26,
+        11.26
+      ],
+      "device_fps_median": 11.323,
+      "frame_bytes_p50": 38126,
+      "frame_bytes_p95": 38126,
+      "interval_ms_p95": 130.04039999987071,
+      "link_mbps_median": 3.4545969957347933,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 110,
+      "min_free_internal_min": 40783,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-uxga-q36-20261009-195652-587216.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-uxga-q36-20261009-195732-347102.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-uxga-q36-20261009-195812-130689.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @18",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 18,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 11.222222222222221,
+      "fps_all": [
+        11.22,
+        11.26,
+        9.15
+      ],
+      "device_fps_median": 11.287,
+      "frame_bytes_p50": 38132,
+      "frame_bytes_p95": 38134,
+      "interval_ms_p95": 126.3546000000133,
+      "link_mbps_median": 3.441772594484465,
+      "stalled_seconds_total": 1,
+      "slow_sends_total": 260,
+      "min_free_internal_min": 36771,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-uxga-q16-20261009-195851-366850.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-uxga-q16-20261009-195931-218749.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-block-uxga-q16-20261009-200011-324349.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

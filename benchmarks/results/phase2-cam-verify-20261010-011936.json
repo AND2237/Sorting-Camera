@@ -1,0 +1,314 @@
+{
+  "label": "verify",
+  "expect": "baseline",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 437,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 160,
+      "flash_freq": "40m",
+      "flash_mode_cfg": "not-qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 5760,
+      "tcp_wnd": 5760,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 0,
+      "freertos_in_flash": 0
+    },
+    "runtime": {
+      "flash_io": "dio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 138139,
+      "min_free_internal": 131699,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 619,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 160,
+      "flash_freq": "40m",
+      "flash_mode_cfg": "not-qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 5760,
+      "tcp_wnd": 5760,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 0,
+      "freertos_in_flash": 0
+    },
+    "runtime": {
+      "flash_io": "dio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 134759,
+      "min_free_internal": 111419,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 9,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 10,
+      "chunk": 8192,
+      "secs": 10.031,
+      "bytes": 4161712,
+      "mbps": 3.319,
+      "frames": 109,
+      "fps": 10.867,
+      "sends": 218,
+      "slow_sends": 102,
+      "max_send_ms": 208.7,
+      "cam_fail": 0,
+      "free_internal": 134335,
+      "min_free_internal": 111419
+    }
+  },
+  "profiles": [
+    {
+      "profile": "svga q12 @18",
+      "framesize": "svga",
+      "quality": 12,
+      "xclk": 18,
+      "valid_reps": 1,
+      "reps_wanted": 1,
+      "fps_median": 22.5,
+      "fps_all": [
+        22.5
+      ],
+      "device_fps_median": 22.631,
+      "frame_bytes_p50": 10294,
+      "frame_bytes_p95": 10326,
+      "interval_ms_p95": 73.09649999979229,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-verify-svga-q12.jpg",
+      "link_mbps_median": 1.8631245061920665,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 2,
+      "min_free_internal_min": 114443,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-verify-svga-q12-20261010-011952-438562.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "xga q24 @18",
+      "framesize": "xga",
+      "quality": 24,
+      "xclk": 18,
+      "valid_reps": 0,
+      "reps_wanted": 1,
+      "fps_median": null,
+      "fps_all": [],
+      "device_fps_median": null,
+      "frame_bytes_p50": null,
+      "frame_bytes_p95": null,
+      "interval_ms_p95": null,
+      "actual_dims": [
+        null
+      ],
+      "eoi_ok_pct_min": null,
+      "sample": null,
+      "link_mbps_median": null,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 0,
+      "min_free_internal_min": null,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": false,
+          "file": "cam-verify-xga-q24-20261010-012012-400968.json",
+          "reasons": [
+            "frames are really {'1600x1200': 107}, not the requested 1024x768 - the sensor is not producing the requested mode"
+          ]
+        },
+        {
+          "rep": 1,
+          "attempt": 2,
+          "valid": false,
+          "file": "cam-verify-xga-q24-20261010-012032-440283.json",
+          "reasons": [
+            "frames are really {'1600x1200': 107}, not the requested 1024x768 - the sensor is not producing the requested mode"
+          ]
+        },
+        {
+          "rep": 1,
+          "attempt": 3,
+          "valid": false,
+          "file": "cam-verify-xga-q24-20261010-012052-348572.json",
+          "reasons": [
+            "frames are really {'1600x1200': 110}, not the requested 1024x768 - the sensor is not producing the requested mode"
+          ]
+        }
+      ]
+    },
+    {
+      "profile": "sxga q24 @18",
+      "framesize": "sxga",
+      "quality": 24,
+      "xclk": 18,
+      "valid_reps": 0,
+      "reps_wanted": 1,
+      "fps_median": null,
+      "fps_all": [],
+      "device_fps_median": null,
+      "frame_bytes_p50": null,
+      "frame_bytes_p95": null,
+      "interval_ms_p95": null,
+      "actual_dims": [
+        null
+      ],
+      "eoi_ok_pct_min": null,
+      "sample": null,
+      "link_mbps_median": null,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 0,
+      "min_free_internal_min": null,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": false,
+          "file": "cam-verify-sxga-q24-20261010-012112-464377.json",
+          "reasons": [
+            "frames are really {'1600x1200': 102}, not the requested 1280x1024 - the sensor is not producing the requested mode"
+          ]
+        },
+        {
+          "rep": 1,
+          "attempt": 2,
+          "valid": false,
+          "file": "cam-verify-sxga-q24-20261010-012133-383973.json",
+          "reasons": [
+            "frames are really {'1600x1200': 94}, not the requested 1280x1024 - the sensor is not producing the requested mode"
+          ]
+        },
+        {
+          "rep": 1,
+          "attempt": 3,
+          "valid": false,
+          "file": "cam-verify-sxga-q24-20261010-012154-204519.json",
+          "reasons": [
+            "frames are really {'1600x1200': 111}, not the requested 1280x1024 - the sensor is not producing the requested mode"
+          ]
+        }
+      ]
+    },
+    {
+      "profile": "uxga q36 @18",
+      "framesize": "uxga",
+      "quality": 36,
+      "xclk": 18,
+      "valid_reps": 1,
+      "reps_wanted": 1,
+      "fps_median": 11.0,
+      "fps_all": [
+        11.0
+      ],
+      "device_fps_median": 10.983,
+      "frame_bytes_p50": 38145,
+      "frame_bytes_p95": 38145,
+      "interval_ms_p95": 169.87909999988915,
+      "actual_dims": [
+        "1600x1200"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-verify-uxga-q36.jpg",
+      "link_mbps_median": 3.350481395182512,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 99,
+      "min_free_internal_min": 111419,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-verify-uxga-q36-20261010-012214-217545.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @18",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 18,
+      "valid_reps": 1,
+      "reps_wanted": 1,
+      "fps_median": 10.875,
+      "fps_all": [
+        10.88
+      ],
+      "device_fps_median": 10.867,
+      "frame_bytes_p50": 38173,
+      "frame_bytes_p95": 38175,
+      "interval_ms_p95": 158.06870000005802,
+      "actual_dims": [
+        "1600x1200"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-verify-uxga-q16.jpg",
+      "link_mbps_median": 3.318458409196737,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 102,
+      "min_free_internal_min": 111419,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-verify-uxga-q16-20261010-012233-519129.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

@@ -130,11 +130,12 @@ benchmarks/  benchmark harnesses and raw JSON results
 | [`docs/protocol.md`](docs/protocol.md) | wire formats, control API, discovery, versioning |
 | [`docs/testing.md`](docs/testing.md) | every suite, the live-device variables, mandatory §33 cases |
 | [`docs/performance.md`](docs/performance.md) | targets (not measurements) |
+| [`docs/performance-workplan.md`](docs/performance-workplan.md) | step-by-step plan to the best resolution x quality x fps; defects found; network bench |
 | [`docs/benchmark-results.md`](docs/benchmark-results.md) | the measurements, each traceable to raw JSON in `benchmarks/results/` |
 | [`docs/deployment.md`](docs/deployment.md) | build, package, flash, field update |
 | [`docs/licensing.md`](docs/licensing.md) | dependency and licence report |
 | [`docs/security.md`](docs/security.md) | threat model and controls |
-| [`docs/decisions/`](docs/decisions) | ADRs 0001–0018 |
+| [`docs/decisions/`](docs/decisions) | ADRs 0001–0019 |
 | [`AGENTS.md`](AGENTS.md) | the rules this codebase is built under |
 
 ## Licence
