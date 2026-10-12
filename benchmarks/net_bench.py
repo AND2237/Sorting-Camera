@@ -15,11 +15,17 @@ What each mode answers:
     cam    the same, with real camera frames (length-prefixed): the end-to-end
            rate of capture + send with no HTTP server in the path
 
-Only numbers measured on this PC's socket are reported here. The device's own
-view of the same run (device_mbps, slow_sends, max_send_ms, free internal RAM,
-and the exact sdkconfig the binary was built with) is on the serial console,
-line "bench done" / "build cfg". Copy both into the result record: a number
-without the build config next to it is not usable (ADR-0015).
+No serial console is needed. Before and after every run this client sends the
+device an "INFO" request and stores the reply in the result JSON under "device":
+the exact sdkconfig the binary was built with, the radio and flash mode read
+back at run time (flash_io shows "qio" only if QIO is really active), the reset
+reason and uptime (a reboot or brownout during a run is detected and the run is
+marked INVALID), and the device's own statistics of the run (device Mbps, slow
+sends, longest send, free internal RAM). The PC's rate and the device's rate must
+agree within 5%, or the run is marked INVALID. A number without its build config
+next to it is not usable (ADR-0015); here the two travel in the same file.
+
+    python benchmarks/net_bench.py --info-only      # just read the device state
 
 Results are written as JSON to benchmarks/results/net-<label>-<timestamp>.json.
 """
@@ -65,19 +71,53 @@ def dist(values):
     }
 
 
-class FrameParser:
-    """Counts length-prefixed frames out of a TCP byte stream without copying
-    the payload: it only needs the 8-byte headers, so payload bytes are skipped
-    by count. Anything that is not a valid header is counted as a protocol error
-    and stops parsing - a desynchronised stream cannot be trusted afterwards."""
+HEAD_BYTES = 1024
 
-    def __init__(self):
+
+def jpeg_dims(head):
+    """(width, height) from the first SOF marker of a JPEG header, or None."""
+    n = len(head)
+    if n < 4 or head[0] != 0xFF or head[1] != 0xD8:
+        return None
+    i = 2
+    while i + 9 < n:
+        if head[i] != 0xFF:
+            return None
+        m = head[i + 1]
+        if m in (0xC0, 0xC1, 0xC2):
+            return ((head[i + 7] << 8) | head[i + 8], (head[i + 5] << 8) | head[i + 6])
+        if m == 0xFF:
+            i += 1
+        elif m == 0xD8 or m == 0x01 or 0xD0 <= m <= 0xD7:
+            i += 2
+        else:
+            i += 2 + ((head[i + 2] << 8) | head[i + 3])
+    return None
+
+
+class FrameParser:
+    """Counts length-prefixed frames out of a TCP byte stream without keeping the
+    payload: payload bytes are skipped by count. For every frame it keeps only the
+    first HEAD_BYTES and the last two bytes, to check that the frame is a complete
+    JPEG (starts FFD8, ends FFD9) and to read its real pixel size from the SOF
+    marker. Optionally keeps ONE whole frame (a sample) for inspection. Anything
+    that is not a valid header is a protocol error and stops parsing - a
+    desynchronised stream cannot be trusted afterwards."""
+
+    def __init__(self, want_sample=False, sample_after=5):
         self.hdr = bytearray()
         self.skip = 0
         self.cur_len = 0
         self.frames = []  # (arrival_time, payload_len)
+        self.integrity = []  # (soi_ok, eoi_ok, (w, h) or None), parallel to frames
         self.errors = 0
         self.desync = False
+        self.head = bytearray()
+        self.tail = b""
+        self.want_sample = want_sample
+        self.sample_after = sample_after
+        self.sample = None
+        self.keep = None
 
     def feed(self, data, now):
         i = 0
@@ -85,10 +125,22 @@ class FrameParser:
         while i < n and not self.desync:
             if self.skip:
                 take = min(self.skip, n - i)
+                chunk = data[i:i + take]
+                if len(self.head) < HEAD_BYTES:
+                    self.head += chunk[:HEAD_BYTES - len(self.head)]
+                self.tail = (self.tail + bytes(chunk[-2:]))[-2:]
+                if self.keep is not None:
+                    self.keep += chunk
                 self.skip -= take
                 i += take
                 if self.skip == 0:
                     self.frames.append((now, self.cur_len))
+                    head = bytes(self.head)
+                    soi = len(head) >= 2 and head[0] == 0xFF and head[1] == 0xD8
+                    self.integrity.append((soi, self.tail == b"\xff\xd9", jpeg_dims(head)))
+                    if self.keep is not None:
+                        self.sample = bytes(self.keep)
+                        self.keep = None
                 continue
             need = FRAME_HDR.size - len(self.hdr)
             take = min(need, n - i)
@@ -103,9 +155,98 @@ class FrameParser:
                     return
                 self.cur_len = length
                 self.skip = length
+                self.head = bytearray()
+                self.tail = b""
+                if self.want_sample and self.sample is None and len(self.frames) >= self.sample_after:
+                    self.keep = bytearray()
+
+
+RESET_REASON_NAMES = {0: "unknown", 1: "power-on", 2: "external pin", 3: "software", 4: "panic",
+                      5: "interrupt watchdog", 6: "task watchdog", 7: "other watchdog",
+                      8: "deep sleep", 9: "BROWNOUT", 10: "sdio", 11: "usb", 12: "jtag",
+                      13: "efuse", 14: "power glitch", 15: "cpu lockup"}
+
+
+def query_info(host, port, timeout=6.0):
+    """Asks the bench firmware for its INFO line. Returns (dict, None) or (None, error)."""
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except OSError as exc:
+        return None, f"cannot connect ({exc})"
+    try:
+        sock.settimeout(timeout)
+        sock.sendall(b"INFO\n")
+        data = bytearray()
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if len(data) > 16384:
+                return None, "reply too long"
+    except OSError as exc:
+        return None, f"socket error ({exc})"
+    finally:
+        sock.close()
+    try:
+        return json.loads(data.decode("utf-8", "replace").strip()), None
+    except ValueError as exc:
+        return None, f"reply is not JSON ({exc}): {bytes(data[:80])!r}"
+
+
+def check_device(pre, post, result):
+    """Cross-checks the device's own account of the run against the PC's.
+    Returns a list of problems; any problem makes the run INVALID."""
+    problems = []
+    if pre is None or post is None:
+        return ["device INFO unavailable before or after the run"]
+    if post.get("uptime_s", 0) < pre.get("uptime_s", 0):
+        problems.append(
+            f"DEVICE REBOOTED during the run (uptime {pre.get('uptime_s')} s -> "
+            f"{post.get('uptime_s')} s, reset reason now "
+            f"{RESET_REASON_NAMES.get(post.get('reset_reason'), post.get('reset_reason'))})")
+        return problems
+    last = post.get("last", {})
+    if last.get("runs") != pre.get("last", {}).get("runs", 0) + 1:
+        problems.append("device run counter did not advance by exactly one; the INFO reply does "
+                        "not describe this run")
+        return problems
+    if not last.get("finished"):
+        problems.append("device reports the run as unfinished")
+    if not last.get("ok"):
+        problems.append("device reports a send failure during the run")
+    pc = result["received"]["mean_mbps_whole_run"]
+    dev = last.get("mbps") or 0.0
+    if dev > 0 and pc > 0:
+        diff = abs(pc - dev) / dev * 100.0
+        result["device_vs_pc_mbps_diff_pct"] = diff
+        if diff > 5.0:
+            problems.append(f"PC rate {pc:.2f} Mbps and device rate {dev:.2f} Mbps differ by "
+                            f"{diff:.1f}% (limit 5%)")
+    return problems
+
+
+def print_info(info, title):
+    b = info.get("build", {})
+    r = info.get("runtime", {})
+    print(f"--- {title} ---")
+    print(f"firmware      cpu {b.get('cpu_mhz')} MHz | flash {b.get('flash_freq')} cfg={b.get('flash_mode_cfg')} "
+          f"RUNTIME io={r.get('flash_io')} id={r.get('flash_id')} size={r.get('flash_size')} | "
+          f"psram {b.get('psram_mhz')} MHz | camera {'on' if info.get('camera_enabled') else 'off'}")
+    print(f"lwip/wifi     tcp snd/wnd {b.get('tcp_snd_buf')}/{b.get('tcp_wnd')} | wifi rx/tx buf "
+          f"{b.get('wifi_rx_buf')}/{b.get('wifi_tx_buf')} | iram wifi={b.get('wifi_iram')} "
+          f"rx={b.get('wifi_rx_iram')} lwip={b.get('lwip_iram')} | freertos in flash={b.get('freertos_in_flash')}")
+    print(f"radio         protocol bitmap {r.get('protocol_bitmap')} (b=1 g=2 n=4) | {r.get('bandwidth')} | "
+          f"channel {r.get('channel')} | max tx power {r.get('max_tx_power_q')} (x0.25 dBm)")
+    print(f"health        uptime {info.get('uptime_s')} s | reset reason "
+          f"{RESET_REASON_NAMES.get(info.get('reset_reason'), info.get('reset_reason'))} | free internal "
+          f"{r.get('free_internal')} (min ever {r.get('min_free_internal')}) | free psram {r.get('free_spiram')}")
 
 
 def run(args):
+    pre_info, pre_err = query_info(args.host, args.port)
+    if pre_info is None:
+        print(f"WARNING       no INFO before the run: {pre_err}")
     try:
         sock = socket.create_connection((args.host, args.port), timeout=args.connect_timeout)
     except OSError as exc:
@@ -118,7 +259,8 @@ def run(args):
 
     buf = bytearray(RECV_BUF)
     view = memoryview(buf)
-    parser = FrameParser() if args.mode == "cam" else None
+    sample_path = getattr(args, "sample_path", None)
+    parser = FrameParser(want_sample=bool(sample_path)) if args.mode == "cam" else None
 
     total = 0
     t_first = None
@@ -196,7 +338,33 @@ def run(args):
             "protocol_errors": parser.errors,
             "desynchronised": parser.desync,
         }
+        integ = parser.integrity
+        dims_count = {}
+        for _, _, d in integ:
+            key = f"{d[0]}x{d[1]}" if d else "unparsed"
+            dims_count[key] = dims_count.get(key, 0) + 1
+        nint = len(integ)
+        result["frames"]["jpeg"] = {
+            "frames_checked": nint,
+            "soi_ok_pct": (100.0 * sum(1 for a, _, _ in integ if a) / nint) if nint else None,
+            "eoi_ok_pct": (100.0 * sum(1 for _, b, _ in integ if b) / nint) if nint else None,
+            "dims": dims_count,
+            "dominant_dims": max(dims_count, key=dims_count.get) if dims_count else None,
+            "sample": None,
+        }
+        if sample_path and parser.sample:
+            Path(sample_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(sample_path).write_bytes(parser.sample)
+            result["frames"]["jpeg"]["sample"] = str(sample_path)
 
+    # Settle, then ask the device for its own account of the run.
+    time.sleep(0.5)
+    post_info, post_err = query_info(args.host, args.port)
+    result["device"] = {"before": pre_info, "after": post_info,
+                        "before_error": pre_err, "after_error": post_err}
+    problems = check_device(pre_info, post_info, result)
+    result["valid"] = not problems
+    result["invalid_reasons"] = problems
     return result
 
 
@@ -233,8 +401,31 @@ def print_report(r):
             print(f"frame bytes   p50 {fb['p50']:.0f} | p95 {fb['p95']:.0f} | max {fb['max']:.0f}")
         if iv.get("n"):
             print(f"interval ms   p50 {iv['p50']:.1f} | p95 {iv['p95']:.1f} | max {iv['max']:.1f}")
+        jp = fr.get("jpeg")
+        if jp and jp.get("frames_checked"):
+            print(f"jpeg          actual size {jp['dims']} | start ok {jp['soi_ok_pct']:.1f}% | "
+                  f"end marker ok {jp['eoi_ok_pct']:.1f}%" + (f" | sample {jp['sample']}" if jp.get("sample") else ""))
         if fr["protocol_errors"]:
             print(f"PROTOCOL ERRORS {fr['protocol_errors']} (stream desynchronised)")
+    dev = r.get("device", {})
+    after = dev.get("after")
+    if after:
+        last = after.get("last", {})
+        print(f"device says   {last.get('mbps')} Mbps | {last.get('frames')} frames "
+              f"({last.get('fps')} fps) | slow_sends {last.get('slow_sends')} | max_send "
+              f"{last.get('max_send_ms')} ms | free internal now {last.get('free_internal')} "
+              f"(min ever {last.get('min_free_internal')})")
+        if "device_vs_pc_mbps_diff_pct" in r:
+            print(f"cross-check   PC vs device rate differ by {r['device_vs_pc_mbps_diff_pct']:.1f}%")
+        print_info(after, "device state after the run")
+    elif dev.get("after_error"):
+        print(f"device INFO   unavailable: {dev['after_error']}")
+    if r.get("valid"):
+        print("RESULT        VALID")
+    else:
+        print("RESULT        INVALID")
+        for why in r.get("invalid_reasons", []):
+            print(f"              - {why}")
     print()
 
 
@@ -253,7 +444,18 @@ def main():
     ap.add_argument("--recv-timeout", type=float, default=8.0)
     ap.add_argument("--out-dir", default=str(Path(__file__).resolve().parent / "results"))
     ap.add_argument("--no-save", action="store_true")
+    ap.add_argument("--info-only", action="store_true",
+                    help="only read the device's INFO (build config, radio, flash mode, reset reason)")
     args = ap.parse_args()
+
+    if args.info_only:
+        info, err = query_info(args.host, args.port)
+        if info is None:
+            raise SystemExit(f"INFO failed: {err}. Is the PC joined to the camera's Wi-Fi and the "
+                             "board flashed with CONFIG_SORTING_CAM_NET_BENCH=y?")
+        print_info(info, f"device state ({args.host}:{args.port})")
+        print(json.dumps(info))
+        return 0
 
     if not 1 <= args.seconds <= 300:
         ap.error("--seconds must be 1..300")
