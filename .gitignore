@@ -46,6 +46,10 @@ logs/
 recordings/
 snapshots/
 
+# ---- Measurement pictures (show the owner's home; never commit) ----
+benchmarks/results/*.jpg
+/snap*.jpg
+
 # ---- OS / editor ----
 .DS_Store
 Thumbs.db
