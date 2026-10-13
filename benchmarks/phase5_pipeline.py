@@ -95,8 +95,8 @@ def raw_request(host, path, port=80, timeout=4.0, method="GET", body=None, token
             except ValueError:
                 parsed = None
         return status, parsed, text
-    except Exception:
-        return 0, None, ""
+    except Exception as exc:
+        return 0, None, str(exc)
 
 
 def authenticate(host, password, port=80, timeout=4.0):
