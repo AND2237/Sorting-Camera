@@ -1,0 +1,420 @@
+{
+  "label": "xclk-detail",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 758,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 138183,
+      "min_free_internal": 100787,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 378,
+    "reset_reason": 4,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 130519,
+      "min_free_internal": 45775,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 6,
+      "finished": 1,
+      "ok": 0,
+      "mode": "cam",
+      "secs_req": 20,
+      "chunk": 8192,
+      "secs": 19.078,
+      "bytes": 8,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 2,
+      "slow_sends": 0,
+      "max_send_ms": 4.7,
+      "cam_fail": 4,
+      "free_internal": 130187,
+      "min_free_internal": 45775
+    }
+  },
+  "profiles": [
+    {
+      "profile": "uxga q16 @18",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 18,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 10.441176470588236,
+      "fps_all": [
+        9.65,
+        11.24
+      ],
+      "device_fps_median": 10.655999999999999,
+      "frame_bytes_p50": 66225.0,
+      "frame_bytes_p95": 78674.5,
+      "interval_ms_p95": 162.61739999993097,
+      "actual_dims": [
+        "1600x1200"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-xclk-detail-uxga-q16.jpg",
+      "link_mbps_median": 5.779447844319137,
+      "stalled_seconds_total": 2,
+      "slow_sends_total": 119,
+      "min_free_internal_min": 46931,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-uxga-q16-20261013-211409-255768.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-uxga-q16-20261013-211443-984521.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @20",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 20,
+      "valid_reps": 1,
+      "reps_wanted": 2,
+      "fps_median": 12.529411764705882,
+      "fps_all": [
+        12.53
+      ],
+      "device_fps_median": 12.555,
+      "frame_bytes_p50": 60418,
+      "frame_bytes_p95": 62234,
+      "interval_ms_p95": 106.75470000001042,
+      "actual_dims": [
+        "1600x1200"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-xclk-detail-uxga-q16.jpg",
+      "link_mbps_median": 6.049757517529891,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 8,
+      "min_free_internal_min": 46871,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-uxga-q16-20261013-211513-724626.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @22",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 22,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 5.970588235294118,
+      "fps_all": [
+        5.88,
+        6.06
+      ],
+      "device_fps_median": 5.9475,
+      "frame_bytes_p50": 233539.0,
+      "frame_bytes_p95": 237515.5,
+      "interval_ms_p95": 278.16789999997127,
+      "actual_dims": [
+        "1600x1200"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-xclk-detail-uxga-q16.jpg",
+      "link_mbps_median": 11.130292557126815,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 240,
+      "min_free_internal_min": 43663,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-uxga-q16-20261013-211606-576674.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-uxga-q16-20261013-211637-325488.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @24",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 24,
+      "valid_reps": 0,
+      "reps_wanted": 2,
+      "fps_median": null,
+      "fps_all": [],
+      "device_fps_median": null,
+      "frame_bytes_p50": null,
+      "frame_bytes_p95": null,
+      "interval_ms_p95": null,
+      "actual_dims": [
+        null
+      ],
+      "eoi_ok_pct_min": null,
+      "sample": null,
+      "link_mbps_median": null,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 0,
+      "min_free_internal_min": null,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "error": "cannot read config back"
+        }
+      ]
+    },
+    {
+      "profile": "xga q12 @18",
+      "framesize": "xga",
+      "quality": 12,
+      "xclk": 18,
+      "valid_reps": 0,
+      "reps_wanted": 2,
+      "fps_median": null,
+      "fps_all": [],
+      "device_fps_median": null,
+      "frame_bytes_p50": null,
+      "frame_bytes_p95": null,
+      "interval_ms_p95": null,
+      "actual_dims": [
+        null
+      ],
+      "eoi_ok_pct_min": null,
+      "sample": null,
+      "link_mbps_median": null,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 0,
+      "min_free_internal_min": null,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "error": "config POST failed (HTTP 0): [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time"
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "error": "config POST failed (HTTP 0): [WinError 10060] A connection attempt failed because the connected party did not properly respond after a period of time"
+        }
+      ]
+    },
+    {
+      "profile": "xga q12 @20",
+      "framesize": "xga",
+      "quality": 12,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 12.470588235294118,
+      "fps_all": [
+        12.47,
+        12.47
+      ],
+      "device_fps_median": 12.643,
+      "frame_bytes_p50": 30479.5,
+      "frame_bytes_p95": 30623.5,
+      "interval_ms_p95": 88.5118500000317,
+      "actual_dims": [
+        "1024x768"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-xclk-detail-xga-q12.jpg",
+      "link_mbps_median": 3.082452328876406,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 1,
+      "min_free_internal_min": 59959,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-xga-q12-20261013-212108-789409.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-xga-q12-20261013-212139-332464.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "xga q12 @22",
+      "framesize": "xga",
+      "quality": 12,
+      "xclk": 22,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 13.794117647058824,
+      "fps_all": [
+        13.76,
+        13.82
+      ],
+      "device_fps_median": 13.8655,
+      "frame_bytes_p50": 60565.5,
+      "frame_bytes_p95": 61823.0,
+      "interval_ms_p95": 84.63759999995091,
+      "actual_dims": [
+        "1024x768"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "D:\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-xclk-detail-xga-q12.jpg",
+      "link_mbps_median": 6.723861079285161,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 2,
+      "min_free_internal_min": 45775,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-xga-q12-20261013-212208-959167.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-xclk-detail-xga-q12-20261013-212240-640196.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "xga q12 @24",
+      "framesize": "xga",
+      "quality": 12,
+      "xclk": 24,
+      "valid_reps": 0,
+      "reps_wanted": 2,
+      "fps_median": null,
+      "fps_all": [],
+      "device_fps_median": null,
+      "frame_bytes_p50": null,
+      "frame_bytes_p95": null,
+      "interval_ms_p95": null,
+      "actual_dims": [
+        null
+      ],
+      "eoi_ok_pct_min": null,
+      "sample": null,
+      "link_mbps_median": null,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 0,
+      "min_free_internal_min": null,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        }
+      ]
+    }
+  ]
+}

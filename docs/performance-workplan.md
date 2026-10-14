@@ -30,7 +30,7 @@ A profile is accepted only if, on the fixed test scene of phase 0, over a 20-min
 | F2 | On the 11.25 plateau the frame size ranges 22.8 KB (XGA q36) to 46.9 KB (SXGA q24), i.e. 2.0 to 4.2 Mbps, with the same fps. So the plateau is not a byte-rate cap. (The Phase 4 note that calls it a "Wi-Fi byte-rate cap" is contradicted by this, and by the later Phase 5 analysis.) | **[derived]** from Phase 4 tables |
 | F3 | SVGA q36, XCLK 18 -> 27 MHz: 22.4 -> 33.6 fps (x1.50 for x1.50 clock); 20 MHz is a reproducible dip (18.6). | XCLK sweep **[measured]** |
 | F4 | HD q12: XCLK 18 -> 7.7 fps, 20 -> 5.9, 22 -> 2.2 (frames inflate 58 KB -> 246 KB), 24+ -> no frames. HD is capped at 20 MHz in firmware. | XCLK sweep **[measured]** |
-| F5 | XCLK ceilings for XGA, SXGA and UXGA were **never measured**; `camera_xclk_max_mhz()` returns 27 for them and every profile defaults to 18 MHz. | `camera.c`, `app.h` |
+| F5 | XCLK ceilings for XGA/SXGA/UXGA measured 2026-10-13 (ADR-0020): 20 MHz usable, 22 MHz corrupt, 24 MHz stream stops and device panics. `camera_xclk_max_mhz()` now returns 20 for HD/XGA/SXGA/UXGA; every profile defaults to 18 MHz. | `camera.c`, XCLK sweep 2026-10-13 **[measured]** |
 | F6 | In the large-frame regime the frame interval is linear in frame size at about 2.2 ms/KiB (HD, 18 MHz). UXGA data gives 1.85 to 2.1 ms/KiB for q12 to q36 (q4: 2.9). | Phase 5 **[measured]**; UXGA slope **[derived]** |
 | F7 | UXGA at 18 MHz: 1.04 / 3.82 / 7.45 / 9.81 fps for q4 / q12 / q24 / q36, frames 344 / 130 / 71 / 56 KB. | Phase 4 envelope **[measured]** |
 | F8 | Same config gives 7.7 to 11.3 fps on different days; frame size drifts up to 2x with the scene (UXGA q12: 128,659 B vs 259,471 B). | `camera.c` comment, Phase 5 **[measured]** |
@@ -80,6 +80,7 @@ Evidence: `app.h` `CAM_DEFAULT_XCLK_HZ 18000000` for every mode; `camera_xclk_ma
 the HD result. Under the working model, XCLK is the lever that moves the 11.25 plateau. Fix: phase 3
 step 3.1 measures it, step 5.1 stores one clean XCLK per resolution. Risk: noise inflation and a
 no-frames state at too high a clock (F4); the existing recovery guard covers it.
+Status: ceiling applied; 20 MHz soak pending.
 
 **D3. Clean XCLK headroom is probably limited by signal or supply integrity, not by the sensor.**
 Evidence: the failure signature at high XCLK is JPEG inflation (58 KB -> 246 KB, "noise"), and

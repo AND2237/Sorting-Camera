@@ -14,6 +14,7 @@ Check the sensor first, then measure.
     python benchmarks/sensor_tool.py --fix-exposure          # only aec, aec2, agc, awb, awb_gain on
     python benchmarks/sensor_tool.py --set "gainceiling=4,brightness=1"
     python benchmarks/sensor_tool.py --snapshot snap.jpg     # save one frame, report its brightness
+    python benchmarks/sensor_tool.py --status                # uptime, reset reason, free RAM, camera counters
 
 Controls set here are saved by the device to its NVS and restored after every camera
 re-initialisation (frame-size change, recovery), so they hold for later test runs.
@@ -169,6 +170,8 @@ def main():
     ap.add_argument("--password", default=None)
     ap.add_argument("--no-auth", action="store_true")
     ap.add_argument("--info", action="store_true", help="print the sensor controls")
+    ap.add_argument("--status", action="store_true",
+                    help="print the device status: uptime, reset reason, free internal RAM, camera counters")
     ap.add_argument("--fix-exposure", action="store_true",
                     help="switch automatic exposure, exposure2, gain and white balance on")
     ap.add_argument("--restore-defaults", action="store_true",
@@ -176,7 +179,8 @@ def main():
     ap.add_argument("--set", default=None, help='controls to set, e.g. "gainceiling=4,brightness=1"')
     ap.add_argument("--snapshot", default=None, metavar="FILE", help="save one frame and check it")
     args = ap.parse_args()
-    if not (args.info or args.fix_exposure or args.restore_defaults or args.set or args.snapshot):
+    if not (args.info or args.status or args.fix_exposure or args.restore_defaults or args.set
+            or args.snapshot):
         args.info = True
 
     password = None if args.no_auth else p5.read_password(args.password)
@@ -192,6 +196,19 @@ def main():
     s, sens, text = api.json("GET", "/api/v1/sensor")
     if s != 200 or not sens:
         raise SystemExit(f"cannot read sensor controls (HTTP {s}) {text[:100]}")
+
+    if args.status:
+        c, st, ctext = api.json("GET", "/api/v1/status")
+        if c != 200 or not st:
+            raise SystemExit(f"cannot read the device status (HTTP {c}) {ctext[:100]}")
+        for k in sorted(st):
+            print(f"  {k:<24} {st[k]}")
+        if isinstance(st.get("free_heap"), int) and isinstance(st.get("free_spiram"), int):
+            print(f"  {'free internal RAM':<24} {st['free_heap'] - st['free_spiram']}  "
+                  "(free_heap - free_spiram; the stream needs this to stay well above zero)")
+        rr = st.get("reset_reason")
+        if rr is not None:
+            print(f"  {'reset reason (decoded)':<24} {nb.RESET_REASON_NAMES.get(rr, rr)}")
 
     if args.info:
         show_sensor(sens)

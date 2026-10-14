@@ -1003,3 +1003,46 @@ and gave smaller frames (15.7 to 19.8 KiB against 25.6 to 27.2 KiB). The lamp
 changed brightness by at most 7 points. The low fps of the 2026-10-11
 wall-corner run was not reproduced in this scene; no dim condition was tested.
 
+## XCLK sweep, detailed scene, NC (2026-10-13)
+
+Source: `benchmarks/results/phase2-cam-xclk-detail-20261013-211343.json`
+(`--label xclk-detail --expect new`), produced by `benchmarks/phase2_cam.py`
+on 2026-10-13. Bench firmware NC (240 MHz, tuning block): cpu 240,
+flash qio/80m/qio; fixed manual exposure 300/0; dark detailed scene; 20 s runs,
+2 repetitions per profile. `real size` is the dominant frame size read from the
+JPEG headers.
+
+| profile | valid reps | fps PC | all reps | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal | real size | end-marker ok % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| uxga q16 @18 | 2/2 | 10.44 | [9.65, 11.24] | 10.66 | 64.7 / 76.8 | 162.6 | 5.78 | 2 | 119 | 46931 | 1600x1200 | 100.0 |
+| uxga q16 @20 | 1/2 | 12.53 | [12.53] | 12.55 | 59.0 / 60.8 | 106.8 | 6.05 | 0 | 8 | 46871 | 1600x1200 | 100.0 |
+| uxga q16 @22 | 2/2 | 5.97 | [5.88, 6.06] | 5.95 | 228.1 / 231.9 | 278.2 | 11.13 | 0 | 240 | 43663 | 1600x1200 | 100.0 |
+| uxga q16 @24 | 0/2 | - | [] | - | - / - | - | - | 0 | 0 | None | None | - |
+| xga q12 @18 | 0/2 | - | [] | - | - / - | - | - | 0 | 0 | None | None | - |
+| xga q12 @20 | 2/2 | 12.47 | [12.47, 12.47] | 12.64 | 29.8 / 29.9 | 88.5 | 3.08 | 0 | 1 | 59959 | 1024x768 | 100.0 |
+| xga q12 @22 | 2/2 | 13.79 | [13.76, 13.82] | 13.87 | 59.1 / 60.4 | 84.6 | 6.72 | 0 | 2 | 45775 | 1024x768 | 100.0 |
+| xga q12 @24 | 0/2 | - | [] | - | - / - | - | - | 0 | 0 | None | None | - |
+
+INFO (before → after): cpu_mhz 240; flash_mode_cfg "qio", flash_freq 80m,
+runtime.flash_io qio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth HT40,
+channel 1, max_tx_power_q 78; reset_reason 1 (power-on) → panic;
+uptime_s 758 → 378.
+
+Failed attempts:
+
+- uxga q16 @20 rep 2 try 1: no data received (recv timeout (device stopped sending))
+- uxga q16 @24 rep 1 try 1: no data received (recv timeout (device stopped sending))
+- uxga q16 @24 rep 2 try 1: cannot read config back
+- xga q12 @18 rep 1 try 1: config POST failed (HTTP 0, device unreachable)
+- xga q12 @18 rep 2 try 1: config POST failed (HTTP 0, device unreachable)
+- xga q12 @24 rep 1 try 1: no data received (recv timeout (device stopped sending))
+- xga q12 @24 rep 2 try 1: no data received (recv timeout (device stopped sending))
+
+Bench firmware NC (240 MHz, tuning block), fixed manual exposure 300/0 (dark
+scene), 20 s runs. fps followed 11.25 x XCLK/18 (12.47 and 12.53 at 20 MHz).
+At 22 MHz XGA and UXGA frames were 2x to 3.5x larger and the saved pictures
+were noise or did not decode; the runner then marked them valid, which has
+been fixed. At 24 MHz no frames arrived and the device later reported reset
+reason panic (uptime 378 s at the end of the run against 758 s at the start).
+The device was unreachable for the XGA 18 MHz step.
+

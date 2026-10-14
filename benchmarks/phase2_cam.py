@@ -105,6 +105,44 @@ def parse_profiles(spec, default_xclk):
     return out
 
 
+def picture_problems(path):
+    """Checks a saved sample frame. A JPEG can have the right size and end marker and
+    still be garbage (a sensor clock too fast for the board corrupts the data): decode it
+    and measure pixel noise. Needs Pillow; without it nothing is checked here."""
+    if not path or not Path(path).exists():
+        return []
+    try:
+        from PIL import Image, ImageChops, ImageStat  # noqa: PLC0415
+    except ImportError:
+        return []
+    try:
+        im = Image.open(path)
+        im.load()
+        gray = im.convert("L")
+    except Exception as exc:  # noqa: BLE001
+        return [f"the sample picture does not decode ({exc}): corrupt JPEG data"]
+    noise = ImageStat.Stat(ImageChops.difference(gray, ImageChops.offset(gray, 1, 0))).mean[0]
+    if noise > 12.0:
+        return [f"the sample picture is full of noise (adjacent-pixel difference {noise:.1f}, "
+                "normal pictures are below about 8)"]
+    return []
+
+
+def device_alive(args, prev_uptime):
+    """After a failed run: is the device still up, or did it crash and reboot?"""
+    info, err = nb.query_info(args.host, args.port, timeout=6.0)
+    if info is None:
+        time.sleep(8.0)  # a reboot takes a few seconds
+        info, err = nb.query_info(args.host, args.port, timeout=6.0)
+    if info is None:
+        return False, f"the device is unreachable ({err}); it probably crashed or is rebooting"
+    up, rr = info.get("uptime_s", 0), info.get("reset_reason")
+    if prev_uptime is not None and up < prev_uptime:
+        return False, (f"the device REBOOTED (uptime {prev_uptime} -> {up} s, reset reason "
+                       f"{nb.RESET_REASON_NAMES.get(rr, rr)})")
+    return True, None
+
+
 def device_state(ctl):
     """(resolution name, quality, xclk_mhz, recoveries, capture_failures) or None."""
     s1, cfg, _ = ctl.call("GET", "/api/v1/config")
@@ -150,16 +188,28 @@ def main():
     ap.add_argument("--pause", type=float, default=4.0)
     ap.add_argument("--password", default=None)
     ap.add_argument("--no-auth", action="store_true")
+    ap.add_argument("--max-xclk", type=int, default=20,
+                    help="refuse profiles above this sensor clock (MHz); 22 MHz gave corrupt "
+                         "pictures and 24 MHz crashed the device on the tested board")
+    ap.add_argument("--allow-high-xclk", action="store_true", help="override --max-xclk (can crash the device)")
     ap.add_argument("--out-dir", default=str(Path(__file__).resolve().parent / "results"))
     args = ap.parse_args()
 
     profiles = parse_profiles(args.profiles, args.xclk)
+    too_fast = [f"{fs}:{q}:{x}" for fs, q, x in profiles if x > args.max_xclk]
+    if too_fast and not args.allow_high_xclk:
+        raise SystemExit(f"refused: {', '.join(too_fast)} exceed --max-xclk {args.max_xclk} MHz. On the tested "
+                         "board 22 MHz corrupts XGA/UXGA pictures and 24 MHz crashed the device. Pass "
+                         "--allow-high-xclk only if you accept that.")
+    ref_size, ref_xclk, aborted = {}, {}, None
+    last_uptime = None
 
     info, err = nb.query_info(args.host, args.port)
     if info is None:
         raise SystemExit(f"cannot read device INFO: {err}. Joined to the camera's Wi-Fi? Bench "
                          "firmware flashed?")
     nb.print_info(info, "device before the matrix")
+    last_uptime = info.get("uptime_s")
     build = info.get("build", {})
     wrong = [f"{k}: device {build.get(k)!r}, expected {v!r}"
              for k, v in EXPECT[args.expect].items() if build.get(k) != v]
@@ -188,11 +238,17 @@ def main():
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     results = []
     for fs, quality, xclk in profiles:
+        if aborted:
+            break
         print(f"\n=== profile {fs} q{quality} @ {xclk} MHz ===")
         reps_ok, attempts_log = [], []
         for rep in range(1, args.reps + 1):
+            if aborted:
+                break
             got = None
             for attempt in range(1, args.retries + 2):
+                if aborted:
+                    break
                 print(f"\n[{fs} q{quality}] rep {rep} try {attempt} ({args.seconds} s)")
                 applied, aerr = apply_profile(ctl, fs, quality, xclk, args.settle)
                 if applied is None:
@@ -209,12 +265,16 @@ def main():
                 ns = SimpleNamespace(host=args.host, port=args.port, mode="cam",
                                      seconds=args.seconds, chunk=8192, warmup=args.warmup,
                                      label=args.label, connect_timeout=5.0, recv_timeout=10.0,
-                                     sample_path=(out_dir / f"sample-{args.label}-{fs}-q{quality}.jpg")
+                                     sample_path=(out_dir / f"sample-{args.label}-{fs}-q{quality}-x{xclk}.jpg")
                                      if rep == 1 else None)
                 try:
                     r = nb.run(ns)
                 except SystemExit as exc:
                     print(f"   FAILED: {exc}")
+                    alive, why = device_alive(args, last_uptime)
+                    if not alive:
+                        aborted = f"stopped at {fs} q{quality} @{xclk} MHz: {why}"
+                        print(f"   ABORTING THE MATRIX: {why}")
                     attempts_log.append({"rep": rep, "attempt": attempt, "error": str(exc)})
                     time.sleep(args.pause)
                     continue
@@ -233,6 +293,15 @@ def main():
                     if (jp.get("eoi_ok_pct") or 0) < 99.0:
                         problems.append(f"only {jp.get('eoi_ok_pct'):.1f}% of frames end with the "
                                         "JPEG end marker (truncated frames)")
+                p50 = (fr.get("frame_bytes") or {}).get("p50")
+                ref = ref_size.get((fs, quality))
+                if ref and p50 and p50 > 1.4 * ref:
+                    problems.append(f"frames are {p50 / ref:.1f}x the size of the same profile at "
+                                    f"{ref_xclk[(fs, quality)]} MHz: typical of a noisy or corrupted picture")
+                problems += picture_problems(jp.get("sample"))
+                up_now = (r.get("device", {}).get("after") or {}).get("uptime_s")
+                if up_now is not None:
+                    last_uptime = up_now
                 last = (r.get("device", {}).get("after") or {}).get("last", {})
                 if last.get("cam_fail"):
                     problems.append(f"device reported {last['cam_fail']} camera failures")
@@ -241,6 +310,8 @@ def main():
                     problems.append(f"camera recoveries moved by {rec} during the run")
                 if (after["fs"], after["quality"], after["xclk"]) != (before["fs"], before["quality"], before["xclk"]):
                     problems.append("camera configuration changed during the run")
+                if not problems and p50 and (fs, quality) not in ref_size:
+                    ref_size[(fs, quality)], ref_xclk[(fs, quality)] = p50, xclk
                 r["profile"] = {"framesize": fs, "quality": quality, "xclk": xclk}
                 r["valid"] = not problems
                 r["invalid_reasons"] = problems
@@ -323,6 +394,8 @@ def main():
                          f"{a.get('error') or '; '.join(a.get('reasons', []))}")
     else:
         lines.append("- none")
+    if aborted:
+        lines += ["", "## ABORTED", "", f"- {aborted}"]
     if final_info:
         rr = final_info.get("reset_reason")
         lines += ["", "## Device after the matrix", "",
