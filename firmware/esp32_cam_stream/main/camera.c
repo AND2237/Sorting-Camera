@@ -200,7 +200,15 @@ int camera_quality_floor(framesize_t fs)
 int camera_xclk_max_mhz(framesize_t fs)
 {
     switch (fs) {
+    // HD, XGA, SXGA and UXGA are all read out from the full 1600x1200 sensor window.
+    // Measured on the project's board (ADR-0020): 22 MHz gave corrupt pictures
+    // (frames 2x to 3.5x larger, JPEG data that does not decode) for XGA and UXGA, and 24 MHz
+    // made the device stop sending and then panic. HD was already limited to 20 MHz.
+    // SVGA and below were measured clean up to 27 MHz (docs/benchmark-results.md).
     case FRAMESIZE_HD:
+    case FRAMESIZE_XGA:
+    case FRAMESIZE_SXGA:
+    case FRAMESIZE_UXGA:
         return 20;
     default:
         return 27;
