@@ -26,9 +26,12 @@ import time
 from datetime import datetime
 
 HOST_DEFAULT = "192.168.4.1"
-EXE_DEFAULT = r"D:\Desktop\Sorting_Camera\desktop\build\SortingCamera.exe"
+# Paths are derived from where this file lives, so the repository can sit on any drive or folder
+# (they used to be fixed D:\Desktop\Sorting_Camera paths, which broke when the project was moved).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXE_DEFAULT = os.path.join(_REPO_ROOT, "desktop", "build", "SortingCamera.exe")
 QT_BIN_DEFAULT = r"C:\Qt\6.11.2\mingw_64\bin"
-SECRETS_DEFAULT = r"D:\Desktop\Sorting_Camera\firmware\esp32_cam_stream\main\config_secrets.h"
+SECRETS_DEFAULT = os.path.join(_REPO_ROOT, "firmware", "esp32_cam_stream", "main", "config_secrets.h")
 
 _state = {"token": None, "host": None, "password": None, "auth_required": None,
           "port": 80}
