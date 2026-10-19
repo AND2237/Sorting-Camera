@@ -36,6 +36,7 @@ A profile is accepted only if, on the fixed test scene of phase 0, over a 20-min
 | F8 | Same config gives 7.7 to 11.3 fps on different days; frame size drifts up to 2x with the scene (UXGA q12: 128,659 B vs 259,471 B). | `camera.c` comment, Phase 5 **[measured]** |
 | F9 | Peak link throughput ever observed: 4.36 Mbps (HTTP), 4.74 Mbps (UDP). The link was never driven harder than the camera could feed it. | Phase 3/5 **[measured]** |
 | F10 | Camera task on core 0 is best (11.0 fps) vs core 1 (8.5) and no affinity (9.2). fb_count 3 beats 2 by 7 to 15%. | Phase 5 **[measured]** |
+| F11 | Camera running caps throughput near 10-11 Mbps (SVGA q4 9.9-10.3, SVGA q12 at the 25 fps cap 11.4) while the same link carried 25-29 Mbps camera-off; cause not yet identified (hypotheses: Wi-Fi and camera tasks share core 0; sensor output rate). | phase2-cam-ladder20 2026-10-19 **[measured]**; camera-off reference: phase2-link-block 2026-10-09 **[measured]** |
 
 ### Working model (a reading of F1 to F7, not a measured law) **[hypothesis]**
 
@@ -109,6 +110,8 @@ on the HMI hardware is unknown. Step 6 measures it. If the HMI cannot decode a p
 firmware work matters for that profile.
 
 **D8. Frame rate depends on exposure, so on lighting: with real frames fps fell to 2.5-9.8 while the link carried 1.2-1.7 Mbps (verify2 run). Status 2026-10-12: not reproduced in a bright scene (all exposure settings reached the 11.25 fps plateau at XGA q24); the dim-scene case is untested. Next: measure on a detail-rich stand-in scene (the real rice hopper is not available).**
+
+**D9. The per-resolution quality floors are scene dependent: SVGA q2 (floor 2, measured max 163,923 B on a plain scene) produced no frames and then a panic on a detailed scene. The firmware only warns when frames reach 90% of the budget; it does not protect itself. Planned: automatic quality guard.**
 
 **Not defects (checked and ruled out by arithmetic):**
 - PSRAM speed. The camera produces about 0.5 MB/s of JPEG (F6); PSRAM at 40 MHz moves on the order of

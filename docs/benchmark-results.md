@@ -1046,3 +1046,51 @@ been fixed. At 24 MHz no frames arrived and the device later reported reset
 reason panic (uptime 378 s at the end of the run against 758 s at the start).
 The device was unreachable for the XGA 18 MHz step.
 
+## Camera-on ladder at 18/20 MHz (2026-10-19)
+
+Source: `benchmarks/results/phase2-cam-ladder20-20261019-170131.json`
+(`--label ladder20 --expect new`), produced by `benchmarks/phase2_cam.py` on
+2026-10-19; the runner's own summary is
+`benchmarks/results/phase2-cam-ladder20-20261019-170131.md`. Bench firmware NC
+(240 MHz, tuning block): cpu 240, flash qio/80m/qio; auto exposure; scene with
+a detailed fabric pattern; 20 s runs, 2 repetitions per profile; the matrix
+was SVGA q12 / q4 / q2 at 18 and 20 MHz. `real size` is the dominant frame
+size read from the JPEG headers.
+
+| profile | valid reps | fps PC | all reps | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal | real size | end-marker ok % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| svga q12 @18 | 2/2 | 22.47 | [22.53, 22.41] | 22.54 | 50.3 / 50.5 | 57.5 | 9.29 | 0 | 3 | 37739 | 800x600 | 100.0 |
+| svga q12 @20 | 2/2 | 25.00 | [24.94, 25.06] | 25.04 | 55.8 / 57.5 | 54.8 | 11.44 | 0 | 13 | 37739 | 800x600 | 100.0 |
+| svga q4 @18 | 2/2 | 8.76 | [6.53, 11] | 8.99 | 114.5 / 115.5 | 152.2 | 8.43 | 2 | 316 | 37699 | 800x600 | 100.0 |
+| svga q4 @20 | 2/2 | 10.53 | [10.59, 10.47] | 10.57 | 114.7 / 115.7 | 143.6 | 9.94 | 0 | 356 | 37595 | 800x600 | 100.0 |
+| svga q2 @18 | 0/2 | - | [] | - | - / - | - | - | 0 | 0 | None | None | - |
+| svga q2 @20 | 0/2 | - | [] | - | - / - | - | - | 0 | 0 | None | None | - |
+
+INFO (before → after): cpu_mhz 240; flash_mode_cfg "qio", flash_freq 80m,
+runtime.flash_io qio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth
+HT40, channel 1, max_tx_power_q 78; reset_reason 1 (power-on) → panic
+(reset_reason 4); uptime_s 64 → 7; min free internal RAM ever 131671.
+
+Failed attempts:
+
+- svga q2 @18 rep 1 try 1: no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?
+- svga q2 @18 rep 2 try 1: no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?
+- svga q2 @20 rep 1 try 1: no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?
+- svga q2 @20 rep 2 try 1: no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?
+
+ABORTED: stopped at svga q2 @20 MHz: the device REBOOTED (uptime 299 -> 2 s,
+reset reason panic); XGA and UXGA were not run.
+
+Bench firmware NC, scene with a detailed fabric pattern, auto exposure, 20 s x 2.
+SVGA q12 reached 25.0 fps at 11.4 Mbps at 20 MHz with clean pictures. SVGA q4
+gave about 10 fps at 9.9 to 10.3 Mbps. SVGA q2 produced no frames at either
+clock and the device then restarted with reset reason panic. XGA and UXGA were
+not run (matrix aborted).
+
+## Production firmware check (2026-10-19)
+
+Production firmware. The Qt app connected and streamed at 1280x720 q12,
+18 MHz, `xclk_max_mhz` 20. Frames captured 1430 / delivered 1430, send failures
+0, camera recoveries 0, rssi -57, last frame 34653 B, free internal RAM 102000 B
+at that moment, uptime 434 s.
+

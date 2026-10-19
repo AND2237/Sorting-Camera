@@ -1,0 +1,346 @@
+{
+  "label": "ladder20",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 64,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 137659,
+      "min_free_internal": 131543,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 7,
+    "reset_reason": 4,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 135431,
+      "min_free_internal": 131671,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "profiles": [
+    {
+      "profile": "svga q12 @18",
+      "framesize": "svga",
+      "quality": 12,
+      "xclk": 18,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 22.470588235294116,
+      "fps_all": [
+        22.53,
+        22.41
+      ],
+      "device_fps_median": 22.5385,
+      "frame_bytes_p50": 51537.5,
+      "frame_bytes_p95": 51669.0,
+      "interval_ms_p95": 57.53289999998401,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20-svga-q12-x18.jpg",
+      "link_mbps_median": 9.291476995903487,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 3,
+      "min_free_internal_min": 37739,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q12-20261019-170157-304436.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q12-20261019-170227-009163.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "svga q12 @20",
+      "framesize": "svga",
+      "quality": 12,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 25.0,
+      "fps_all": [
+        24.94,
+        25.06
+      ],
+      "device_fps_median": 25.0435,
+      "frame_bytes_p50": 57121.5,
+      "frame_bytes_p95": 58910.0,
+      "interval_ms_p95": 54.846150000003036,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20-svga-q12-x20.jpg",
+      "link_mbps_median": 11.440323759493996,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 13,
+      "min_free_internal_min": 37739,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q12-20261019-170256-737825.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q12-20261019-170326-396721.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "svga q4 @18",
+      "framesize": "svga",
+      "quality": 4,
+      "xclk": 18,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 8.764705882352942,
+      "fps_all": [
+        6.53,
+        11.0
+      ],
+      "device_fps_median": 8.9875,
+      "frame_bytes_p50": 117286.0,
+      "frame_bytes_p95": 118269.5,
+      "interval_ms_p95": 152.20314999999118,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20-svga-q4-x18.jpg",
+      "link_mbps_median": 8.433948845148883,
+      "stalled_seconds_total": 2,
+      "slow_sends_total": 316,
+      "min_free_internal_min": 37699,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q4-20261019-170356-098587.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q4-20261019-170425-833622.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "svga q4 @20",
+      "framesize": "svga",
+      "quality": 4,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 10.529411764705882,
+      "fps_all": [
+        10.59,
+        10.47
+      ],
+      "device_fps_median": 10.569500000000001,
+      "frame_bytes_p50": 117423.5,
+      "frame_bytes_p95": 118494.0,
+      "interval_ms_p95": 143.60185000001024,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20-svga-q4-x20.jpg",
+      "link_mbps_median": 9.939956343926834,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 356,
+      "min_free_internal_min": 37595,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q4-20261019-170455-566709.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20-svga-q4-20261019-170525-371775.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "svga q2 @18",
+      "framesize": "svga",
+      "quality": 2,
+      "xclk": 18,
+      "valid_reps": 0,
+      "reps_wanted": 2,
+      "fps_median": null,
+      "fps_all": [],
+      "device_fps_median": null,
+      "frame_bytes_p50": null,
+      "frame_bytes_p95": null,
+      "interval_ms_p95": null,
+      "actual_dims": [
+        null
+      ],
+      "eoi_ok_pct_min": null,
+      "sample": null,
+      "link_mbps_median": null,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 0,
+      "min_free_internal_min": null,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        }
+      ]
+    },
+    {
+      "profile": "svga q2 @20",
+      "framesize": "svga",
+      "quality": 2,
+      "xclk": 20,
+      "valid_reps": 0,
+      "reps_wanted": 2,
+      "fps_median": null,
+      "fps_all": [],
+      "device_fps_median": null,
+      "frame_bytes_p50": null,
+      "frame_bytes_p95": null,
+      "interval_ms_p95": null,
+      "actual_dims": [
+        null
+      ],
+      "eoi_ok_pct_min": null,
+      "sample": null,
+      "link_mbps_median": null,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 0,
+      "min_free_internal_min": null,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "error": "no data received (recv timeout (device stopped sending)); is the board flashed with CONFIG_SORTING_CAM_NET_BENCH=y, and is the mode valid for this build (mode cam needs the camera enabled)?"
+        }
+      ]
+    }
+  ]
+}

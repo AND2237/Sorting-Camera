@@ -1,7 +1,6 @@
 # ADR-0020: Sensor clock ceiling 20 MHz for HD, XGA, SXGA and UXGA
 
-_Status: ceiling applied 2026-10-14 (firmware built and linked, not yet flashed or soaked);
-20 MHz itself is not yet shown to be stable._
+_Status: SVGA at 20 MHz clean in two 20 s runs (2026-10-19); soak pending; XGA/UXGA 20 MHz partly measured._
 
 ## Context
 

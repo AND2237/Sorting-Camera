@@ -1,0 +1,4 @@
+# Bench build WITH camera, Wi-Fi task on core 1 (camera task stays on core 0).
+# Experiment: is the ~10 Mbps camera-on ceiling core contention? See performance-workplan F11.
+CONFIG_SORTING_CAM_NET_BENCH=y
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
