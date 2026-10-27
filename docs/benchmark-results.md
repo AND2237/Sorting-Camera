@@ -1094,3 +1094,85 @@ Production firmware. The Qt app connected and streamed at 1280x720 q12,
 0, camera recoveries 0, rssi -57, last frame 34653 B, free internal RAM 102000 B
 at that moment, uptime 434 s.
 
+## XGA/HD/UXGA ladder at 18/20 MHz (2026-10-20)
+
+Source: `benchmarks/results/phase2-cam-ladder20b-20261020-165847.json`
+(`--label ladder20b --expect new`), produced by `benchmarks/phase2_cam.py` on
+2026-10-20; the runner's own summary is
+`benchmarks/results/phase2-cam-ladder20b-20261020-165847.md`. Bench firmware NC
+(240 MHz, tuning block): cpu 240, flash qio/80m/qio; auto exposure; the matrix
+was XGA q12, HD q12 and UXGA q16 at 18 and 20 MHz; 25 s runs, 2 repetitions
+per profile. `real size` is the dominant frame size read from the JPEG
+headers.
+
+| profile | valid reps | fps PC | all reps | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal | real size | end-marker ok % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| xga q12 @18 | 2/2 | 11.25 | [11.23, 11.27] | 11.31 | 64.7 / 64.8 | 105.7 | 5.93 | 0 | 7 | 51591 | 1024x768 | 100.0 |
+| xga q12 @20 | 2/2 | 12.34 | [12.5, 12.18] | 12.43 | 62.3 / 62.5 | 101.4 | 6.29 | 0 | 26 | 44663 | 1024x768 | 100.0 |
+| hd q12 @18 | 2/2 | 11.27 | [11.27, 11.27] | 11.29 | 84.5 / 84.7 | 122.0 | 7.72 | 0 | 134 | 42739 | 1280x720 | 100.0 |
+| hd q12 @20 | 2/2 | 12.52 | [12.55, 12.5] | 12.55 | 81.1 / 81.9 | 115.6 | 8.32 | 0 | 181 | 17719 | 1280x720 | 100.0 |
+| uxga q16 @18 | 2/2 | 6.55 | [2.59, 10.5] | 7.00 | 129.5 / 130.2 | 337.5 | 7.29 | 0 | 350 | 17719 | 1600x1200 | 100.0 |
+| uxga q16 @20 | 2/2 | 6.98 | [9.77, 4.18] | 7.32 | 125.9 / 128.6 | 421.6 | 7.57 | 1 | 370 | 17719 | 1600x1200 | 100.0 |
+
+INFO (before → after): cpu_mhz 240; flash_mode_cfg "qio", flash_freq 80m,
+runtime.flash_io qio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth
+HT40, channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 97 → 529; min free internal RAM ever 17719.
+
+Failed attempts: none.
+
+## Soak, SVGA q12 at 20 MHz (2026-10-20)
+
+Source: `benchmarks/results/phase2-cam-soak20-20261020-170720.json`
+(`--label soak20 --expect new`), produced by `benchmarks/phase2_cam.py` on
+2026-10-20; the runner's own summary is
+`benchmarks/results/phase2-cam-soak20-20261020-170720.md`. Bench firmware NC
+(240 MHz, tuning block): cpu 240, flash qio/80m/qio; auto exposure; SVGA
+q12 at 20 MHz; 300 s runs, 3 repetitions.
+
+| profile | valid reps | fps PC | all reps | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal | real size | end-marker ok % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| svga q12 @20 | 3/3 | 24.54 | [24.49, 24.75, 24.54] | 24.54 | 39.7 / 39.8 | 76.8 | 8.00 | 3 | 1194 | 17515 | 800x600 | 100.0 |
+
+INFO (before → after): cpu_mhz 240; flash_mode_cfg "qio", flash_freq 80m,
+runtime.flash_io qio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth
+HT40, channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 610 → 1540; min free internal RAM ever 17515.
+
+Failed attempts: none.
+
+## Wi-Fi task on core 1, NCW (2026-10-20)
+
+Source: `benchmarks/results/phase2-cam-wifi-core1-20261020-180947.json`
+(`--label wifi-core1 --expect new`), produced by `benchmarks/phase2_cam.py` on
+2026-10-20; the runner's own summary is
+`benchmarks/results/phase2-cam-wifi-core1-20261020-180947.md`. Bench firmware
+NCW (240 MHz, tuning block, Wi-Fi task pinned to core 1; build variant of
+2026-10-19): cpu 240, flash qio/80m/qio; auto exposure; SVGA q4 and q12 at
+20 MHz; 20 s runs, 2 repetitions per profile.
+
+| profile | valid reps | fps PC | all reps | fps device | frame KiB p50 / p95 | frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal | real size | end-marker ok % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| svga q4 @20 | 2/2 | 17.21 | [15.18, 19.24] | 16.99 | 81.4 / 81.6 | 90.6 | 11.16 | 0 | 417 | 37779 | 800x600 | 100.0 |
+| svga q12 @20 | 2/2 | 24.15 | [24.88, 23.41] | 24.25 | 37.0 / 37.1 | 67.4 | 7.32 | 0 | 55 | 37615 | 800x600 | 100.0 |
+
+INFO (before → after): cpu_mhz 240; flash_mode_cfg "qio", flash_freq 80m,
+runtime.flash_io qio; flash_id 0x5e4016; radio protocol_bitmap 7, bandwidth
+HT40, channel 1, max_tx_power_q 78; reset_reason 1 (power-on) unchanged;
+uptime_s 960 → 1080; min free internal RAM ever 37615.
+
+Failed attempts: none.
+
+Bench NC, auto exposure; the scene changed between runs, so only like-for-like
+cells compare. XGA and HD q12 reached the sensor plateau (11.25 fps at 18 MHz,
+12.3 to 12.5 at 20 MHz) at 5.9 to 8.3 Mbps. UXGA q16 frames of 126 to 130 KiB
+gave 2.6 to 10.5 fps with repetitions varying up to 4x. Three 300 s runs of
+SVGA q12 at 20 MHz gave 24.5 to 24.75 fps, no restarts. With the Wi-Fi task on
+core 1, SVGA q4 gave 11.07 and 11.25 Mbps: the ceiling of about 11 Mbps with
+the camera running did not move. Minimum free internal RAM since boot reached
+17,719 B in these runs. Isolated outlier pixels per megapixel in the saved
+samples (pixels differing from their 3x3 median by more than 70 levels): HD
+q12 7.6 at 18 MHz and 76 at 20 MHz; UXGA q16 3.1 and 142; XGA q12 15.3 and
+85; SVGA q12 83 and 231 (a different scene). Computed 2026-10-26 from the
+uploaded sample pictures.
+

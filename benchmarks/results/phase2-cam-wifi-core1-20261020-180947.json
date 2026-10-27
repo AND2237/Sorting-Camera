@@ -1,0 +1,192 @@
+{
+  "label": "wifi-core1",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 960,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 137767,
+      "min_free_internal": 131675,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 1080,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 134807,
+      "min_free_internal": 37615,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 4,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 20,
+      "chunk": 8192,
+      "secs": 20.019,
+      "bytes": 19875272,
+      "mbps": 7.942,
+      "frames": 471,
+      "fps": 23.527,
+      "sends": 942,
+      "slow_sends": 48,
+      "max_send_ms": 259.0,
+      "cam_fail": 0,
+      "free_internal": 135043,
+      "min_free_internal": 37615
+    }
+  },
+  "profiles": [
+    {
+      "profile": "svga q4 @20",
+      "framesize": "svga",
+      "quality": 4,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 17.205882352941174,
+      "fps_all": [
+        15.18,
+        19.24
+      ],
+      "device_fps_median": 16.988,
+      "frame_bytes_p50": 83331.5,
+      "frame_bytes_p95": 83562.0,
+      "interval_ms_p95": 90.64764999857289,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-wifi-core1-svga-q4-x20.jpg",
+      "link_mbps_median": 11.158154236919502,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 417,
+      "min_free_internal_min": 37779,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-wifi-core1-svga-q4-20261020-181013-185923.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-wifi-core1-svga-q4-20261020-181042-897279.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "svga q12 @20",
+      "framesize": "svga",
+      "quality": 12,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 24.147058823529413,
+      "fps_all": [
+        24.88,
+        23.41
+      ],
+      "device_fps_median": 24.254,
+      "frame_bytes_p50": 37848.0,
+      "frame_bytes_p95": 37973.5,
+      "interval_ms_p95": 67.39774999914516,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-wifi-core1-svga-q12-x20.jpg",
+      "link_mbps_median": 7.3165170740555165,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 55,
+      "min_free_internal_min": 37615,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-wifi-core1-svga-q12-20261020-181112-080011.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-wifi-core1-svga-q12-20261020-181141-844490.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,360 @@
+{
+  "label": "ladder20b",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 97,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 138159,
+      "min_free_internal": 130907,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 529,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 135403,
+      "min_free_internal": 17719,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 12,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 25,
+      "chunk": 8192,
+      "secs": 25.688,
+      "bytes": 16051666,
+      "mbps": 4.999,
+      "frames": 124,
+      "fps": 4.827,
+      "sends": 248,
+      "slow_sends": 124,
+      "max_send_ms": 829.6,
+      "cam_fail": 0,
+      "free_internal": 135415,
+      "min_free_internal": 17719
+    }
+  },
+  "profiles": [
+    {
+      "profile": "xga q12 @18",
+      "framesize": "xga",
+      "quality": 12,
+      "xclk": 18,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 11.25,
+      "fps_all": [
+        11.23,
+        11.27
+      ],
+      "device_fps_median": 11.306000000000001,
+      "frame_bytes_p50": 66212.5,
+      "frame_bytes_p95": 66393.0,
+      "interval_ms_p95": 105.68905000036466,
+      "actual_dims": [
+        "1024x768"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20b-xga-q12-x18.jpg",
+      "link_mbps_median": 5.928541569790841,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 7,
+      "min_free_internal_min": 51591,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-xga-q12-20261020-165918-317793.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-xga-q12-20261020-165953-000317.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "xga q12 @20",
+      "framesize": "xga",
+      "quality": 12,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 12.34090909090909,
+      "fps_all": [
+        12.5,
+        12.18
+      ],
+      "device_fps_median": 12.429,
+      "frame_bytes_p50": 63783.5,
+      "frame_bytes_p95": 63997.0,
+      "interval_ms_p95": 101.35975000048347,
+      "actual_dims": [
+        "1024x768"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20b-xga-q12-x20.jpg",
+      "link_mbps_median": 6.294709990057267,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 26,
+      "min_free_internal_min": 44663,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-xga-q12-20261020-170027-886707.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-xga-q12-20261020-170102-720521.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "hd q12 @18",
+      "framesize": "hd",
+      "quality": 12,
+      "xclk": 18,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 11.272727272727273,
+      "fps_all": [
+        11.27,
+        11.27
+      ],
+      "device_fps_median": 11.2875,
+      "frame_bytes_p50": 86493.0,
+      "frame_bytes_p95": 86724.5,
+      "interval_ms_p95": 121.96155000128783,
+      "actual_dims": [
+        "1280x720"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20b-hd-q12-x18.jpg",
+      "link_mbps_median": 7.721848819165235,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 134,
+      "min_free_internal_min": 42739,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-hd-q12-20261020-170137-533026.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-hd-q12-20261020-170212-328356.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "hd q12 @20",
+      "framesize": "hd",
+      "quality": 12,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 12.522727272727273,
+      "fps_all": [
+        12.55,
+        12.5
+      ],
+      "device_fps_median": 12.55,
+      "frame_bytes_p50": 83002.5,
+      "frame_bytes_p95": 83913.5,
+      "interval_ms_p95": 115.6428499998583,
+      "actual_dims": [
+        "1280x720"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20b-hd-q12-x20.jpg",
+      "link_mbps_median": 8.324115689063946,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 181,
+      "min_free_internal_min": 17719,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-hd-q12-20261020-170247-194424.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-hd-q12-20261020-170321-964757.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @18",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 18,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 6.545454545454545,
+      "fps_all": [
+        2.59,
+        10.5
+      ],
+      "device_fps_median": 6.998,
+      "frame_bytes_p50": 132619.0,
+      "frame_bytes_p95": 133276.0,
+      "interval_ms_p95": 337.4987500001225,
+      "actual_dims": [
+        "1600x1200"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20b-uxga-q16-x18.jpg",
+      "link_mbps_median": 7.2855334953327455,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 350,
+      "min_free_internal_min": 17719,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-uxga-q16-20261020-170358-076705.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-uxga-q16-20261020-170432-841250.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "profile": "uxga q16 @20",
+      "framesize": "uxga",
+      "quality": 16,
+      "xclk": 20,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "fps_median": 6.9772727272727275,
+      "fps_all": [
+        9.77,
+        4.18
+      ],
+      "device_fps_median": 7.3215,
+      "frame_bytes_p50": 128889.5,
+      "frame_bytes_p95": 131690.5,
+      "interval_ms_p95": 421.6144500005612,
+      "actual_dims": [
+        "1600x1200"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20b-uxga-q16-x20.jpg",
+      "link_mbps_median": 7.569196507566504,
+      "stalled_seconds_total": 1,
+      "slow_sends_total": 370,
+      "min_free_internal_min": 17719,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-uxga-q16-20261020-170509-632020.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-ladder20b-uxga-q16-20261020-170551-768383.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

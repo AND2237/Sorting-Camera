@@ -1,0 +1,3 @@
+# Buffer trim B: Wi-Fi 64/64 unchanged, TCP window and send buffer 16 KiB.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+CONFIG_LWIP_TCP_WND_DEFAULT=16384

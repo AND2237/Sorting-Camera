@@ -37,6 +37,7 @@ import net_bench as nb  # noqa: E402
 EXPECT = {
     "new": {"cpu_mhz": 240, "flash_freq": "80m", "tcp_wnd": 32768},
     "baseline": {"cpu_mhz": 160, "flash_freq": "40m", "tcp_wnd": 5760},
+    "any": {},  # no build check: for experiment variants (different buffers, core placement)
 }
 
 CELLS = [("int", 8192), ("int", 1460), ("int", 32768), ("psram", 8192)]

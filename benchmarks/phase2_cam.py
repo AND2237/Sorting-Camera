@@ -45,6 +45,7 @@ import phase5_pipeline as p5  # noqa: E402
 EXPECT = {
     "new": {"cpu_mhz": 240, "flash_freq": "80m", "tcp_wnd": 32768},
     "baseline": {"cpu_mhz": 160, "flash_freq": "40m", "tcp_wnd": 5760},
+    "any": {},  # no build check: for experiment variants (different buffers, core placement)
 }
 DEFAULT_PROFILES = "svga:12,xga:24,sxga:24,uxga:36,uxga:16"
 RES = {"qqvga": "160x120", "qvga": "320x240", "vga": "640x480", "svga": "800x600",
@@ -128,6 +129,23 @@ def picture_problems(path):
     return []
 
 
+def speckle_density(path):
+    """Isolated outlier pixels per megapixel in a saved sample: pixels that differ from the median
+    of their 3x3 neighbourhood by more than 70 levels. Single-pixel errors like these are what a
+    sensor clock at the edge of the board's timing margin produces (ADR-0020); real picture detail
+    produces some too, so only compare the same profile at different clocks, never different
+    scenes. Needs Pillow; returns None without it."""
+    if not path or not Path(path).exists():
+        return None
+    try:
+        from PIL import Image, ImageChops, ImageFilter  # noqa: PLC0415
+        im = Image.open(path).convert("L")
+        diff = ImageChops.difference(im, im.filter(ImageFilter.MedianFilter(3)))
+        return sum(diff.histogram()[71:]) / (im.size[0] * im.size[1] / 1e6)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def device_alive(args, prev_uptime):
     """After a failed run: is the device still up, or did it crash and reboot?"""
     info, err = nb.query_info(args.host, args.port, timeout=6.0)
@@ -202,6 +220,7 @@ def main():
                          "board 22 MHz corrupts XGA/UXGA pictures and 24 MHz crashed the device. Pass "
                          "--allow-high-xclk only if you accept that.")
     ref_size, ref_xclk, aborted = {}, {}, None
+    ref_speck = {}
     last_uptime = None
 
     info, err = nb.query_info(args.host, args.port)
@@ -299,6 +318,17 @@ def main():
                     problems.append(f"frames are {p50 / ref:.1f}x the size of the same profile at "
                                     f"{ref_xclk[(fs, quality)]} MHz: typical of a noisy or corrupted picture")
                 problems += picture_problems(jp.get("sample"))
+                speck = speckle_density(jp.get("sample"))
+                r["specks_per_mpx"] = speck
+                if speck is not None:
+                    base = ref_speck.get((fs, quality))
+                    note = ""
+                    if base is None:
+                        ref_speck[(fs, quality)] = (speck, xclk)
+                    elif speck >= 5 * max(base[0], 10.0) and speck >= 50:
+                        note = (f"   WARNING: {speck / max(base[0], 1.0):.0f}x more isolated outlier pixels than "
+                                f"at {base[1]} MHz (timing margin?)")
+                    print(f"   isolated outlier pixels: {speck:.0f} per Mpx{note}")
                 up_now = (r.get("device", {}).get("after") or {}).get("uptime_s")
                 if up_now is not None:
                     last_uptime = up_now
@@ -349,6 +379,8 @@ def main():
             "interval_ms_p95": med(pick(lambda r: r["frames"]["interval_ms"].get("p95"))),
             "actual_dims": [r["frames"].get("jpeg", {}).get("dominant_dims") for r in reps_ok][:1] or [None],
             "eoi_ok_pct_min": min(pick(lambda r: r["frames"].get("jpeg", {}).get("eoi_ok_pct") or 0), default=None),
+            "specks_per_mpx": next((r.get("specks_per_mpx") for r in reps_ok
+                                    if r.get("specks_per_mpx") is not None), None),
             "sample": next((r["frames"]["jpeg"].get("sample") for r in reps_ok
                             if r["frames"].get("jpeg", {}).get("sample")), None),
             "link_mbps_median": med(pick(lambda r: r["received"]["mean_mbps_whole_run"])),
@@ -375,8 +407,8 @@ def main():
              "## Results (median over valid repetitions)", "",
              "| Profile | valid reps | fps (PC) | all reps | fps (device) | frame KiB p50 / p95 | "
              "frame interval p95 ms | link Mbps | stalled s | slow_sends | min free internal | "
-             "actual WxH | end-marker ok % |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "actual WxH | end-marker ok % | specks per Mpx |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for c in results:
         kb = lambda v: "-" if v is None else f"{v / 1024:.1f}"  # noqa: E731
         lines.append(f"| {c['profile']} | {c['valid_reps']}/{c['reps_wanted']} | {fmt(c['fps_median'])} | "
@@ -384,7 +416,8 @@ def main():
                      f"{kb(c['frame_bytes_p95'])} | {fmt(c['interval_ms_p95'], 1)} | "
                      f"{fmt(c['link_mbps_median'])} | {c['stalled_seconds_total']} | "
                      f"{c['slow_sends_total']} | {c['min_free_internal_min']} | "
-                     f"{c['actual_dims'][0]} | {fmt(c['eoi_ok_pct_min'], 1)} |")
+                     f"{c['actual_dims'][0]} | {fmt(c['eoi_ok_pct_min'], 1)} | "
+                     f"{fmt(c['specks_per_mpx'], 0)} |")
     bad = [(c["profile"], a) for c in results for a in c["attempts"]
            if a.get("valid") is False or "error" in a]
     lines += ["", "## Invalid or failed attempts", ""]

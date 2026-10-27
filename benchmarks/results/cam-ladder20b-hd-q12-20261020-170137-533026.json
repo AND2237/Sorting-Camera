@@ -1,0 +1,184 @@
+{
+  "meta": {
+    "date": "2026-10-20T17:01:36",
+    "label": "ladder20b",
+    "host": "192.168.4.1",
+    "mode": "cam",
+    "seconds_requested": 25,
+    "chunk": 8192,
+    "warmup_s": 3,
+    "pc": {
+      "os": "Windows-11-10.0.26200-SP0",
+      "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+      "python": "3.13.15"
+    },
+    "note": "device-side numbers and the firmware build config are on the serial console"
+  },
+  "received": {
+    "bytes": 24150588,
+    "duration_s": 25.07234509999944,
+    "mean_mbps_whole_run": 7.705888828085903,
+    "per_second_mbps": {
+      "n": 22,
+      "min": 7.594384,
+      "p5": 7.603112,
+      "p50": 7.764424,
+      "p95": 8.118472,
+      "max": 8.12648,
+      "mean": 7.786076,
+      "stdev": 0.15962206434404544
+    },
+    "stalled_seconds_below_half_median": 0,
+    "error": null
+  },
+  "frames": {
+    "count": 283,
+    "fps_after_warmup": 11.272727272727273,
+    "frame_bytes": {
+      "n": 283,
+      "min": 64521,
+      "p5": 76097,
+      "p50": 86344,
+      "p95": 86588,
+      "max": 86852,
+      "mean": 85329.7667844523,
+      "stdev": 3465.8169992243206
+    },
+    "interval_ms": {
+      "n": 282,
+      "min": 37.936200000331155,
+      "p5": 56.665599999178085,
+      "p50": 88.10320000156935,
+      "p95": 122.19420000110404,
+      "max": 148.97390000078303,
+      "mean": 88.63654326241304,
+      "stdev": 20.660899810520593
+    },
+    "protocol_errors": 0,
+    "desynchronised": false,
+    "jpeg": {
+      "frames_checked": 283,
+      "soi_ok_pct": 100.0,
+      "eoi_ok_pct": 100.0,
+      "dims": {
+        "1280x720": 283
+      },
+      "dominant_dims": "1280x720",
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-ladder20b-hd-q12-x18.jpg"
+    }
+  },
+  "device": {
+    "before": {
+      "fw": "netbench",
+      "uptime_s": 241,
+      "reset_reason": 1,
+      "camera_enabled": 1,
+      "build": {
+        "cpu_mhz": 240,
+        "flash_freq": "80m",
+        "flash_mode_cfg": "qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 32768,
+        "tcp_wnd": 32768,
+        "wifi_rx_buf": 64,
+        "wifi_tx_buf": 64,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 1,
+        "freertos_in_flash": 1
+      },
+      "runtime": {
+        "flash_io": "qio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 135439,
+        "min_free_internal": 44663,
+        "free_spiram": 3403764
+      },
+      "last": {
+        "runs": 4,
+        "finished": 1,
+        "ok": 1,
+        "mode": "cam",
+        "secs_req": 25,
+        "chunk": 8192,
+        "secs": 25.079,
+        "bytes": 19472168,
+        "mbps": 6.212,
+        "frames": 308,
+        "fps": 12.281,
+        "sends": 616,
+        "slow_sends": 18,
+        "max_send_ms": 401.6,
+        "cam_fail": 0,
+        "free_internal": 135863,
+        "min_free_internal": 44663
+      }
+    },
+    "after": {
+      "fw": "netbench",
+      "uptime_s": 267,
+      "reset_reason": 1,
+      "camera_enabled": 1,
+      "build": {
+        "cpu_mhz": 240,
+        "flash_freq": "80m",
+        "flash_mode_cfg": "qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 32768,
+        "tcp_wnd": 32768,
+        "wifi_rx_buf": 64,
+        "wifi_tx_buf": 64,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 1,
+        "freertos_in_flash": 1
+      },
+      "runtime": {
+        "flash_io": "qio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 135651,
+        "min_free_internal": 44407,
+        "free_spiram": 3403764
+      },
+      "last": {
+        "runs": 5,
+        "finished": 1,
+        "ok": 1,
+        "mode": "cam",
+        "secs_req": 25,
+        "chunk": 8192,
+        "secs": 25.075,
+        "bytes": 24150588,
+        "mbps": 7.705,
+        "frames": 283,
+        "fps": 11.286,
+        "sends": 566,
+        "slow_sends": 66,
+        "max_send_ms": 90.8,
+        "cam_fail": 0,
+        "free_internal": 135655,
+        "min_free_internal": 44407
+      }
+    },
+    "before_error": null,
+    "after_error": null
+  },
+  "device_vs_pc_mbps_diff_pct": 0.011535731160321059,
+  "valid": true,
+  "invalid_reasons": [],
+  "profile": {
+    "framesize": "hd",
+    "quality": 12,
+    "xclk": 18
+  }
+}

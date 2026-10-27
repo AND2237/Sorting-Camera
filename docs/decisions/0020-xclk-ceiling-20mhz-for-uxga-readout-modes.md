@@ -1,6 +1,6 @@
 # ADR-0020: Sensor clock ceiling 20 MHz for HD, XGA, SXGA and UXGA
 
-_Status: SVGA at 20 MHz clean in two 20 s runs (2026-10-19); soak pending; XGA/UXGA 20 MHz partly measured._
+_Status: ceiling applied; 18 MHz stays the default; 20 MHz shows isolated pixel errors (5x to 46x more than at 18 MHz in HD, XGA and UXGA samples) and is an optional speed mode only._
 
 ## Context
 
@@ -40,6 +40,26 @@ noise, compares frame size with the same profile at a lower clock, and refuses p
   "about 2.2 ms per KiB" relation (docs/benchmark-results.md) was not reproduced here.
 - 22 MHz is not usable for XGA or UXGA on this board, and 24 MHz stopped the stream and was
   followed by a panic.
+
+### 2026-10-20 ladder, soak and core-1 runs (samples analyzed 2026-10-26)
+
+Sources: `benchmarks/results/phase2-cam-ladder20b-20261020-165847.json`,
+`benchmarks/results/phase2-cam-soak20-20261020-170720.json` and
+`benchmarks/results/phase2-cam-wifi-core1-20261020-180947.json`
+(`benchmarks/phase2_cam.py`; bench firmware NC and NCW, 240 MHz, tuning block,
+auto exposure; the scene changed between runs, so only like-for-like cells
+compare). The saved sample pictures give:
+
+> Bench NC, auto exposure; the scene changed between runs, so only like-for-like cells compare.
+> XGA and HD q12 reached the sensor plateau (11.25 fps at 18 MHz, 12.3 to 12.5 at 20 MHz) at 5.9
+> to 8.3 Mbps. UXGA q16 frames of 126 to 130 KiB gave 2.6 to 10.5 fps with repetitions varying up
+> to 4x. Three 300 s runs of SVGA q12 at 20 MHz gave 24.5 to 24.75 fps, no restarts. With the
+> Wi-Fi task on core 1, SVGA q4 gave 11.07 and 11.25 Mbps: the ceiling of about 11 Mbps with the
+> camera running did not move. Minimum free internal RAM since boot reached 17,719 B in these
+> runs. Isolated outlier pixels per megapixel in the saved samples (pixels differing from their
+> 3x3 median by more than 70 levels): HD q12 7.6 at 18 MHz and 76 at 20 MHz; UXGA q16 3.1 and
+> 142; XGA q12 15.3 and 85; SVGA q12 83 and 231 (a different scene). Computed 2026-10-26 from the
+> uploaded sample pictures.
 
 ## Decision
 

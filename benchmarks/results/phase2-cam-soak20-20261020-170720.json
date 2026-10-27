@@ -1,0 +1,158 @@
+{
+  "label": "soak20",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 610,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 136691,
+      "min_free_internal": 17719,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 12,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 25,
+      "chunk": 8192,
+      "secs": 25.688,
+      "bytes": 16051666,
+      "mbps": 4.999,
+      "frames": 124,
+      "fps": 4.827,
+      "sends": 248,
+      "slow_sends": 124,
+      "max_send_ms": 829.6,
+      "cam_fail": 0,
+      "free_internal": 135415,
+      "min_free_internal": 17719
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 1540,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 137327,
+      "min_free_internal": 17515,
+      "free_spiram": 3403764
+    },
+    "last": {
+      "runs": 15,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 300,
+      "chunk": 8192,
+      "secs": 300.016,
+      "bytes": 299977863,
+      "mbps": 7.999,
+      "frames": 7363,
+      "fps": 24.542,
+      "sends": 14726,
+      "slow_sends": 465,
+      "max_send_ms": 206.6,
+      "cam_fail": 0,
+      "free_internal": 137567,
+      "min_free_internal": 17515
+    }
+  },
+  "profiles": [
+    {
+      "profile": "svga q12 @20",
+      "framesize": "svga",
+      "quality": 12,
+      "xclk": 20,
+      "valid_reps": 3,
+      "reps_wanted": 3,
+      "fps_median": 24.535353535353536,
+      "fps_all": [
+        24.49,
+        24.75,
+        24.54
+      ],
+      "device_fps_median": 24.542,
+      "frame_bytes_p50": 40655,
+      "frame_bytes_p95": 40780,
+      "interval_ms_p95": 76.80360000085784,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-soak20-svga-q12-x20.jpg",
+      "link_mbps_median": 7.998692943787662,
+      "stalled_seconds_total": 3,
+      "slow_sends_total": 1194,
+      "min_free_internal_min": 17515,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-soak20-svga-q12-20261020-171226-196079.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-soak20-svga-q12-20261020-171735-989993.json",
+          "reasons": []
+        },
+        {
+          "rep": 3,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-soak20-svga-q12-20261020-172245-771891.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}
