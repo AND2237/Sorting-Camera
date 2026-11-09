@@ -30,6 +30,8 @@ scam_add_test(tst_recorder)
 scam_add_test(tst_capture)
 scam_add_test(tst_configwritesequence)
 scam_add_test(tst_capabilities)
+# Pure rule set of the firmware quality guard; compiles the firmware source itself.
+scam_add_test(tst_qualityguard)
 # Section 33 / audit section 14: the metric arithmetic behind every published
 # frame-rate figure had no coverage until this suite.
 scam_add_test(tst_appmetrics)

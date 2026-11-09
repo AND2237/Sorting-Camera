@@ -47,6 +47,11 @@ const char *device_id_hex(void);
 const char *device_ip(void);
 framesize_t camera_current_framesize(void);
 int camera_current_quality(void);
+// The quality number the quality guard is applying right now. camera_current_quality()
+// stays what was requested (and saved); this one is never smaller than it.
+int camera_effective_quality(void);
+uint32_t camera_quality_guard_raises(void);
+uint32_t camera_quality_guard_stepbacks(void);
 int camera_current_fb_count(void);
 int camera_current_xclk_mhz(void);
 camera_grab_mode_t camera_current_grab_mode(void);

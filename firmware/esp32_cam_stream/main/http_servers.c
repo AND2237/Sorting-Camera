@@ -60,6 +60,11 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "free_heap", esp_get_free_heap_size());
     cJSON_AddNumberToObject(root, "free_spiram",
                             esp_psram_is_initialized() ? heap_caps_get_free_size(MALLOC_CAP_SPIRAM) : 0);
+    // Lowest internal RAM seen since boot. free_heap - free_spiram is only the
+    // instantaneous figure and cannot show a dip between two polls. Same caps as
+    // the bench INFO field, so the two numbers are comparable.
+    cJSON_AddNumberToObject(root, "min_free_internal",
+                            heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     cJSON_AddNumberToObject(root, "rssi", wifi_get_rssi());
     cJSON_AddNumberToObject(root, "frames_captured", metrics_frames_captured());
     cJSON_AddNumberToObject(root, "frames_delivered", metrics_frames_delivered());
@@ -75,6 +80,9 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "reset_reason", (int)esp_reset_reason());
     cJSON_AddStringToObject(root, "resolution", framesize_name(camera_current_framesize()));
     cJSON_AddNumberToObject(root, "quality", camera_current_quality());
+    cJSON_AddNumberToObject(root, "quality_effective", camera_effective_quality());
+    cJSON_AddNumberToObject(root, "quality_guard_raises", camera_quality_guard_raises());
+    cJSON_AddNumberToObject(root, "quality_guard_stepbacks", camera_quality_guard_stepbacks());
     cJSON_AddNumberToObject(root, "fb_count", camera_current_fb_count());
     cJSON_AddNumberToObject(root, "xclk_mhz", camera_current_xclk_mhz());
     cJSON_AddStringToObject(root, "grab_mode",

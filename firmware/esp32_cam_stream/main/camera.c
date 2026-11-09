@@ -1,5 +1,6 @@
 #include "app.h"
 #include "camera_control.h"
+#include "quality_guard.h"
 
 #include <string.h>
 
@@ -112,6 +113,12 @@ static int s_xclk_mhz = CAM_DEFAULT_XCLK_HZ / 1000000;
 static framesize_t s_framesize = CAM_DEFAULT_FRAMESIZE;
 static camera_grab_mode_t s_grab_mode = CAM_DEFAULT_GRAB_MODE;
 static camera_fb_location_t s_fb_location = CAM_DEFAULT_FB_LOCATION;
+// The quality guard (quality_guard.h). s_quality stays what the user asked for
+// and what camera_cfg_save() stores; the guard's effective number is what the
+// sensor runs at. Guarded by s_cam_mutex like the gate state above, and rebuilt
+// every time the driver comes up, because esp_camera_init() starts the sensor
+// at s_quality.
+static quality_guard_t s_guard;
 
 /*
  * Frame budget. The esp32-camera JPEG path ignores camera_config_t.fb_size and
@@ -297,6 +304,19 @@ static size_t camera_dram_fb_bytes(framesize_t fs)
     return 0;
 }
 
+// Called with s_cam_mutex held (or at boot, before anything else runs). The two
+// event counters survive a reset: a camera recovery or a config change is
+// exactly when they are interesting, and a count that restarts at zero hides it.
+static void camera_guard_reset(void)
+{
+    const uint32_t raises = s_guard.raise_events;
+    const uint32_t stepbacks = s_guard.stepback_events;
+    quality_guard_init(&s_guard, s_quality, camera_quality_floor(s_framesize),
+                       QG_DEFAULT_CAP, (uint32_t)CAM_FRAME_BUDGET_BYTES);
+    s_guard.raise_events = raises;
+    s_guard.stepback_events = stepbacks;
+}
+
 static esp_err_t camera_try_init(void)
 {
     esp_err_t err = ESP_FAIL;
@@ -309,6 +329,7 @@ static esp_err_t camera_try_init(void)
         err = camera_driver_init();
         if (err == ESP_OK) {
             s_driver_up = true;
+            camera_guard_reset();
             return ESP_OK;
         }
         if (err != ESP_ERR_NOT_SUPPORTED && err != ESP_ERR_CAMERA_NOT_DETECTED) {
@@ -588,6 +609,51 @@ camera_fb_t *camera_fb_get(void)
     }
 }
 
+// Called with s_cam_mutex held, from camera_fb_return(). Every consumer - the
+// MJPEG handler, both frame-transport tasks, the snapshot handler and the bench
+// camera loop - hands each frame back through there, so this is the one place
+// that sees every delivered frame, and the one place where a sensor register
+// write cannot collide with camera_recover() or camera_apply_config(), which
+// hold the same mutex between deinit and init. With the gate closed a teardown
+// is waiting for buffers: leave the sensor alone.
+//
+// The guard only ever sees frames the driver delivered. A frame that overflows
+// the budget is dropped inside the driver and never reaches here, which is why
+// the raise threshold is half the budget and not nine tenths of it.
+static void camera_guard_step(size_t frame_bytes)
+{
+    if (!s_driver_up || s_gate_closed) {
+        return;
+    }
+    const int before = s_guard.effective;
+    const int want =
+        quality_guard_observe(&s_guard, (uint32_t)frame_bytes, esp_timer_get_time());
+    if (want == before) {
+        return;
+    }
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (!sensor || !sensor->set_quality || sensor->set_quality(sensor, want) != 0) {
+        // The sensor did not take it: do not report a quality it is not running.
+        // The rollback - undo this transition's event counter, restore the
+        // effective number - lives in quality_guard_sensor_refused(). The
+        // cooldown and hysteresis state observe() just set still stand, so
+        // this cannot spin.
+        quality_guard_sensor_refused(&s_guard, before, want);
+        ESP_LOGW(TAG, "quality guard: sensor refused quality %d, staying at %d", want, before);
+        return;
+    }
+    if (want > before) {
+        ESP_LOGW(TAG,
+                 "quality guard: %u B frame reached %d%% of the %u B budget, "
+                 "quality %d -> %d (requested %d)",
+                 (unsigned)frame_bytes, QG_RAISE_PERCENT, (unsigned)CAM_FRAME_BUDGET_BYTES,
+                 before, want, s_quality);
+    } else {
+        ESP_LOGI(TAG, "quality guard: frames small again, quality %d -> %d (requested %d)",
+                 before, want, s_quality);
+    }
+}
+
 void camera_fb_return(camera_fb_t *fb)
 {
     if (!s_cam_mutex) {
@@ -595,6 +661,8 @@ void camera_fb_return(camera_fb_t *fb)
     }
     xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
     if (fb) {
+        // The driver owns the buffer again once it is returned: read the size first.
+        const size_t frame_bytes = fb->len;
         esp_camera_fb_return(fb);
         if (fb == s_last_fb) {
             s_last_fb = NULL;
@@ -602,6 +670,7 @@ void camera_fb_return(camera_fb_t *fb)
         if (s_fb_held > 0) {
             s_fb_held--;
         }
+        camera_guard_step(frame_bytes);
     }
     xSemaphoreGive(s_cam_mutex);
 }
@@ -612,6 +681,10 @@ int camera_current_fb_count(void) { return s_fb_count; }
 int camera_current_xclk_mhz(void) { return s_xclk_mhz; }
 camera_grab_mode_t camera_current_grab_mode(void) { return s_grab_mode; }
 camera_fb_location_t camera_current_fb_location(void) { return s_fb_location; }
+// Before the driver is up there is no guard state yet: report the requested number.
+int camera_effective_quality(void) { return s_driver_up ? s_guard.effective : s_quality; }
+uint32_t camera_quality_guard_raises(void) { return s_guard.raise_events; }
+uint32_t camera_quality_guard_stepbacks(void) { return s_guard.stepback_events; }
 
 esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
                               int fb_count, camera_grab_mode_t grab,
@@ -671,7 +744,12 @@ esp_err_t camera_apply_config(framesize_t fs, int quality, int xclk_mhz,
         sensor_t *sensor = esp_camera_sensor_get();
         if (sensor && sensor->set_quality) {
             sensor->set_quality(sensor, quality);
+            // s_quality and the guard are read by consumers returning frames,
+            // so they change under the same mutex they read it with.
+            xSemaphoreTake(s_cam_mutex, portMAX_DELAY);
             s_quality = quality;
+            camera_guard_reset();
+            xSemaphoreGive(s_cam_mutex);
             ESP_LOGI(TAG, "camera quality set to %d (no reinit)", quality);
             camera_cfg_save();
             return ESP_OK;

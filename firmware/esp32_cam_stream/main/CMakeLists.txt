@@ -9,6 +9,7 @@ idf_component_register(
         "http_servers.c"
         "frame_transport.c"
         "metrics.c"
+        "quality_guard.c"
         "net_bench.c"
     INCLUDE_DIRS
         "."
