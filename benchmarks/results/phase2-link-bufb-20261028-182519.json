@@ -1,0 +1,248 @@
+{
+  "label": "bufb",
+  "expect": "any",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 119,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 16384,
+      "tcp_wnd": 16384,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 176255,
+      "min_free_internal": 170139,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 404,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 16384,
+      "tcp_wnd": 16384,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 173935,
+      "min_free_internal": 79095,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 8,
+      "finished": 1,
+      "ok": 1,
+      "mode": "psram",
+      "secs_req": 30,
+      "chunk": 8192,
+      "secs": 30.001,
+      "bytes": 73236480,
+      "mbps": 19.529,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 8940,
+      "slow_sends": 0,
+      "max_send_ms": 20.8,
+      "cam_fail": 0,
+      "free_internal": 174359,
+      "min_free_internal": 79095
+    }
+  },
+  "cells": [
+    {
+      "mode": "int",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 22.060965988474166,
+      "pc_mean_mbps_all": [
+        21.993,
+        22.128
+      ],
+      "per_second_p5_median": 19.651072,
+      "per_second_p50_median": 22.343808000000003,
+      "per_second_p95_median": 24.007424,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 22.0575,
+      "slow_sends_total": 3,
+      "max_send_ms_max": 58.5,
+      "min_free_internal_min": 105387,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-int-8192-20261028-182550-458613.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-int-8192-20261028-182626-027629.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 1460,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 16.639324929417324,
+      "pc_mean_mbps_all": [
+        16.311,
+        16.967
+      ],
+      "per_second_p5_median": 15.686240000000002,
+      "per_second_p50_median": 17.074863999999998,
+      "per_second_p95_median": 18.10984,
+      "stalled_seconds_total": 1,
+      "device_mbps_median": 16.636,
+      "slow_sends_total": 10,
+      "max_send_ms_max": 127.9,
+      "min_free_internal_min": 98147,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-int-1460-20261028-182701-593830.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-int-1460-20261028-182737-152949.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 32768,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 22.55772833934048,
+      "pc_mean_mbps_all": [
+        22.583,
+        22.533
+      ],
+      "per_second_p5_median": 21.193344,
+      "per_second_p50_median": 22.432768,
+      "per_second_p95_median": 24.177792,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 22.557000000000002,
+      "slow_sends_total": 1,
+      "max_send_ms_max": 57.7,
+      "min_free_internal_min": 79095,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-int-32768-20261028-182812-729936.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-int-32768-20261028-182848-305042.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "psram",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 19.389679819830697,
+      "pc_mean_mbps_all": [
+        19.25,
+        19.529
+      ],
+      "per_second_p5_median": 18.16896,
+      "per_second_p50_median": 19.68384,
+      "per_second_p95_median": 20.348928,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 19.387999999999998,
+      "slow_sends_total": 0,
+      "max_send_ms_max": 37.7,
+      "min_free_internal_min": 79095,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-psram-8192-20261028-182923-915674.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufb-psram-8192-20261028-182959-564227.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

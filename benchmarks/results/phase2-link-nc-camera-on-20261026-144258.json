@@ -1,0 +1,248 @@
+{
+  "label": "nc-camera-on",
+  "expect": "new",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 62,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 138155,
+      "min_free_internal": 131803,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 349,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 135571,
+      "min_free_internal": 435,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 8,
+      "finished": 1,
+      "ok": 1,
+      "mode": "psram",
+      "secs_req": 30,
+      "chunk": 8192,
+      "secs": 30.001,
+      "bytes": 42991616,
+      "mbps": 11.464,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 5248,
+      "slow_sends": 35,
+      "max_send_ms": 142.0,
+      "cam_fail": 0,
+      "free_internal": 135799,
+      "min_free_internal": 435
+    }
+  },
+  "cells": [
+    {
+      "mode": "int",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 17.237643562266953,
+      "pc_mean_mbps_all": [
+        17.093,
+        17.382
+      ],
+      "per_second_p5_median": 15.528064,
+      "per_second_p50_median": 17.363072,
+      "per_second_p95_median": 18.498432,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 17.236,
+      "slow_sends_total": 1,
+      "max_send_ms_max": 59.9,
+      "min_free_internal_min": 22227,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-int-8192-20261026-144329-775262.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-int-8192-20261026-144405-358655.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 1460,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 7.845975568554694,
+      "pc_mean_mbps_all": [
+        7.797,
+        7.895
+      ],
+      "per_second_p5_median": 4.371568,
+      "per_second_p50_median": 7.06056,
+      "per_second_p95_median": 11.91944,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 7.846500000000001,
+      "slow_sends_total": 171,
+      "max_send_ms_max": 226.3,
+      "min_free_internal_min": 10631,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-int-1460-20261026-144440-974467.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-int-1460-20261026-144516-569483.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 32768,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 17.688511064133337,
+      "pc_mean_mbps_all": [
+        17.461,
+        17.916
+      ],
+      "per_second_p5_median": 16.43584,
+      "per_second_p50_median": 17.6832,
+      "per_second_p95_median": 19.358336,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 17.6825,
+      "slow_sends_total": 2,
+      "max_send_ms_max": 69.5,
+      "min_free_internal_min": 435,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-int-32768-20261026-144552-157858.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-int-32768-20261026-144627-711783.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "psram",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 9.117544137450459,
+      "pc_mean_mbps_all": [
+        6.769,
+        11.466
+      ],
+      "per_second_p5_median": 4.618112,
+      "per_second_p50_median": 10.115584,
+      "per_second_p95_median": 12.09536,
+      "stalled_seconds_total": 10,
+      "device_mbps_median": 9.1195,
+      "slow_sends_total": 127,
+      "max_send_ms_max": 1350.5,
+      "min_free_internal_min": 435,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-psram-8192-20261026-144704-401974.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-nc-camera-on-psram-8192-20261026-144740-062740.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

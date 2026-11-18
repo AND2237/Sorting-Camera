@@ -16,6 +16,7 @@
 #include <QSet>
 #include <QTemporaryDir>
 #include <QTest>
+#include <utility>
 
 #include <thread>
 
@@ -49,7 +50,7 @@ struct JoinAll
     QVector<std::thread *> ts;
     void join()
     {
-        for (std::thread *t : ts) {
+        for (std::thread *t : std::as_const(ts)) {
             if (t->joinable()) {
                 t->join();
             }
@@ -141,13 +142,13 @@ void TestRecorder::scanRebuildsTheIndex()
     // 70 frames crosses the periodic-index threshold, so the sidecar exists
     // without stop() having written it.
     QVERIFY(QFile::exists(indexPath));
+    QFile s(indexPath);
+
+    QVERIFY2(s.open(QIODevice::ReadOnly),
+             qPrintable(s.errorString()));
+
     const QJsonObject sidecar =
-        QJsonDocument::fromJson([&]() {
-            QFile s(indexPath);
-            s.open(QIODevice::ReadOnly);
-            return s.readAll();
-        }())
-            .object();
+        QJsonDocument::fromJson(s.readAll()).object();
     const QJsonArray frames = sidecar.value(QStringLiteral("frames")).toArray();
     QCOMPARE(frames.size(), 70);
     QCOMPARE(frames.at(69).toObject().value(QStringLiteral("w")).toInt(), 640);

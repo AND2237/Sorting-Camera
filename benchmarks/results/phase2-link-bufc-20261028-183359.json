@@ -1,0 +1,248 @@
+{
+  "label": "bufc",
+  "expect": "any",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 45,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 16384,
+      "tcp_wnd": 16384,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 176255,
+      "min_free_internal": 170139,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 330,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 16384,
+      "tcp_wnd": 16384,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 173915,
+      "min_free_internal": 77379,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 8,
+      "finished": 1,
+      "ok": 1,
+      "mode": "psram",
+      "secs_req": 30,
+      "chunk": 8192,
+      "secs": 30.001,
+      "bytes": 72482816,
+      "mbps": 19.328,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 8848,
+      "slow_sends": 0,
+      "max_send_ms": 47.6,
+      "cam_fail": 0,
+      "free_internal": 174131,
+      "min_free_internal": 77379
+    }
+  },
+  "cells": [
+    {
+      "mode": "int",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 20.979747839904483,
+      "pc_mean_mbps_all": [
+        21.37,
+        20.589
+      ],
+      "per_second_p5_median": 18.492672,
+      "per_second_p50_median": 21.534336,
+      "per_second_p95_median": 22.636928,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 20.9805,
+      "slow_sends_total": 0,
+      "max_send_ms_max": 46.8,
+      "min_free_internal_min": 111303,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-int-8192-20261028-183429-832362.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-int-8192-20261028-183505-437459.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 1460,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 16.312307904710906,
+      "pc_mean_mbps_all": [
+        16.677,
+        15.947
+      ],
+      "per_second_p5_median": 15.18984,
+      "per_second_p50_median": 16.376656,
+      "per_second_p95_median": 17.582943999999998,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 16.309,
+      "slow_sends_total": 1,
+      "max_send_ms_max": 76.0,
+      "min_free_internal_min": 105027,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-int-1460-20261028-183541-007425.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-int-1460-20261028-183616-559843.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 32768,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 20.3952809382606,
+      "pc_mean_mbps_all": [
+        20.419,
+        20.372
+      ],
+      "per_second_p5_median": 16.857855999999998,
+      "per_second_p50_median": 20.794368,
+      "per_second_p95_median": 21.970432,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 20.395000000000003,
+      "slow_sends_total": 10,
+      "max_send_ms_max": 128.5,
+      "min_free_internal_min": 77379,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-int-32768-20261028-183652-131071.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-int-32768-20261028-183727-703567.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "psram",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 17.404829270326356,
+      "pc_mean_mbps_all": [
+        15.483,
+        19.326
+      ],
+      "per_second_p5_median": 13.673984,
+      "per_second_p50_median": 18.679552,
+      "per_second_p95_median": 20.12928,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 17.405,
+      "slow_sends_total": 6,
+      "max_send_ms_max": 94.3,
+      "min_free_internal_min": 77379,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-psram-8192-20261028-183803-362326.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufc-psram-8192-20261028-183838-976005.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

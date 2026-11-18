@@ -1,0 +1,248 @@
+{
+  "label": "bufa",
+  "expect": "any",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 39,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 176395,
+      "min_free_internal": 170271,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 324,
+    "reset_reason": 1,
+    "camera_enabled": 0,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 32768,
+      "tcp_wnd": 32768,
+      "wifi_rx_buf": 32,
+      "wifi_tx_buf": 32,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 174067,
+      "min_free_internal": 46255,
+      "free_spiram": 4191636
+    },
+    "last": {
+      "runs": 8,
+      "finished": 1,
+      "ok": 1,
+      "mode": "psram",
+      "secs_req": 30,
+      "chunk": 8192,
+      "secs": 30.0,
+      "bytes": 92708864,
+      "mbps": 24.722,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 11317,
+      "slow_sends": 0,
+      "max_send_ms": 28.2,
+      "cam_fail": 0,
+      "free_internal": 174491,
+      "min_free_internal": 46255
+    }
+  },
+  "cells": [
+    {
+      "mode": "int",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 28.386810174080317,
+      "pc_mean_mbps_all": [
+        28.365,
+        28.409
+      ],
+      "per_second_p5_median": 26.470784000000002,
+      "per_second_p50_median": 28.675968,
+      "per_second_p95_median": 29.774592,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 28.3825,
+      "slow_sends_total": 0,
+      "max_send_ms_max": 26.7,
+      "min_free_internal_min": 66875,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-int-8192-20261028-180200-150013.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-int-8192-20261028-180235-741004.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 1460,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 20.182372849696556,
+      "pc_mean_mbps_all": [
+        20.028,
+        20.337
+      ],
+      "per_second_p5_median": 18.9508,
+      "per_second_p50_median": 20.0604,
+      "per_second_p95_median": 21.54952,
+      "stalled_seconds_total": 0,
+      "device_mbps_median": 20.179499999999997,
+      "slow_sends_total": 0,
+      "max_send_ms_max": 30.2,
+      "min_free_internal_min": 47791,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-int-1460-20261028-180311-306858.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-int-1460-20261028-180346-880879.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "int",
+      "chunk": 32768,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 24.497647903227502,
+      "pc_mean_mbps_all": [
+        26.635,
+        22.361
+      ],
+      "per_second_p5_median": 16.373888,
+      "per_second_p50_median": 26.004096,
+      "per_second_p95_median": 29.484032,
+      "stalled_seconds_total": 1,
+      "device_mbps_median": 24.4935,
+      "slow_sends_total": 29,
+      "max_send_ms_max": 1430.8,
+      "min_free_internal_min": 46255,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-int-32768-20261028-180422-461334.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-int-32768-20261028-180458-092007.json",
+          "reasons": []
+        }
+      ]
+    },
+    {
+      "mode": "psram",
+      "chunk": 8192,
+      "valid_reps": 2,
+      "reps_wanted": 2,
+      "pc_mean_mbps_median": 23.535123198745797,
+      "pc_mean_mbps_all": [
+        22.346,
+        24.724
+      ],
+      "per_second_p5_median": 16.86976,
+      "per_second_p50_median": 24.263807999999997,
+      "per_second_p95_median": 25.844224,
+      "stalled_seconds_total": 2,
+      "device_mbps_median": 23.5335,
+      "slow_sends_total": 4,
+      "max_send_ms_max": 120.0,
+      "min_free_internal_min": 46255,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-psram-8192-20261028-180533-729049.json",
+          "reasons": []
+        },
+        {
+          "rep": 2,
+          "attempt": 1,
+          "valid": true,
+          "file": "net-bufa-psram-8192-20261028-180609-354010.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "meta": {
+    "date": "2026-10-28T18:29:59",
+    "label": "bufb",
+    "host": "192.168.4.1",
+    "mode": "psram",
+    "seconds_requested": 30,
+    "chunk": 8192,
+    "warmup_s": 3,
+    "pc": {
+      "os": "Windows-11-10.0.26200-SP0",
+      "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+      "python": "3.13.15"
+    },
+    "note": "device-side numbers and the firmware build config are on the serial console"
+  },
+  "received": {
+    "bytes": 73236480,
+    "duration_s": 30.00071089999983,
+    "mean_mbps_whole_run": 19.529265221511913,
+    "per_second_mbps": {
+      "n": 27,
+      "min": 18.265088,
+      "p5": 18.415616,
+      "p50": 19.6608,
+      "p95": 20.29312,
+      "max": 20.570368,
+      "mean": 19.583981037037034,
+      "stdev": 0.5587853415109574
+    },
+    "stalled_seconds_below_half_median": 0,
+    "error": null
+  },
+  "device": {
+    "before": {
+      "fw": "netbench",
+      "uptime_s": 368,
+      "reset_reason": 1,
+      "camera_enabled": 0,
+      "build": {
+        "cpu_mhz": 240,
+        "flash_freq": "80m",
+        "flash_mode_cfg": "qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 16384,
+        "tcp_wnd": 16384,
+        "wifi_rx_buf": 64,
+        "wifi_tx_buf": 64,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 1,
+        "freertos_in_flash": 1
+      },
+      "runtime": {
+        "flash_io": "qio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 173935,
+        "min_free_internal": 79095,
+        "free_spiram": 4191636
+      },
+      "last": {
+        "runs": 7,
+        "finished": 1,
+        "ok": 1,
+        "mode": "psram",
+        "secs_req": 30,
+        "chunk": 8192,
+        "secs": 30.002,
+        "bytes": 72179712,
+        "mbps": 19.247,
+        "frames": 0,
+        "fps": 0.0,
+        "sends": 8811,
+        "slow_sends": 0,
+        "max_send_ms": 37.7,
+        "cam_fail": 0,
+        "free_internal": 174155,
+        "min_free_internal": 79095
+      }
+    },
+    "after": {
+      "fw": "netbench",
+      "uptime_s": 399,
+      "reset_reason": 1,
+      "camera_enabled": 0,
+      "build": {
+        "cpu_mhz": 240,
+        "flash_freq": "80m",
+        "flash_mode_cfg": "qio",
+        "psram_mhz": 40,
+        "tcp_snd_buf": 16384,
+        "tcp_wnd": 16384,
+        "wifi_rx_buf": 64,
+        "wifi_tx_buf": 64,
+        "wifi_iram": 1,
+        "wifi_rx_iram": 1,
+        "lwip_iram": 1,
+        "freertos_in_flash": 1
+      },
+      "runtime": {
+        "flash_io": "qio",
+        "flash_id": "0x5e4016",
+        "flash_size": 4194304,
+        "protocol_bitmap": 7,
+        "bandwidth": "HT40",
+        "channel": 1,
+        "max_tx_power_q": 78,
+        "free_internal": 174147,
+        "min_free_internal": 79095,
+        "free_spiram": 4191636
+      },
+      "last": {
+        "runs": 8,
+        "finished": 1,
+        "ok": 1,
+        "mode": "psram",
+        "secs_req": 30,
+        "chunk": 8192,
+        "secs": 30.001,
+        "bytes": 73236480,
+        "mbps": 19.529,
+        "frames": 0,
+        "fps": 0.0,
+        "sends": 8940,
+        "slow_sends": 0,
+        "max_send_ms": 20.8,
+        "cam_fail": 0,
+        "free_internal": 174359,
+        "min_free_internal": 79095
+      }
+    },
+    "before_error": null,
+    "after_error": null
+  },
+  "device_vs_pc_mbps_diff_pct": 0.0013580905930331213,
+  "valid": true,
+  "invalid_reasons": []
+}

@@ -1,0 +1,143 @@
+{
+  "label": "qg-trigger",
+  "expect": "any",
+  "info_before": {
+    "fw": "netbench",
+    "uptime_s": 250,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 16384,
+      "tcp_wnd": 16384,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 135419,
+      "min_free_internal": 129375,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 0,
+      "finished": 0,
+      "ok": 0,
+      "mode": "",
+      "secs_req": 0,
+      "chunk": 0,
+      "secs": 0.0,
+      "bytes": 0,
+      "mbps": 0.0,
+      "frames": 0,
+      "fps": 0.0,
+      "sends": 0,
+      "slow_sends": 0,
+      "max_send_ms": 0.0,
+      "cam_fail": 0,
+      "free_internal": 0,
+      "min_free_internal": 0
+    }
+  },
+  "info_after": {
+    "fw": "netbench",
+    "uptime_s": 351,
+    "reset_reason": 1,
+    "camera_enabled": 1,
+    "build": {
+      "cpu_mhz": 240,
+      "flash_freq": "80m",
+      "flash_mode_cfg": "qio",
+      "psram_mhz": 40,
+      "tcp_snd_buf": 16384,
+      "tcp_wnd": 16384,
+      "wifi_rx_buf": 64,
+      "wifi_tx_buf": 64,
+      "wifi_iram": 1,
+      "wifi_rx_iram": 1,
+      "lwip_iram": 1,
+      "freertos_in_flash": 1
+    },
+    "runtime": {
+      "flash_io": "qio",
+      "flash_id": "0x5e4016",
+      "flash_size": 4194304,
+      "protocol_bitmap": 7,
+      "bandwidth": "HT40",
+      "channel": 1,
+      "max_tx_power_q": 78,
+      "free_internal": 136631,
+      "min_free_internal": 73463,
+      "free_spiram": 3403748
+    },
+    "last": {
+      "runs": 1,
+      "finished": 1,
+      "ok": 1,
+      "mode": "cam",
+      "secs_req": 90,
+      "chunk": 8192,
+      "secs": 90.064,
+      "bytes": 135981156,
+      "mbps": 12.079,
+      "frames": 1343,
+      "fps": 14.912,
+      "sends": 2686,
+      "slow_sends": 1234,
+      "max_send_ms": 133.8,
+      "cam_fail": 0,
+      "free_internal": 137083,
+      "min_free_internal": 73463
+    }
+  },
+  "profiles": [
+    {
+      "profile": "svga q2 @18",
+      "framesize": "svga",
+      "quality": 2,
+      "xclk": 18,
+      "valid_reps": 1,
+      "reps_wanted": 1,
+      "fps_median": 14.89655172413793,
+      "fps_all": [
+        14.9
+      ],
+      "device_fps_median": 14.912,
+      "frame_bytes_p50": 101222,
+      "frame_bytes_p95": 101658,
+      "interval_ms_p95": 85.16810000037367,
+      "actual_dims": [
+        "800x600"
+      ],
+      "eoi_ok_pct_min": 100.0,
+      "specks_per_mpx": 0.0,
+      "sample": "C:\\Users\\Alireza\\Desktop\\Sorting_Camera\\benchmarks\\results\\sample-qg-trigger-svga-q2-x18.jpg",
+      "link_mbps_median": 12.078381067375888,
+      "stalled_seconds_total": 0,
+      "slow_sends_total": 1234,
+      "min_free_internal_min": 73463,
+      "attempts": [
+        {
+          "rep": 1,
+          "attempt": 1,
+          "valid": true,
+          "file": "cam-qg-trigger-svga-q2-20261111-131923-707047.json",
+          "reasons": []
+        }
+      ]
+    }
+  ]
+}
